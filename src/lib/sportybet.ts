@@ -230,39 +230,44 @@ function leagueName(sport?: ShareOutcome["sport"]) {
   return sport?.category?.tournament?.name ?? "";
 }
 
-function pickMainMarket(markets: EventMarket[], sport: "football" | "basketball") {
-  const open = markets.filter((m) => m.status === 0 && (m.outcomes ?? []).some((o) => o.isActive === 1));
-  if (sport === "football") {
-    return open.find((m) => m.id === "1" || /^1x2$/i.test(m.desc ?? "")) ?? null;
-  }
-  return (
-    open.find((m) => m.id === "219") ||
-    open.find((m) => /winner/i.test(m.desc ?? "") && (m.outcomes ?? []).length >= 2) ||
-    null
-  );
+function implied(odds?: number) {
+  return odds && odds > 1 ? 1 / odds : 0;
 }
 
-function favoriteOutcome(market: EventMarket) {
-  const live = (market.outcomes ?? []).filter((o) => o.isActive === 1 && o.id != null);
-  return live
-    .slice()
-    .sort((a, b) => Number(a.odds ?? 99) - Number(b.odds ?? 99))[0];
+function inBookWindow(odds?: number) {
+  return Number.isFinite(odds) && (odds as number) >= 1.18 && (odds as number) <= 2.35;
 }
 
-function eventToPick(ev: EventDetail, sport: "football" | "basketball"): TicketPick | null {
-  if (!ev.eventId || ev.status !== 0 || ev.banned) return null;
-  const market = pickMainMarket(ev.markets ?? [], sport);
-  const outcome = market ? favoriteOutcome(market) : undefined;
-  if (!market?.id || outcome?.id == null) return null;
+function marketFamily(id?: string, desc?: string): "win" | "dc" | "ou" | "gg" | "dnb" {
+  const d = (desc ?? "").toLowerCase();
+  if (id === "10" || d.includes("double chance")) return "dc";
+  if (id === "18" || id === "225" || d.includes("over/under")) return "ou";
+  if (id === "29" || d.includes("gg/ng")) return "gg";
+  if (id === "11" || d.includes("draw no bet")) return "dnb";
+  return "win";
+}
+
+function toPick(
+  ev: EventDetail,
+  sport: "football" | "basketball",
+  market: EventMarket,
+  outcome: NonNullable<EventMarket["outcomes"]>[number],
+): TicketPick | null {
+  if (!ev.eventId || outcome.id == null || !market.id) return null;
   const odds = outcome.odds ? Number(outcome.odds) : undefined;
+  const line = market.specifier?.replace("total=", "") ?? "";
+  const label =
+    market.id === "18" || market.id === "225"
+      ? `${market.desc ?? "Over/Under"} ${line}`.trim()
+      : market.desc ?? "Market";
   return {
-    id: `${ev.eventId}-${market.id}-${outcome.id}`,
+    id: `${ev.eventId}-${market.id}-${market.specifier ?? ""}-${outcome.id}`,
     sport,
     league: leagueName(ev.sport),
     country: ev.sport?.category?.name,
     home: ev.homeTeamName ?? "Home",
     away: ev.awayTeamName ?? "Away",
-    market: market.desc ?? "Market",
+    market: label,
     selection: outcome.desc ?? "Selection",
     odds: Number.isFinite(odds) ? odds : undefined,
     kickoff: ev.estimateStartTime,
@@ -273,6 +278,81 @@ function eventToPick(ev: EventDetail, sport: "football" | "basketball"): TicketP
       specifier: market.specifier ? String(market.specifier) : undefined,
     },
   };
+}
+
+function openOutcomes(market: EventMarket) {
+  return (market.outcomes ?? []).filter((o) => o.isActive === 1 && o.id != null);
+}
+
+function footballCandidates(ev: EventDetail): TicketPick[] {
+  const markets = (ev.markets ?? []).filter((m) => m.status === 0);
+  const want: EventMarket[] = [];
+  const first = (pred: (m: EventMarket) => boolean) => {
+    const hit = markets.find(pred);
+    if (hit) want.push(hit);
+  };
+  first((m) => m.id === "1");
+  first((m) => m.id === "10");
+  first((m) => m.id === "11");
+  first((m) => m.id === "29");
+  first((m) => m.id === "18" && m.specifier === "total=1.5");
+  first((m) => m.id === "18" && (m.specifier === "total=2.5" || m.specifier === "total=2"));
+  first((m) => m.id === "18" && (m.specifier === "total=3.5" || m.specifier === "total=3"));
+  const picks: TicketPick[] = [];
+  for (const market of want) {
+    for (const outcome of openOutcomes(market)) {
+      const pick = toPick(ev, "football", market, outcome);
+      if (pick && inBookWindow(pick.odds)) picks.push(pick);
+    }
+  }
+  return picks;
+}
+
+function basketballCandidates(ev: EventDetail): TicketPick[] {
+  const markets = (ev.markets ?? []).filter((m) => m.status === 0);
+  const picks: TicketPick[] = [];
+  const winner =
+    markets.find((m) => m.id === "219") ||
+    markets.find((m) => /winner/i.test(m.desc ?? "") && openOutcomes(m).length >= 2);
+  if (winner) {
+    for (const outcome of openOutcomes(winner)) {
+      const pick = toPick(ev, "basketball", winner, outcome);
+      if (pick && inBookWindow(pick.odds)) picks.push(pick);
+    }
+  }
+  const totals = markets.filter((m) => m.id === "225");
+  let bestTotal: EventMarket | undefined;
+  let bestGap = 99;
+  for (const market of totals) {
+    const outs = openOutcomes(market);
+    if (outs.length < 2) continue;
+    const prices = outs.map((o) => Number(o.odds ?? 99));
+    const gap = Math.abs((prices[0] ?? 9) - (prices[1] ?? 9));
+    if (prices.every((n) => n >= 1.5 && n <= 2.3) && gap < bestGap) {
+      bestGap = gap;
+      bestTotal = market;
+    }
+  }
+  if (bestTotal) {
+    for (const outcome of openOutcomes(bestTotal)) {
+      const pick = toPick(ev, "basketball", bestTotal, outcome);
+      if (pick && inBookWindow(pick.odds)) picks.push(pick);
+    }
+  }
+  return picks;
+}
+
+function pickFromEvent(cands: TicketPick[], used: Record<string, number>): TicketPick | null {
+  if (!cands.length) return null;
+  const families = [...new Set(cands.map((p) => marketFamily(p.sporty?.marketId, p.market)))];
+  families.sort((a, b) => (used[a] ?? 0) - (used[b] ?? 0) || Number(a === "win") - Number(b === "win"));
+  const family = families[0];
+  const pool = family
+    ? cands.filter((p) => marketFamily(p.sporty?.marketId, p.market) === family)
+    : cands;
+  const pick = pool.slice().sort((a, b) => implied(b.odds) - implied(a.odds))[0];
+  if (pick && family) used[family] = (used[family] ?? 0) + 1;
+  return pick ?? null;
 }
 
 export async function listUpcomingPicks(
@@ -297,7 +377,7 @@ export async function listUpcomingPicks(
       if (ap !== bp) return ap - bp;
       return (a.estimateStartTime ?? 0) - (b.estimateStartTime ?? 0);
     })
-    .slice(0, Math.max(limit, 8));
+    .slice(0, Math.max(limit + 4, 12));
 
   const details = await Promise.all(
     upcoming.map(async (e) => {
@@ -308,14 +388,17 @@ export async function listUpcomingPicks(
     }),
   );
 
+  const used: Record<string, number> = {};
   const picks: TicketPick[] = [];
-  details.forEach((ev, i) => {
-    if (!ev) return;
-    const pick = eventToPick(ev, sport);
+  for (const ev of details) {
+    if (!ev || ev.status !== 0 || ev.banned) continue;
+    const cands = sport === "basketball" ? basketballCandidates(ev) : footballCandidates(ev);
+    const pick = pickFromEvent(cands, used);
     if (pick) picks.push(pick);
-  });
+    if (picks.length >= limit) break;
+  }
   if (!picks.length) return { error: `Could not read ${sport} markets on SportyBet.` };
-  return picks.slice(0, limit);
+  return picks;
 }
 
 function sportyHeaders(): Record<string, string> {

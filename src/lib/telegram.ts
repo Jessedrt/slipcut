@@ -205,7 +205,7 @@ async function createSportSlip(chatId: number, sport: "football" | "basketball",
   const n = Math.max(1, Math.min(10, Math.round(count) || 5));
   await tg("sendMessage", {
     chat_id: chatId,
-    text: `Building a ${n} odds ${sport} slip from upcoming SportyBet games.`,
+    text: `Building a ${n} odds ${sport} slip — not only 1X2. Mixing double chance, over/under, GG, and winners.`,
   });
   const listed = await listUpcomingPicks(sport, Math.min(14, Math.max(n + 4, 10)));
   if ("error" in listed) {
