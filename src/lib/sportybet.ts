@@ -389,24 +389,30 @@ export async function listUpcomingPicks(
       const bp = prefer.test(b.leagueHint ?? "") ? 0 : 1;
       if (ap !== bp) return ap - bp;
       return (a.estimateStartTime ?? 0) - (b.estimateStartTime ?? 0);
-    })
-    .slice(0, Math.max(limit + 8, 12));
+    });
 
-  const details = await mapPool(upcoming, 6, async (e) => {
-    const body = (await sportyGet(
-      `/factsCenter/event?eventId=${encodeURIComponent(String(e.eventId))}&productId=3`,
-    )) as { data?: EventDetail } | null;
-    return body?.data ?? null;
-  });
-
+  const want = Math.max(1, Math.min(1000, limit));
+  const deadline = Date.now() + 45_000;
   const used: Record<string, number> = {};
   const picks: TicketPick[] = [];
-  for (const ev of details) {
-    if (!ev || ev.status !== 0 || ev.banned) continue;
-    const cands = sport === "basketball" ? basketballCandidates(ev) : footballCandidates(ev);
-    const pick = pickFromEvent(cands, used);
-    if (pick) picks.push(pick);
-    if (picks.length >= limit) break;
+  const batchSize = want > 80 ? 10 : 8;
+
+  for (let i = 0; i < upcoming.length && picks.length < want; i += batchSize) {
+    if (Date.now() > deadline) break;
+    const batch = upcoming.slice(i, i + batchSize);
+    const details = await mapPool(batch, batchSize, async (e) => {
+      const body = (await sportyGet(
+        `/factsCenter/event?eventId=${encodeURIComponent(String(e.eventId))}&productId=3`,
+      )) as { data?: EventDetail } | null;
+      return body?.data ?? null;
+    });
+    for (const ev of details) {
+      if (!ev || ev.status !== 0 || ev.banned) continue;
+      const cands = sport === "basketball" ? basketballCandidates(ev) : footballCandidates(ev);
+      const pick = pickFromEvent(cands, used);
+      if (pick) picks.push(pick);
+      if (picks.length >= want) break;
+    }
   }
   if (!picks.length) return { error: `Could not read ${sport} markets on SportyBet.` };
   return picks;

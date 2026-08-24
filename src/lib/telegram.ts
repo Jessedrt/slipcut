@@ -1,10 +1,10 @@
 import { analyzePicks } from "./analyze";
 import { extractShareCode } from "./parse-ticket";
 import { loadBookingCode, listUpcomingPicks, mintShare, sportyOf } from "./sportybet";
-import { copyRebuild, keepTop, splitEven, trimToOdds } from "./workbench";
+import { buildToOdds, combinedOdds, copyRebuild, formatOdds, keepTop, splitEven, trimToOdds } from "./workbench";
 import type { AnalyzedPick, TicketPick } from "./types";
 
-const MAX_ODDS = 50;
+const MAX_ODDS = 1000;
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
 const KEEP_LINE = 48;
 
@@ -83,12 +83,12 @@ async function mintAndReply(chatId: number, picks: TicketPick[], country: string
     return;
   }
   const minted = await mintShare(selections, country);
-  if ("error" in minted && selections.length > 20) {
+  if ("error" in minted && selections.length > 40) {
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `SportyBet would not take ${selections.length} in one code. Splitting.`,
+      text: `SportyBet would not take ${selections.length} in one code. Splitting into 50-leg slips.`,
     });
-    const size = 20;
+    const size = 50;
     for (let i = 0; i < picks.length; i += size) {
       await mintAndReply(
         chatId,
@@ -284,9 +284,9 @@ function codeFromText(raw?: string): string | null {
 
 function parseOddsCount(text: string): number | null {
   const m =
-    text.match(/(?:sure\s*)?(\d{1,2})\s*odds?\b/i) ||
-    text.match(/^\/odds(?:@\w+)?\s+(\d{1,2})\b/i) ||
-    (parseSport(text) ? text.match(/\b(\d{1,2})\b/) : null);
+    text.match(/(?:sure\s*)?(\d{1,4})\s*odds?\b/i) ||
+    text.match(/^\/odds(?:@\w+)?\s+(\d{1,4})\b/i) ||
+    (parseSport(text) ? text.match(/\b(\d{1,4})\b/) : null);
   if (!m) return null;
   const n = Number(m[1]);
   if (!Number.isFinite(n) || n < 1 || n > MAX_ODDS) return null;
@@ -368,9 +368,10 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "Ask for a slip, for example:",
         "12 odds football",
         "50 odds basketball",
+        "1000 odds football",
         "",
         "Or send a SportyBet booking code.",
-        "Football and basketball only. Up to 50 odds.",
+        "Football and basketball only. Up to 1000 odds.",
       ].join("\n"),
     });
     return;
