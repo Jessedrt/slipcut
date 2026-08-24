@@ -4,13 +4,13 @@ import { loadBookingCode, listUpcomingPicks, mintShare, sportyOf } from "./sport
 import { buildToOdds, combinedOdds, copyRebuild, formatOdds, keepTop, splitEven, trimToOdds } from "./workbench";
 import type { AnalyzedPick, TicketPick } from "./types";
 
-const MAX_ODDS = 1000;
+const MAX_LEGS = 35;
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
 const KEEP_LINE = 48;
 
-function clampOdds(n: number, fallback: number) {
+function clampLegs(n: number, fallback: number) {
   if (!Number.isFinite(n)) return fallback;
-  return Math.max(1, Math.min(MAX_ODDS, Math.round(n)));
+  return Math.max(1, Math.min(MAX_LEGS, Math.round(n)));
 }
 
 type TgUser = { id: number; username?: string };
@@ -182,7 +182,7 @@ async function sureNAndReply(
   count: number,
   title = "",
 ) {
-  const n = clampOdds(count, 2);
+  const n = clampLegs(count, 2);
   if (!picks.length) {
     await tg("sendMessage", { chat_id: chatId, text: "No football or basketball legs to score." });
     return;
@@ -200,16 +200,17 @@ async function sureNAndReply(
   const note = top
     .map((p) => `${p.probability}% ${p.home} vs ${p.away} — ${p.selection}`)
     .join("\n");
-  await mintAndReply(chatId, top, "ng", title || `${top.length} odds\n${note}`);
+  await mintAndReply(chatId, top, "ng", title || `${top.length} legs\n${note}`);
 }
 
 async function createSportSlip(chatId: number, sport: "football" | "basketball", count: number) {
-  const n = clampOdds(count, 5);
+  const n = clampLegs(count, 5);
+  const capNote = count > MAX_LEGS ? ` Max is ${MAX_LEGS} legs.` : "";
   await tg("sendMessage", {
     chat_id: chatId,
-    text: `Building a ${n} odds ${sport} slip — not only 1X2. Mixing double chance, over/under, GG, and winners.`,
+    text: `Building a ${n}-leg ${sport} slip — not only 1X2. Mixing double chance, over/under, GG, and winners.${capNote}`,
   });
-  const listed = await listUpcomingPicks(sport, Math.min(MAX_ODDS + 8, Math.max(n + 8, 12)));
+  const listed = await listUpcomingPicks(sport, n);
   if ("error" in listed) {
     await tg("sendMessage", { chat_id: chatId, text: listed.error });
     return;
@@ -221,8 +222,8 @@ async function createSportSlip(chatId: number, sport: "football" | "basketball",
   }
   const title =
     take.length < n
-      ? `${take.length} odds ${sport} — only ${take.length} upcoming games on SportyBet`
-      : `${take.length} odds ${sport}`;
+      ? `${take.length} legs ${sport} — only ${take.length} upcoming games on SportyBet`
+      : `${take.length} legs ${sport}`;
   if (take.length <= 8) {
     await sureNAndReply(chatId, take, take.length, title);
     return;
@@ -265,7 +266,7 @@ async function handleCode(chatId: number, code: string) {
       "",
       listPicks(loaded.picks),
       "",
-      "Ask how many odds to keep, or Analyze / Mint all.",
+      "Ask how many legs to keep, or Analyze / Mint all.",
     ]
       .join("\n")
       .slice(0, 3900),
@@ -282,14 +283,14 @@ function codeFromText(raw?: string): string | null {
   return null;
 }
 
-function parseOddsCount(text: string): number | null {
+function parseLegCount(text: string): number | null {
   const m =
-    text.match(/(?:sure\s*)?(\d{1,4})\s*odds?\b/i) ||
-    text.match(/^\/odds(?:@\w+)?\s+(\d{1,4})\b/i) ||
+    text.match(/(?:sure\s*)?(\d{1,4})\s*(?:legs?|odds?)\b/i) ||
+    text.match(/^\/(?:legs?|odds)(?:@\w+)?\s+(\d{1,4})\b/i) ||
     (parseSport(text) ? text.match(/\b(\d{1,4})\b/) : null);
   if (!m) return null;
   const n = Number(m[1]);
-  if (!Number.isFinite(n) || n < 1 || n > MAX_ODDS) return null;
+  if (!Number.isFinite(n) || n < 1) return null;
   return n;
 }
 
@@ -366,24 +367,23 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "SlipCut on Telegram.",
         "",
         "Ask for a slip, for example:",
-        "12 odds football",
-        "50 odds basketball",
-        "1000 odds football",
+        "12 legs football",
+        "35 legs basketball",
         "",
         "Or send a SportyBet booking code.",
-        "Football and basketball only. Up to 1000 odds.",
+        "Football and basketball only. Max 35 legs.",
       ].join("\n"),
     });
     return;
   }
-  const oddsCount = parseOddsCount(text);
+  const legCount = parseLegCount(text);
   const sport = parseSport(text);
   const code = codeFromText(text) || codeFromText(msg.reply_to_message?.text);
-  if (oddsCount && sport && !code) {
-    await createSportSlip(msg.chat.id, sport, oddsCount);
+  if (legCount && sport && !code) {
+    await createSportSlip(msg.chat.id, sport, legCount);
     return;
   }
-  if (oddsCount && code) {
+  if (legCount && code) {
     const loaded = await loadBookingCode(code, "ng");
     if ("error" in loaded) {
       await tg("sendMessage", { chat_id: msg.chat.id, text: loaded.error });
@@ -394,32 +394,32 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     if (sport && !filtered.length) {
       await tg("sendMessage", {
         chat_id: msg.chat.id,
-        text: `That ticket has no ${sport} legs. Building a fresh ${oddsCount} odds ${sport} slip instead.`,
+        text: `That ticket has no ${sport} legs. Building a fresh ${clampLegs(legCount, 5)}-leg ${sport} slip instead.`,
       });
-      await createSportSlip(msg.chat.id, sport, oddsCount);
+      await createSportSlip(msg.chat.id, sport, legCount);
       return;
     }
-    await sureNAndReply(msg.chat.id, filtered, oddsCount);
+    await sureNAndReply(msg.chat.id, filtered, legCount);
     return;
   }
-  if (sport && !oddsCount && !code) {
+  if (sport && !legCount && !code) {
     await tg("sendMessage", {
       chat_id: msg.chat.id,
-      text: `How many ${sport} odds? Example: 10 odds ${sport}`,
+      text: `How many ${sport} legs? Example: 12 legs ${sport}`,
     });
     return;
   }
-  if (oddsCount && !code) {
+  if (legCount && !code) {
     await tg("sendMessage", {
       chat_id: msg.chat.id,
-      text: `Say the sport too — example: ${oddsCount} odds football\nor send a booking code: MQVZ70 ${oddsCount} odds.`,
+      text: `Say the sport too — example: ${clampLegs(legCount, 5)} legs football`,
     });
     return;
   }
   if (!code) {
     await tg("sendMessage", {
       chat_id: msg.chat.id,
-      text: "Send a SportyBet booking code, or ask: create a 10 odds football slip.",
+      text: "Send a SportyBet booking code, or ask: 12 legs football.",
     });
     return;
   }

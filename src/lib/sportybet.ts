@@ -391,7 +391,7 @@ export async function listUpcomingPicks(
       return (a.estimateStartTime ?? 0) - (b.estimateStartTime ?? 0);
     });
 
-  const want = Math.max(1, Math.min(1000, limit));
+  const want = Math.max(1, Math.min(35, limit));
   const deadline = Date.now() + 45_000;
   const used: Record<string, number> = {};
   const picks: TicketPick[] = [];
