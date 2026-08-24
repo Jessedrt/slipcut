@@ -1,13 +1,16 @@
 export function Mark({ className }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 32 32"
-      className={className}
-      aria-hidden="true"
-    >
+    <svg viewBox="0 0 32 32" className={className} aria-hidden="true">
       <rect width="32" height="32" rx="7" className="fill-card" />
-      <rect x="9" y="5" width="14" height="22" rx="2" className="fill-foreground" />
-      <rect x="14" y="18" width="4" height="10" rx="0.5" className="fill-ring" />
+      <path
+        className="fill-foreground"
+        d="M10 5.5h12.2c.9 0 1.6.7 1.6 1.6v9.2L16.2 26.5H11.6c-.9 0-1.6-.7-1.6-1.6V5.5Z"
+      />
+      <circle cx="12.4" cy="9.2" r=".7" className="fill-border" />
+      <circle cx="12.4" cy="12.4" r=".7" className="fill-border" />
+      <circle cx="12.4" cy="15.6" r=".7" className="fill-border" />
+      <circle cx="12.4" cy="18.8" r=".7" className="fill-border" />
+      <path className="fill-drop" d="M20.4 19.8 26 26.4h-8.2z" />
     </svg>
   );
 }
