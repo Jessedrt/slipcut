@@ -5,7 +5,7 @@ import { copyRebuild, keepTop, splitEven, trimToOdds } from "./workbench";
 import type { AnalyzedPick, TicketPick } from "./types";
 
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
-const KEEP_LINE = 58;
+const KEEP_LINE = 48;
 
 type TgUser = { id: number; username?: string };
 type TgChat = { id: number };

@@ -62,6 +62,6 @@ export const COUNTRIES = [
   { id: "cm", label: "Cameroon" },
 ] as const;
 
-export const DEFAULT_THRESHOLD = 58;
+export const DEFAULT_THRESHOLD = 48;
 export const MIN_THRESHOLD = 40;
 export const MAX_THRESHOLD = 80;

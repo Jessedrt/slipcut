@@ -19,9 +19,9 @@ import { COUNTRIES, DEFAULT_THRESHOLD } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const PRESETS = [
-  { label: "Lenient", value: 48 },
-  { label: "Standard", value: 58 },
-  { label: "Strict", value: 68 },
+  { label: "Lenient", value: 40 },
+  { label: "Standard", value: 48 },
+  { label: "Strict", value: 62 },
 ];
 
 const LOADING = [
