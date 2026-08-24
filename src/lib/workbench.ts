@@ -101,7 +101,13 @@ export function parseCommand(raw: string): DeskCommand {
   };
 }
 
-export function copyRebuild(picks: AnalyzedPick[]) {
+export function copyRebuild(picks: Array<{
+  home: string;
+  away: string;
+  market: string;
+  selection: string;
+  league?: string;
+}>) {
   if (!picks.length) return "Empty slip.";
   return picks
     .map((p, i) => {

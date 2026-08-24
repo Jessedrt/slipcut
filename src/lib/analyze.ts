@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { applyThreshold, combinedChance } from "./format";
 import { extractShareCode, parseTicketText } from "./parse-ticket";
-import { picksFromShare, type SharePayload } from "./sportybet";
+import { loadBookingCode, mintShare, sportyOf } from "./sportybet";
 import { firstUrl, youAnswer, youContents } from "./you";
 import type {
   AnalyzedPick,
@@ -11,7 +11,6 @@ import type {
   TicketPick,
 } from "./types";
 
-const COUNTRY_FALLBACKS = ["ng", "gh", "ke", "za", "tz", "ug", "zm", "cm"];
 const MAX_PICKS = 20;
 
 export type CutInput = {
@@ -31,51 +30,6 @@ function clampThreshold(n: number) {
 
 function isSport(v: unknown): v is SportKind {
   return v === "football" || v === "basketball" || v === "other";
-}
-
-async function fetchShare(code: string, country: string): Promise<SharePayload | null> {
-  const url = `https://www.sportybet.com/api/${country}/orders/share/${encodeURIComponent(code)}`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12_000);
-  try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "Mozilla/5.0 SlipCut",
-        Clientid: "web",
-        OperId: "2",
-        Platform: "web",
-      },
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as SharePayload;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function loadBookingCode(code: string, preferred?: string): Promise<{
-  picks: TicketPick[];
-  shareCode: string;
-} | { error: string }> {
-  const order = [preferred, ...COUNTRY_FALLBACKS].filter(
-    (c, i, arr): c is string => Boolean(c) && arr.indexOf(c) === i,
-  );
-  let lastMessage = "Booking code not found.";
-  for (const country of order) {
-    const payload = await fetchShare(code, country);
-    if (!payload) continue;
-    if (payload.bizCode === 10000 && payload.data) {
-      const picks = picksFromShare(payload);
-      if (!picks.length) return { error: "That code loaded, but the slip had no selections." };
-      return { picks: picks.slice(0, MAX_PICKS), shareCode: payload.data.shareCode ?? code };
-    }
-    lastMessage = payload.message || lastMessage;
-  }
-  return { error: lastMessage };
 }
 
 function stripJson(text: string): unknown {
@@ -334,4 +288,49 @@ export const cutSlip = createServerFn({ method: "POST" })
       }
       return { ok: false, error: message };
     }
+  });
+
+export const bookSlip = createServerFn({ method: "POST" })
+  .validator((input: { picks: TicketPick[]; country?: string }) => input)
+  .handler(async ({ data }): Promise<
+    { ok: true; shareCode: string; shareURL: string; unavailable: number } | { ok: false; error: string }
+  > => {
+    const selections = sportyOf(data.picks);
+    if (!selections.length) {
+      return {
+        ok: false,
+        error: "Those picks have no SportyBet IDs. Load a SportyBet booking code first, then edit.",
+      };
+    }
+    const minted = await mintShare(selections, data.country || "ng");
+    if ("error" in minted) return { ok: false, error: minted.error };
+    return { ok: true, ...minted };
+  });
+
+export const connectTelegram = createServerFn({ method: "POST" })
+  .handler(async (): Promise<
+    { ok: true; username: string } | { ok: false; error: string }
+  > => {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    if (!token) {
+      return {
+        ok: false,
+        error: "Add TELEGRAM_BOT_TOKEN in Vercel, then Redeploy.",
+      };
+    }
+    const hook = process.env.TELEGRAM_WEBHOOK_URL || "https://slipcut.vercel.app/api/telegram";
+    const set = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: hook, allowed_updates: ["message", "callback_query"] }),
+    });
+    const setBody = (await set.json()) as { ok?: boolean; description?: string };
+    if (!setBody.ok) {
+      return { ok: false, error: setBody.description || "Could not set Telegram webhook." };
+    }
+    const me = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+    const meBody = (await me.json()) as { ok?: boolean; result?: { username?: string } };
+    const username = meBody.result?.username;
+    if (!username) return { ok: false, error: "Bot token worked but had no username." };
+    return { ok: true, username };
   });

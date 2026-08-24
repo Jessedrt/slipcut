@@ -1,5 +1,12 @@
 export type SportKind = "football" | "basketball" | "other";
 
+export type SportySelection = {
+  eventId: string;
+  marketId: string;
+  outcomeId: string;
+  specifier?: string;
+};
+
 export type TicketPick = {
   id: string;
   sport: SportKind;
@@ -11,6 +18,7 @@ export type TicketPick = {
   selection: string;
   odds?: number;
   kickoff?: number;
+  sporty?: SportySelection;
 };
 
 export type AnalyzedPick = TicketPick & {

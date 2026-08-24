@@ -17,7 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
-import { cutSlip, loadTicket } from "@/lib/analyze";
+import { cutSlip, loadTicket, connectTelegram } from "@/lib/analyze";
 import { applyThreshold, combinedChance, slipLabel } from "@/lib/format";
 import { useHistory } from "@/lib/history";
 import { SAMPLE_SLIPS } from "@/lib/samples";
@@ -82,6 +82,7 @@ export function Desk() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CutResult | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [tgBusy, setTgBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const history = useHistory();
 
@@ -201,7 +202,31 @@ export function Desk() {
               </p>
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => setHistoryOpen(true)}>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={tgBusy}
+              onClick={() => {
+                void (async () => {
+                  setTgBusy(true);
+                  try {
+                    const res = await connectTelegram();
+                    if (!res.ok) {
+                      toast.error(res.error);
+                      return;
+                    }
+                    toast.success(`Bot ready: t.me/${res.username}`);
+                    window.open(`https://t.me/${res.username}`, "_blank", "noreferrer");
+                  } finally {
+                    setTgBusy(false);
+                  }
+                })();
+              }}
+            >
+              Telegram
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setHistoryOpen(true)}>
             History
             {history.items.length ? (
               <span className="font-mono text-[0.7rem] tabular-nums text-muted-foreground">
@@ -209,6 +234,7 @@ export function Desk() {
               </span>
             ) : null}
           </Button>
+          </div>
         </div>
       </header>
 
@@ -431,6 +457,7 @@ export function Desk() {
           <Workbench
             result={view}
             threshold={threshold}
+            country={country}
             onThreshold={setThreshold}
             onCombine={combineCode}
             busy={busy}
@@ -460,7 +487,7 @@ export function Desk() {
               },
               {
                 t: "Rebuild",
-                d: "Copy a clean match list. This desk does not book or mint other-book codes.",
+                d: "Mint a new SportyBet booking code from the edited legs, then send it on Telegram.",
               },
             ].map((item) => (
               <div key={item.t} className="rounded-lg border border-border bg-card p-4">

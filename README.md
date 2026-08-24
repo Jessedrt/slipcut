@@ -1,16 +1,15 @@
 # SlipCut
 
-Private desk for SportyBet tickets. Football and basketball only. Odds are not used as the score.
+Private desk for SportyBet tickets. Football and basketball only.
 
-Load a booking code, paste a slip, or drop an X / SportyBet link. Each pick is scored on live form. Then:
+Load a booking code, cut weak legs, then mint a **new SportyBet code** from the edited slip. Send it on Telegram.
 
-- **Analyze** — form probability, stored odds, expected value
-- **Split** — even 2 / 3 / 4 slips, no duplicated legs
-- **Trim** — drop the weakest legs toward 20× / 50× / 100×
-- **Edit** — add or remove a pick from the working slip
-- **Combine** — fold in another SportyBet code
-- **Rebuild** — copy a match list to search yourself
+- **Analyze** — live form. Odds stored for size/EV, not used as the score
+- **Split / trim / edit / combine**
+- **Get SportyBet code** — books the working legs
+- **Telegram** — share the code, or talk to the bot (`TELEGRAM_BOT_TOKEN`)
 
-This desk does not place bets or mint Bet9ja / 1xBet booking codes.
+Env vars (Vercel):
 
-Analysis uses `YDC_API_KEY` from [you.com/platform](https://you.com/platform).
+- `YDC_API_KEY` — You.com, for analysis
+- `TELEGRAM_BOT_TOKEN` — optional bot. Click Telegram in the header after adding it, then Redeploy.

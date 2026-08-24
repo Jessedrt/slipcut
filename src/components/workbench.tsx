@@ -1,9 +1,10 @@
-import { Copy, GitBranch, Scissors, WandSparkles } from "lucide-react";
+import { Copy, GitBranch, Loader2, Scissors, Send, Ticket, WandSparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PickCard } from "@/components/pick-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { bookSlip } from "@/lib/analyze";
 import { combinedChance, copyKeepers, pct } from "@/lib/format";
 import {
   combinedOdds,
@@ -18,15 +19,19 @@ import {
 import type { AnalyzedPick, CutResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+type Minted = { shareCode: string; shareURL: string };
+
 export function Workbench({
   result,
   threshold,
+  country,
   onThreshold,
   onCombine,
   busy,
 }: {
   result: CutResult;
   threshold: number;
+  country: string;
   onThreshold: (n: number) => void;
   onCombine: (code: string) => Promise<void>;
   busy: boolean;
@@ -35,10 +40,15 @@ export function Workbench({
   const [splits, setSplits] = useState<AnalyzedPick[][] | null>(null);
   const [command, setCommand] = useState("");
   const [combineCode, setCombineCode] = useState("");
+  const [minting, setMinting] = useState(false);
+  const [minted, setMinted] = useState<Minted | null>(null);
+  const [splitMints, setSplitMints] = useState<Minted[] | null>(null);
 
   useEffect(() => {
     setWorkingIds(result.kept.map((p) => p.id));
     setSplits(null);
+    setMinted(null);
+    setSplitMints(null);
   }, [result]);
 
   const byId = useMemo(() => new Map(result.picks.map((p) => [p.id, p])), [result.picks]);
@@ -48,6 +58,7 @@ export function Workbench({
 
   function toggle(id: string) {
     setSplits(null);
+    setMinted(null);
     setWorkingIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
   }
 
@@ -61,6 +72,8 @@ export function Workbench({
       parts,
     );
     setSplits(next);
+    setMinted(null);
+    setSplitMints(null);
     toast.success(`Split into ${next.length} slips.`);
   }
 
@@ -72,6 +85,8 @@ export function Workbench({
     }
     setWorkingIds(next.map((p) => p.id));
     setSplits(null);
+    setMinted(null);
+    setSplitMints(null);
     toast.success(`Trimmed to ${next.length} legs${combinedOdds(next) ? ` · ${formatOdds(combinedOdds(next)!)}` : ""}.`);
   }
 
@@ -108,6 +123,47 @@ export function Workbench({
   async function copyText(text: string, ok: string) {
     await navigator.clipboard.writeText(text);
     toast.success(ok);
+  }
+
+  async function mintWorking() {
+    if (!working.length) return;
+    setMinting(true);
+    try {
+      const res = await bookSlip({ data: { picks: working, country } });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      setMinted({ shareCode: res.shareCode, shareURL: res.shareURL });
+      toast.success(`SportyBet ${res.shareCode}`);
+    } finally {
+      setMinting(false);
+    }
+  }
+
+  async function mintSplits() {
+    if (!splits?.length) return;
+    setMinting(true);
+    try {
+      const out: Minted[] = [];
+      for (const slip of splits) {
+        const res = await bookSlip({ data: { picks: slip, country } });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
+        out.push({ shareCode: res.shareCode, shareURL: res.shareURL });
+      }
+      setSplitMints(out);
+      toast.success("Split SportyBet codes ready.");
+    } finally {
+      setMinting(false);
+    }
+  }
+
+  function telegramHref(code: string, url: string) {
+    const text = `SlipCut ${code}\n${url}`;
+    return `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
   }
 
   return (
@@ -178,9 +234,78 @@ export function Workbench({
           </Button>
         </form>
 
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button type="button" disabled={minting || !working.length} onClick={() => void mintWorking()}>
+            {minting ? <Loader2 className="animate-spin" /> : <Ticket />}
+            Get SportyBet code
+          </Button>
+          {splits?.length ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={minting}
+              onClick={() => void mintSplits()}
+            >
+              <GitBranch />
+              Codes for splits
+            </Button>
+          ) : null}
+        </div>
+
+        {minted ? (
+          <div className="mt-4 rounded-lg border border-keep/30 bg-keep-dim px-4 py-3">
+            <p className="text-[0.7rem] uppercase tracking-[0.18em] text-keep">SportyBet code</p>
+            <p className="mt-1 font-mono text-2xl tracking-[0.2em] text-foreground">{minted.shareCode}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void copyText(minted.shareCode, "Code copied.")}
+              >
+                <Copy />
+                Copy code
+              </Button>
+              <Button asChild size="sm" variant="outline">
+                <a href={minted.shareURL} target="_blank" rel="noreferrer">
+                  Open SportyBet
+                </a>
+              </Button>
+              <Button asChild size="sm">
+                <a href={telegramHref(minted.shareCode, minted.shareURL)} target="_blank" rel="noreferrer">
+                  <Send />
+                  Send on Telegram
+                </a>
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {splitMints?.length ? (
+          <div className="mt-3 grid gap-2">
+            {splitMints.map((m, i) => (
+              <div key={m.shareCode} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
+                <p className="font-mono text-sm tracking-wider">
+                  Slip {i + 1} · {m.shareCode}
+                </p>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => void copyText(m.shareCode, "Copied.")}>
+                    Copy
+                  </Button>
+                  <Button asChild size="sm" variant="outline">
+                    <a href={telegramHref(m.shareCode, m.shareURL)} target="_blank" rel="noreferrer">
+                      Telegram
+                    </a>
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
         <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-          Split, trim, and edit stay on this desk. This does not book on SportyBet or mint Bet9ja / 1xBet codes —
-          copy a rebuild list and search the matches yourself.
+          Get SportyBet code books the working legs as a new share code. Load from a SportyBet
+          booking code first — pasted text has no event IDs. Send on Telegram shares that code.
         </p>
       </div>
 
