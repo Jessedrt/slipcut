@@ -222,97 +222,28 @@ async function picksFromPaste(text: string, country?: string): Promise<{
   return { picks };
 }
 
+const DESK_CLOSED = "The website desk is closed. Use t.me/Slipcut_bot.";
+
 export const loadTicket = createServerFn({ method: "POST" })
   .validator((input: { code?: string; country?: string; text?: string }) => input)
-  .handler(async ({ data }): Promise<
+  .handler(async (): Promise<
     { ok: true; picks: TicketPick[]; shareCode?: string } | { ok: false; error: string }
   > => {
-    const code =
-      extractShareCode(data.code ?? "") ||
-      extractShareCode(data.text ?? "") ||
-      (data.code ?? "").trim().toUpperCase();
-    if (code && /^[A-Z0-9]{4,16}$/.test(code)) {
-      const loaded = await loadBookingCode(code, data.country);
-      if ("error" in loaded) return { ok: false, error: loaded.error };
-      return { ok: true, ...loaded };
-    }
-    const text = (data.text ?? data.code ?? "").trim();
-    if (!text) return { ok: false, error: "Paste a booking code or slip first." };
-    const loaded = await picksFromPaste(text, data.country);
-    if ("error" in loaded) return { ok: false, error: loaded.error };
-    return { ok: true, ...loaded };
+    return { ok: false, error: DESK_CLOSED };
   });
 
 export const cutSlip = createServerFn({ method: "POST" })
   .validator((input: CutInput) => input)
-  .handler(async ({ data }): Promise<CutResponse> => {
-    try {
-      const threshold = clampThreshold(data.threshold);
-      let picks: TicketPick[] = [];
-      let shareCode: string | undefined;
-
-      if (data.mode === "picks" && data.picks?.length) {
-        picks = data.picks.slice(0, MAX_PICKS);
-      } else if (data.mode === "code") {
-        const code =
-          extractShareCode(data.code ?? "") ||
-          extractShareCode(data.text ?? "") ||
-          (data.code ?? "").trim().toUpperCase();
-        if (!code || !/^[A-Z0-9]{4,16}$/.test(code)) {
-          return { ok: false, error: "That does not look like a SportyBet booking code." };
-        }
-        const loaded = await loadBookingCode(code, data.country);
-        if ("error" in loaded) return { ok: false, error: loaded.error };
-        picks = loaded.picks;
-        shareCode = loaded.shareCode;
-      } else if (data.mode === "image") {
-        return {
-          ok: false,
-          error: "Screenshots need a vision model. Use a booking code, paste, or drop an X link.",
-        };
-      } else {
-        const text = (data.text ?? "").trim();
-        if (!text) return { ok: false, error: "Paste a slip, a booking code, or a link first." };
-        const loaded = await picksFromPaste(text, data.country);
-        if ("error" in loaded) return { ok: false, error: loaded.error };
-        picks = loaded.picks;
-        shareCode = loaded.shareCode;
-      }
-
-      if (!picks.length) {
-        return { ok: false, error: "Could not read any football or basketball games from that ticket." };
-      }
-
-      const analyzedRaw = await scorePicks(picks);
-      const merged = mergeAnalysis(picks, analyzedRaw, threshold);
-      return { ok: true, shareCode, ...merged };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Analysis failed.";
-      if (message.includes("not available")) {
-        return { ok: false, error: "AI analysis is unavailable right now. Add YDC_API_KEY in Vercel." };
-      }
-      if (message.toLowerCase().includes("abort")) {
-        return { ok: false, error: "The desk took too long. Try a shorter slip." };
-      }
-      return { ok: false, error: message };
-    }
+  .handler(async (): Promise<CutResponse> => {
+    return { ok: false, error: DESK_CLOSED };
   });
 
 export const bookSlip = createServerFn({ method: "POST" })
   .validator((input: { picks: TicketPick[]; country?: string }) => input)
-  .handler(async ({ data }): Promise<
+  .handler(async (): Promise<
     { ok: true; shareCode: string; shareURL: string; unavailable: number } | { ok: false; error: string }
   > => {
-    const selections = sportyOf(data.picks);
-    if (!selections.length) {
-      return {
-        ok: false,
-        error: "Those picks have no SportyBet IDs. Load a SportyBet booking code first, then edit.",
-      };
-    }
-    const minted = await mintShare(selections, data.country || "ng");
-    if ("error" in minted) return { ok: false, error: minted.error };
-    return { ok: true, ...minted };
+    return { ok: false, error: DESK_CLOSED };
   });
 
 export const connectTelegram = createServerFn({ method: "POST" })

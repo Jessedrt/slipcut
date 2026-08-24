@@ -12,10 +12,10 @@ export const Route = createRootRoute({
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: APP_NAME },
+      { name: "robots", content: "noindex, nofollow" },
       {
         name: "description",
-        content:
-          "Private SportyBet desk. Score football and basketball picks on form, ignore the odds, cut the weak legs.",
+        content: "Private Telegram desk for SportyBet tickets.",
       },
       { name: "theme-color", content: "#09090b" },
     ],
