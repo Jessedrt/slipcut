@@ -14,6 +14,7 @@ type TgMessage = {
   chat: TgChat;
   from?: TgUser;
   text?: string;
+  reply_to_message?: TgMessage;
 };
 type TgCallback = {
   id: string;
@@ -36,19 +37,23 @@ async function tg(method: string, payload: Record<string, unknown>) {
   });
 }
 
+function oddsButtons(code: string) {
+  return [2, 3, 4, 5, 6].map((n) => ({
+    text: `${n} odds`,
+    callback_data: `k:${code}:${n}`,
+  }));
+}
+
 function keyboard(code: string) {
+  const odds = oddsButtons(code);
   return {
     inline_keyboard: [
+      [{ text: "Analyze", callback_data: `a:${code}` }],
+      odds.slice(0, 3),
+      odds.slice(3),
       [
-        { text: "Analyze", callback_data: `a:${code}` },
-        { text: "Sure 2 odds", callback_data: `k:${code}:2` },
-      ],
-      [
-        { text: "Mint SportyBet code", callback_data: `m:${code}` },
+        { text: "Mint all", callback_data: `m:${code}` },
         { text: "Split 2", callback_data: `s:${code}:2` },
-      ],
-      [
-        { text: "Split 3", callback_data: `s:${code}:3` },
         { text: "Trim 50×", callback_data: `t:${code}:50` },
       ],
     ],
@@ -56,14 +61,13 @@ function keyboard(code: string) {
 }
 
 function afterAnalyzeKeyboard(code: string) {
+  const odds = oddsButtons(code);
   return {
     inline_keyboard: [
+      odds.slice(0, 3),
+      odds.slice(3),
       [
-        { text: "Sure 2 odds", callback_data: `k:${code}:2` },
-        { text: "Mint strongest", callback_data: `g:${code}` },
-      ],
-      [
-        { text: "Mint all playable", callback_data: `m:${code}` },
+        { text: "Mint all", callback_data: `m:${code}` },
         { text: "Split 2", callback_data: `s:${code}:2` },
       ],
     ],
@@ -170,22 +174,26 @@ async function analyzeAndReply(chatId: number, picks: TicketPick[], code: string
   });
 }
 
-async function sureTwoAndReply(chatId: number, picks: TicketPick[]) {
+async function sureNAndReply(chatId: number, picks: TicketPick[], count: number) {
+  const n = Math.max(1, Math.min(10, Math.round(count) || 2));
   if (!picks.length) {
     await tg("sendMessage", { chat_id: chatId, text: "No football or basketball legs to score." });
     return;
   }
-  await tg("sendMessage", { chat_id: chatId, text: "Picking the 2 surest legs from live form." });
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: `Picking the ${n} strongest legs from live form.`,
+  });
   const result = await scorePlayable(picks);
-  const top = keepTop(result.picks, 2);
+  const top = keepTop(result.picks, n);
   if (!top.length) {
-    await tg("sendMessage", { chat_id: chatId, text: "Could not pick two sure legs from that ticket." });
+    await tg("sendMessage", { chat_id: chatId, text: `Could not pick ${n} sure legs from that ticket.` });
     return;
   }
   const note = top
     .map((p) => `${p.probability}% ${p.home} vs ${p.away} — ${p.selection}`)
     .join("\n");
-  await mintAndReply(chatId, top, "ng", `Sure 2 odds\n${note}`);
+  await mintAndReply(chatId, top, "ng", `${top.length} odds\n${note}`);
 }
 
 async function mintKeepersAndReply(chatId: number, picks: TicketPick[]) {
@@ -217,12 +225,31 @@ async function handleCode(chatId: number, code: string) {
       "",
       listPicks(loaded.picks),
       "",
-      "Analyze the form, mint Sure 2 odds, or rebuild the ticket.",
+      "Analyze the form, then tap how many odds you want.",
     ]
       .join("\n")
       .slice(0, 3900),
     reply_markup: keyboard(loaded.shareCode),
   });
+}
+
+function codeFromText(raw?: string): string | null {
+  if (!raw) return null;
+  return (
+    extractShareCode(raw) ||
+    raw.match(/^([A-Z0-9]{4,16})(?:\s|$|·)/i)?.[1]?.toUpperCase() ||
+    null
+  );
+}
+
+function parseOddsCount(text: string): number | null {
+  const m =
+    text.match(/(?:sure\s*)?(\d{1,2})\s*odds\b/i) ||
+    text.match(/^\/odds(?:@\w+)?\s+(\d{1,2})\b/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n < 1 || n > 10) return null;
+  return n;
 }
 
 export async function handleTelegramUpdate(update: TgUpdate) {
@@ -247,7 +274,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       return;
     }
     if (kind === "k") {
-      await sureTwoAndReply(chatId, base);
+      await sureNAndReply(chatId, base, Number(arg || 2));
       return;
     }
     if (kind === "g") {
@@ -294,18 +321,35 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "",
         "Send a SportyBet booking code.",
         "Analyze scores football and basketball on live form.",
-        "Sure 2 odds mints the two strongest legs.",
+        "Tap 2 odds, 3 odds, 4 odds… or type: MQVZ70 3 odds",
         "",
         "Football and basketball only.",
       ].join("\n"),
     });
     return;
   }
-  const code = extractShareCode(text) || (/^[A-Z0-9]{4,16}$/i.test(text) ? text.toUpperCase() : null);
+  const oddsCount = parseOddsCount(text);
+  const code = codeFromText(text) || codeFromText(msg.reply_to_message?.text);
+  if (oddsCount && code) {
+    const loaded = await loadBookingCode(code, "ng");
+    if ("error" in loaded) {
+      await tg("sendMessage", { chat_id: msg.chat.id, text: loaded.error });
+      return;
+    }
+    await sureNAndReply(msg.chat.id, playable(loaded.picks), oddsCount);
+    return;
+  }
+  if (oddsCount && !code) {
+    await tg("sendMessage", {
+      chat_id: msg.chat.id,
+      text: `Send a booking code first, or type it with the count (example MQVZ70 ${oddsCount} odds).`,
+    });
+    return;
+  }
   if (!code) {
     await tg("sendMessage", {
       chat_id: msg.chat.id,
-      text: "Send a SportyBet booking code (example MQVZ70).",
+      text: "Send a SportyBet booking code (example MQVZ70).\nOr MQVZ70 3 odds.",
     });
     return;
   }
