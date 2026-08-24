@@ -175,7 +175,7 @@ export function Workbench({
         </div>
       </div>
 
-      <div className="mt-6 rounded-xl border border-border bg-card p-4 sm:p-5">
+      <div className="paper mt-6 rounded-xl p-4 sm:p-5">
         <div className="flex items-center gap-2 text-[0.7rem] uppercase tracking-[0.18em] text-muted-foreground">
           <WandSparkles className="size-3.5" />
           Say what you want
@@ -253,9 +253,9 @@ export function Workbench({
         </div>
 
         {minted ? (
-          <div className="mt-4 rounded-lg border border-keep/30 bg-keep-dim px-4 py-3">
-            <p className="text-[0.7rem] uppercase tracking-[0.18em] text-keep">SportyBet code</p>
-            <p className="mt-1 font-mono text-2xl tracking-[0.2em] text-foreground">{minted.shareCode}</p>
+          <div className="mt-4 rounded-lg border border-ink/10 bg-sheet px-4 py-3">
+            <p className="text-[0.7rem] uppercase tracking-[0.18em] text-ink/50">SportyBet code</p>
+            <p className="stamp mt-2 text-3xl text-ink">{minted.shareCode}</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Button
                 type="button"
@@ -284,7 +284,7 @@ export function Workbench({
         {splitMints?.length ? (
           <div className="mt-3 grid gap-2">
             {splitMints.map((m, i) => (
-              <div key={m.shareCode} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
+              <div key={m.shareCode} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-ink/10 bg-sheet px-3 py-2">
                 <p className="font-mono text-sm tracking-wider">
                   Slip {i + 1} · {m.shareCode}
                 </p>
@@ -351,7 +351,7 @@ export function Workbench({
           {splits.map((slip, i) => {
             const slipOdds = combinedOdds(slip);
             return (
-              <div key={i} className="rounded-xl border border-border bg-card p-4">
+              <div key={i} className="paper rounded-xl p-4">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="font-serif text-xl">Slip {i + 1}</h3>
                   <p className="font-mono text-xs tabular-nums text-muted-foreground">
@@ -442,13 +442,13 @@ function Stat({
   tone?: "keep" | "drop";
 }) {
   return (
-    <div className="rounded-lg border border-border bg-card px-3 py-3">
-      <p className="text-[0.65rem] uppercase tracking-wider text-muted-foreground">{label}</p>
+    <div className="ticket rounded-lg px-3 py-3">
+      <p className="text-[0.65rem] uppercase tracking-wider text-ink/45">{label}</p>
       <p
         className={cn(
-          "mt-1 font-mono text-2xl tabular-nums tracking-tight",
-          tone === "keep" && "text-keep",
-          tone === "drop" && "text-drop",
+          "mt-1 font-mono text-2xl tabular-nums tracking-tight text-ink",
+          tone === "keep" && "text-keep-ink",
+          tone === "drop" && "text-drop-ink",
         )}
       >
         {value}
@@ -459,8 +459,6 @@ function Stat({
 
 function EmptyNote({ text }: { text: string }) {
   return (
-    <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-      {text}
-    </p>
+    <p className="ticket rounded-lg px-4 py-8 text-center text-sm text-ink/50">{text}</p>
   );
 }

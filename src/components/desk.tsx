@@ -191,13 +191,13 @@ export function Desk() {
 
   return (
     <div className="desk-grid min-h-dvh">
-      <header className="sticky top-0 z-20 border-b border-border/80 bg-background/85 backdrop-blur-sm">
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
-          <div className="flex items-center gap-2.5">
-            <Mark className="size-8" />
+      <header className="sticky top-0 z-20 border-b border-border/70 bg-background/80 backdrop-blur-md">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
+          <div className="flex items-center gap-3">
+            <Mark className="size-10" />
             <div className="leading-none">
-              <p className="font-serif text-lg tracking-tight">SlipCut</p>
-              <p className="mt-0.5 text-[0.65rem] uppercase tracking-[0.18em] text-muted-foreground">
+              <p className="font-serif text-xl tracking-tight">SlipCut</p>
+              <p className="mt-1 text-[0.62rem] uppercase tracking-[0.22em] text-muted-foreground">
                 private desk
               </p>
             </div>
@@ -238,21 +238,22 @@ export function Desk() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-5xl px-4 pb-20 pt-8 sm:pt-12">
-        <section className="rise-in max-w-2xl">
-          <p className="text-[0.7rem] uppercase tracking-[0.22em] text-muted-foreground">
-            Analyze · split · trim · rebuild
-          </p>
-          <h1 className="mt-3 font-serif text-4xl leading-[1.05] tracking-tight sm:text-5xl">
-            Cut the weak legs.
-          </h1>
-          <p className="mt-4 max-w-xl text-base leading-relaxed text-muted-foreground">
-            Load a SportyBet code, paste a slip, or drop an X link. Football and basketball
-            are scored on live form — not the price. Then split, trim, edit, and copy a rebuild list.
-          </p>
-        </section>
+      <main className="mx-auto w-full max-w-6xl px-4 pb-24 pt-8 sm:pt-12">
+        <section className="rise-in grid items-start gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:gap-12">
+          <div className="lg:sticky lg:top-24 lg:pt-4">
+            <p className="text-[0.7rem] uppercase tracking-[0.24em] text-muted-foreground">
+              Analyze · split · trim · rebuild
+            </p>
+            <h1 className="mt-4 font-serif text-5xl italic leading-[0.95] tracking-tight sm:text-6xl">
+              Cut the weak legs.
+            </h1>
+            <p className="mt-5 max-w-md text-base leading-relaxed text-muted-foreground">
+              Load a SportyBet code. Football and basketball are scored on live form — not the
+              price. Then split, trim, mint a new code, and send it on Telegram.
+            </p>
+          </div>
 
-        <section className="rise-in mt-8 rounded-xl border border-border bg-card p-4 sm:p-6">
+        <section className="paper rounded-xl p-4 sm:p-6">
           <div
             role="tablist"
             className="grid grid-cols-3 rounded-lg bg-muted p-1"
@@ -270,8 +271,8 @@ export function Desk() {
                   className={cn(
                     "inline-flex h-11 items-center justify-center gap-2 rounded-md text-sm font-medium transition-colors duration-150",
                     active
-                      ? "bg-card text-foreground"
-                      : "text-muted-foreground hover:text-foreground",
+                      ? "bg-paper text-ink"
+                      : "text-ink/50 hover:text-ink",
                   )}
                 >
                   <Icon className="size-4" />
@@ -435,10 +436,11 @@ export function Desk() {
           </div>
 
           {error ? (
-            <p className="mt-4 rounded-md border border-drop/30 bg-drop-dim px-3 py-2 text-sm text-drop">
+            <p className="mt-4 rounded-md border border-drop-ink/25 bg-drop/15 px-3 py-2 text-sm text-drop-ink">
               {error}
             </p>
           ) : null}
+        </section>
         </section>
 
         {busy && !view ? (
@@ -446,7 +448,7 @@ export function Desk() {
             {[0, 1, 2].map((i) => (
               <div
                 key={i}
-                className="h-28 animate-pulse rounded-lg border border-border bg-card"
+                className="ticket h-28 animate-pulse rounded-lg"
                 style={{ animationDelay: `${i * 80}ms` }}
               />
             ))}
@@ -490,11 +492,12 @@ export function Desk() {
                 d: "Mint a new SportyBet booking code from the edited legs, then send it on Telegram.",
               },
             ].map((item) => (
-              <div key={item.t} className="rounded-lg border border-border bg-card p-4">
-                <p className="text-[0.7rem] uppercase tracking-[0.18em] text-muted-foreground">
-                  {item.t}
-                </p>
-                <p className="mt-2 text-sm leading-relaxed text-foreground/85">{item.d}</p>
+              <div key={item.t} className="ticket rounded-lg">
+                <div className="ticket-stub">{item.t}</div>
+                <div className="p-4">
+                  <p className="font-serif text-lg text-ink">{item.t}</p>
+                  <p className="mt-2 text-sm leading-relaxed text-ink/65">{item.d}</p>
+                </div>
               </div>
             ))}
           </section>

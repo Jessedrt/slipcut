@@ -1,29 +1,38 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: #09090b;
-  --color-foreground: #f4f4f0;
-  --color-card: #121214;
-  --color-card-foreground: #f4f4f0;
-  --color-muted: #1a1a1e;
-  --color-muted-foreground: #8c8c86;
-  --color-border: #2c2c30;
-  --color-primary: #e6e6de;
-  --color-primary-foreground: #09090b;
-  --color-ring: #c8ccd4;
-  --color-keep: #8faf8c;
-  --color-keep-dim: #1a241a;
+  --color-background: #0c0d0a;
+  --color-foreground: #f2efe6;
+  --color-card: #141611;
+  --color-card-foreground: #f2efe6;
+  --color-muted: #1c1e18;
+  --color-muted-foreground: #9a9688;
+  --color-border: #2c2e26;
+  --color-primary: #e8e2d0;
+  --color-primary-foreground: #14120c;
+  --color-ring: #c5c0b0;
+  --color-paper: #e8e2d0;
+  --color-ink: #17150f;
+  --color-linen: #dcd6c4;
+  --color-sheet: #f3eee0;
+  --color-keep: #7d9a78;
+  --color-keep-dim: #1a2418;
+  --color-keep-ink: #355233;
   --color-drop: #c4897a;
   --color-drop-dim: #241714;
+  --color-drop-ink: #7a3d32;
   --color-warn: #c4b48a;
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "Newsreader", ui-serif, Georgia, "Times New Roman", serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --radius-sm: 8px;
   --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 24px;
-  --radius-2xl: 32px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-2xl: 36px;
+  --shadow-paper:
+    0 0 0 1px color-mix(in oklab, var(--color-ink) 10%, transparent),
+    0 18px 40px -24px rgb(0 0 0 / 0.7);
 }
 
 @layer base {
@@ -61,7 +70,7 @@
   }
 
   ::selection {
-    background: color-mix(in oklab, var(--color-primary) 28%, transparent);
+    background: color-mix(in oklab, var(--color-paper) 28%, transparent);
     color: var(--color-foreground);
   }
 }
@@ -89,22 +98,117 @@
   }
 }
 
-@keyframes pulse-line {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
 .rise-in {
   animation: rise-in 400ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .desk-grid {
+  background-color: var(--color-background);
   background-image:
-    radial-gradient(circle at 1px 1px, color-mix(in oklab, var(--color-foreground) 8%, transparent) 1px, transparent 0);
-  background-size: 22px 22px;
+    radial-gradient(ellipse 90% 55% at 50% -8%, color-mix(in oklab, var(--color-paper) 10%, transparent), transparent 58%),
+    radial-gradient(ellipse 50% 40% at 100% 110%, color-mix(in oklab, var(--color-keep) 8%, transparent), transparent 55%),
+    radial-gradient(circle at 1px 1px, color-mix(in oklab, var(--color-paper) 7%, transparent) 1px, transparent 0);
+  background-size: auto, auto, 22px 22px;
+}
+
+.paper {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  box-shadow: var(--shadow-paper);
+}
+
+.paper label {
+  color: color-mix(in oklab, var(--color-ink) 58%, transparent);
+}
+
+.paper input,
+.paper textarea,
+.paper select {
+  background: var(--color-linen);
+  color: var(--color-ink);
+  border-color: color-mix(in oklab, var(--color-ink) 14%, transparent);
+}
+
+.paper input::placeholder,
+.paper textarea::placeholder {
+  color: color-mix(in oklab, var(--color-ink) 40%, transparent);
+}
+
+.paper .text-foreground {
+  color: var(--color-ink);
+}
+
+.paper .text-muted-foreground {
+  color: color-mix(in oklab, var(--color-ink) 55%, transparent);
+}
+
+.paper .bg-muted {
+  background: var(--color-linen);
+}
+
+.paper .bg-card {
+  background: var(--color-sheet);
+}
+
+.paper .border-border {
+  border-color: color-mix(in oklab, var(--color-ink) 14%, transparent);
+}
+
+.paper .bg-primary {
+  background-color: var(--color-ink);
+}
+
+.paper .text-primary-foreground {
+  color: var(--color-paper);
+}
+
+.paper .bg-primary:hover {
+  background-color: color-mix(in oklab, var(--color-ink) 88%, white);
+}
+
+.paper [data-slot="button"].bg-transparent {
+  color: var(--color-ink);
+}
+
+.ticket {
+  display: flex;
+  overflow: hidden;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  box-shadow: var(--shadow-paper);
+}
+
+.ticket-stub {
+  display: flex;
+  width: 2.35rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  background-color: color-mix(in oklab, var(--color-ink) 6%, var(--color-paper));
+  background-image: radial-gradient(circle at 0 10px, var(--color-background) 5px, transparent 5.5px);
+  background-size: 100% 20px;
+  background-repeat: repeat-y;
+  color: color-mix(in oklab, var(--color-ink) 55%, transparent);
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+.ticket-stub-keep {
+  background-color: color-mix(in oklab, var(--color-keep) 22%, var(--color-paper));
+  color: var(--color-keep-ink);
+}
+
+.ticket-stub-drop {
+  background-color: color-mix(in oklab, var(--color-drop) 22%, var(--color-paper));
+  color: var(--color-drop-ink);
+}
+
+.stamp {
+  font-family: var(--font-mono);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
 }
