@@ -59,8 +59,8 @@ function afterAnalyzeKeyboard(code: string) {
   return {
     inline_keyboard: [
       [
-        { text: "Mint keepers", callback_data: `g:${code}` },
         { text: "Sure 2 odds", callback_data: `k:${code}:2` },
+        { text: "Mint strongest", callback_data: `g:${code}` },
       ],
       [
         { text: "Mint all playable", callback_data: `m:${code}` },
@@ -132,23 +132,21 @@ function esc(s: string) {
 }
 
 function formatAnalysis(picks: AnalyzedPick[], desk: string) {
-  const lines = picks.slice(0, 16).map((p, i) => {
-    if (p.sport === "other") {
-      return `${i + 1}. SKIP  ${p.home} vs ${p.away}`;
-    }
-    const tag = p.verdict === "keep" ? "KEEP" : "DROP";
+  const ranked = picks
+    .filter((p) => p.sport !== "other")
+    .slice()
+    .sort((a, b) => b.probability - a.probability);
+  const lines = ranked.slice(0, 18).map((p, i) => {
     const summary = p.summary ? `\n   ${p.summary}` : "";
-    return `${i + 1}. ${tag} ${p.probability}%  ${p.home} vs ${p.away}\n   ${p.market} — ${p.selection}${summary}`;
+    return `${i + 1}. ${p.probability}%  ${p.home} vs ${p.away}\n   ${p.market} — ${p.selection}${summary}`;
   });
-  const keep = picks.filter((p) => p.verdict === "keep").length;
-  const drop = picks.filter((p) => p.verdict === "drop").length;
   return [
-    `Analyze · keep at ${KEEP_LINE}%+`,
+    "Analyze · live form",
     desk,
     "",
     ...lines,
     "",
-    `Keep ${keep} · Drop ${drop}`,
+    `Scored ${ranked.length} legs. Strongest first.`,
   ]
     .join("\n")
     .slice(0, 3900);
@@ -191,17 +189,18 @@ async function sureTwoAndReply(chatId: number, picks: TicketPick[]) {
 }
 
 async function mintKeepersAndReply(chatId: number, picks: TicketPick[]) {
-  await tg("sendMessage", { chat_id: chatId, text: "Cutting weak legs, then minting keepers." });
+  await tg("sendMessage", { chat_id: chatId, text: "Minting the strongest legs from live form." });
   const result = await scorePlayable(picks);
-  const kept = result.kept.filter((p) => p.sporty);
-  if (!kept.length) {
+  const count = Math.max(2, Math.ceil(result.picks.filter((p) => p.sport !== "other").length / 2));
+  const strongest = keepTop(result.picks, count).filter((p) => p.sporty);
+  if (!strongest.length) {
     await tg("sendMessage", {
       chat_id: chatId,
-      text: formatAnalysis(result.picks, "Nothing cleared the keep line."),
+      text: formatAnalysis(result.picks, "No legs to mint."),
     });
     return;
   }
-  await mintAndReply(chatId, kept, "ng", `Keepers · ${kept.length} legs at ${KEEP_LINE}%+`);
+  await mintAndReply(chatId, strongest, "ng", `Strongest ${strongest.length} legs`);
 }
 
 async function handleCode(chatId: number, code: string) {

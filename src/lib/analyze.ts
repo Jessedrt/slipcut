@@ -101,9 +101,12 @@ function mergeAnalysis(
   });
 
   const split = applyThreshold(analyzed, threshold);
+  const tagged = new Map(
+    [...split.kept, ...split.dropped, ...split.ignored].map((p) => [p.id, p]),
+  );
   return {
     desk: typeof obj.desk === "string" ? obj.desk : "Form-first read of the slip.",
-    picks: analyzed,
+    picks: analyzed.map((p) => tagged.get(p.id) ?? p),
     threshold,
     ...split,
     combinedKeepChance: combinedChance(split.kept),
