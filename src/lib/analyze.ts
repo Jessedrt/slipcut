@@ -180,6 +180,11 @@ async function scorePicks(picks: TicketPick[]): Promise<unknown> {
   };
 }
 
+export async function analyzePicks(picks: TicketPick[], threshold = 58) {
+  const analyzedRaw = await scorePicks(picks);
+  return mergeAnalysis(picks, analyzedRaw, clampThreshold(threshold));
+}
+
 async function picksFromPaste(text: string, country?: string): Promise<{
   picks: TicketPick[];
   shareCode?: string;

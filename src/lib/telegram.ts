@@ -1,9 +1,11 @@
+import { analyzePicks } from "./analyze";
 import { extractShareCode } from "./parse-ticket";
 import { loadBookingCode, mintShare, sportyOf } from "./sportybet";
-import { copyRebuild, splitEven, trimToOdds } from "./workbench";
-import type { TicketPick } from "./types";
+import { copyRebuild, keepTop, splitEven, trimToOdds } from "./workbench";
+import type { AnalyzedPick, TicketPick } from "./types";
 
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
+const KEEP_LINE = 58;
 
 type TgUser = { id: number; username?: string };
 type TgChat = { id: number };
@@ -38,12 +40,31 @@ function keyboard(code: string) {
   return {
     inline_keyboard: [
       [
+        { text: "Analyze", callback_data: `a:${code}` },
+        { text: "Sure 2 odds", callback_data: `k:${code}:2` },
+      ],
+      [
         { text: "Mint SportyBet code", callback_data: `m:${code}` },
         { text: "Split 2", callback_data: `s:${code}:2` },
       ],
       [
         { text: "Split 3", callback_data: `s:${code}:3` },
         { text: "Trim 50×", callback_data: `t:${code}:50` },
+      ],
+    ],
+  };
+}
+
+function afterAnalyzeKeyboard(code: string) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "Mint keepers", callback_data: `g:${code}` },
+        { text: "Sure 2 odds", callback_data: `k:${code}:2` },
+      ],
+      [
+        { text: "Mint all playable", callback_data: `m:${code}` },
+        { text: "Split 2", callback_data: `s:${code}:2` },
       ],
     ],
   };
@@ -110,6 +131,79 @@ function esc(s: string) {
   return s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
 }
 
+function formatAnalysis(picks: AnalyzedPick[], desk: string) {
+  const lines = picks.slice(0, 16).map((p, i) => {
+    if (p.sport === "other") {
+      return `${i + 1}. SKIP  ${p.home} vs ${p.away}`;
+    }
+    const tag = p.verdict === "keep" ? "KEEP" : "DROP";
+    const summary = p.summary ? `\n   ${p.summary}` : "";
+    return `${i + 1}. ${tag} ${p.probability}%  ${p.home} vs ${p.away}\n   ${p.market} — ${p.selection}${summary}`;
+  });
+  const keep = picks.filter((p) => p.verdict === "keep").length;
+  const drop = picks.filter((p) => p.verdict === "drop").length;
+  return [
+    `Analyze · keep at ${KEEP_LINE}%+`,
+    desk,
+    "",
+    ...lines,
+    "",
+    `Keep ${keep} · Drop ${drop}`,
+  ]
+    .join("\n")
+    .slice(0, 3900);
+}
+
+async function scorePlayable(picks: TicketPick[]) {
+  return analyzePicks(picks, KEEP_LINE);
+}
+
+async function analyzeAndReply(chatId: number, picks: TicketPick[], code: string) {
+  if (!picks.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "No football or basketball legs to score." });
+    return;
+  }
+  await tg("sendMessage", { chat_id: chatId, text: "Reading live form. Odds ignored." });
+  const result = await scorePlayable(picks);
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: formatAnalysis(result.picks, result.desk),
+    reply_markup: afterAnalyzeKeyboard(code),
+  });
+}
+
+async function sureTwoAndReply(chatId: number, picks: TicketPick[]) {
+  if (!picks.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "No football or basketball legs to score." });
+    return;
+  }
+  await tg("sendMessage", { chat_id: chatId, text: "Picking the 2 surest legs from live form." });
+  const result = await scorePlayable(picks);
+  const top = keepTop(result.picks, 2);
+  if (!top.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "Could not pick two sure legs from that ticket." });
+    return;
+  }
+  const note = top
+    .map((p) => `${p.probability}% ${p.home} vs ${p.away} — ${p.selection}`)
+    .join("\n");
+  await mintAndReply(chatId, top, "ng", `Sure 2 odds\n${note}`);
+}
+
+async function mintKeepersAndReply(chatId: number, picks: TicketPick[]) {
+  await tg("sendMessage", { chat_id: chatId, text: "Cutting weak legs, then minting keepers." });
+  const result = await scorePlayable(picks);
+  const kept = result.kept.filter((p) => p.sporty);
+  if (!kept.length) {
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: formatAnalysis(result.picks, "Nothing cleared the keep line."),
+    });
+    return;
+  }
+  await mintAndReply(chatId, kept, "ng", `Keepers · ${kept.length} legs at ${KEEP_LINE}%+`);
+}
+
 async function handleCode(chatId: number, code: string) {
   const loaded = await loadBookingCode(code, "ng");
   if ("error" in loaded) {
@@ -124,8 +218,10 @@ async function handleCode(chatId: number, code: string) {
       "",
       listPicks(loaded.picks),
       "",
-      "Mint a new SportyBet code from the football/basketball legs, or split/trim first.",
-    ].join("\n").slice(0, 3900),
+      "Analyze the form, mint Sure 2 odds, or rebuild the ticket.",
+    ]
+      .join("\n")
+      .slice(0, 3900),
     reply_markup: keyboard(loaded.shareCode),
   });
 }
@@ -147,6 +243,18 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       return;
     }
     const base = playable(loaded.picks);
+    if (kind === "a") {
+      await analyzeAndReply(chatId, base, loaded.shareCode);
+      return;
+    }
+    if (kind === "k") {
+      await sureTwoAndReply(chatId, base);
+      return;
+    }
+    if (kind === "g") {
+      await mintKeepersAndReply(chatId, base);
+      return;
+    }
     if (kind === "m") {
       await mintAndReply(chatId, base, "ng", `SportyBet code · ${base.length} legs`);
       return;
@@ -186,7 +294,8 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "SlipCut on Telegram.",
         "",
         "Send a SportyBet booking code.",
-        "I list the legs, then you mint a new code after a cut, split, or trim.",
+        "Analyze scores football and basketball on live form.",
+        "Sure 2 odds mints the two strongest legs.",
         "",
         "Football and basketball only.",
       ].join("\n"),
