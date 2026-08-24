@@ -5,6 +5,8 @@ export type ShareOutcome = {
   estimateStartTime?: number;
   homeTeamName?: string;
   awayTeamName?: string;
+  status?: number;
+  banned?: boolean;
   sport?: {
     id?: string;
     name?: string;
@@ -182,6 +184,138 @@ export async function mintShare(
 
 export function sportyOf(picks: TicketPick[]): SportySelection[] {
   return picks.map((p) => p.sporty).filter((s): s is SportySelection => Boolean(s?.eventId));
+}
+
+const FOOTBALL_LEAGUES =
+  /premier league|laliga|la liga|serie a|bundesliga|ligue 1|champions league|europa league|conference league|eredivisie|primeira|championship|mls|copa libertadores|nations league|pro league|saudi/i;
+const BASKETBALL_LEAGUES = /nba|euroleague|eurocup|ncaa|wnba|nbl|acb|bbl/i;
+
+type EventMarket = {
+  id?: string;
+  desc?: string;
+  specifier?: string;
+  status?: number;
+  outcomes?: Array<{ id?: string; desc?: string; odds?: string; isActive?: number }>;
+};
+
+type EventDetail = {
+  eventId?: string;
+  estimateStartTime?: number;
+  status?: number;
+  banned?: boolean;
+  homeTeamName?: string;
+  awayTeamName?: string;
+  sport?: ShareOutcome["sport"];
+  markets?: EventMarket[];
+};
+
+async function sportyGet(path: string): Promise<unknown> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const res = await fetch(`https://www.sportybet.com/api/ng${path}`, {
+      signal: controller.signal,
+      headers: sportyHeaders(),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function leagueName(sport?: ShareOutcome["sport"]) {
+  return sport?.category?.tournament?.name ?? "";
+}
+
+function pickMainMarket(markets: EventMarket[], sport: "football" | "basketball") {
+  const open = markets.filter((m) => m.status === 0 && (m.outcomes ?? []).some((o) => o.isActive === 1));
+  if (sport === "football") {
+    return open.find((m) => m.id === "1" || /^1x2$/i.test(m.desc ?? "")) ?? null;
+  }
+  return (
+    open.find((m) => m.id === "219") ||
+    open.find((m) => /winner/i.test(m.desc ?? "") && (m.outcomes ?? []).length >= 2) ||
+    null
+  );
+}
+
+function favoriteOutcome(market: EventMarket) {
+  const live = (market.outcomes ?? []).filter((o) => o.isActive === 1 && o.id != null);
+  return live
+    .slice()
+    .sort((a, b) => Number(a.odds ?? 99) - Number(b.odds ?? 99))[0];
+}
+
+function eventToPick(ev: EventDetail, sport: "football" | "basketball"): TicketPick | null {
+  if (!ev.eventId || ev.status !== 0 || ev.banned) return null;
+  const market = pickMainMarket(ev.markets ?? [], sport);
+  const outcome = market ? favoriteOutcome(market) : undefined;
+  if (!market?.id || outcome?.id == null) return null;
+  const odds = outcome.odds ? Number(outcome.odds) : undefined;
+  return {
+    id: `${ev.eventId}-${market.id}-${outcome.id}`,
+    sport,
+    league: leagueName(ev.sport),
+    country: ev.sport?.category?.name,
+    home: ev.homeTeamName ?? "Home",
+    away: ev.awayTeamName ?? "Away",
+    market: market.desc ?? "Market",
+    selection: outcome.desc ?? "Selection",
+    odds: Number.isFinite(odds) ? odds : undefined,
+    kickoff: ev.estimateStartTime,
+    sporty: {
+      eventId: String(ev.eventId),
+      marketId: String(market.id),
+      outcomeId: String(outcome.id),
+      specifier: market.specifier ? String(market.specifier) : undefined,
+    },
+  };
+}
+
+export async function listUpcomingPicks(
+  sport: "football" | "basketball",
+  limit = 14,
+): Promise<TicketPick[] | { error: string }> {
+  const sportId = sport === "basketball" ? "sr:sport:2" : "sr:sport:1";
+  const payload = (await sportyGet(
+    `/factsCenter/commonThumbnailEvents?sportId=${encodeURIComponent(sportId)}`,
+  )) as SharePayload & { data?: Array<{ name?: string; events?: ShareOutcome[] }> } | null;
+  const tours = Array.isArray(payload?.data) ? payload.data : [];
+  if (!tours.length) return { error: `No upcoming ${sport} on SportyBet right now.` };
+
+  const prefer = sport === "basketball" ? BASKETBALL_LEAGUES : FOOTBALL_LEAGUES;
+  const now = Date.now();
+  const upcoming = tours
+    .flatMap((t) => (t.events ?? []).map((e) => ({ ...e, leagueHint: t.name ?? leagueName(e.sport) })))
+    .filter((e) => e.status === 0 && !e.banned && e.eventId && (e.estimateStartTime ?? 0) > now - 60_000)
+    .sort((a, b) => {
+      const ap = prefer.test(a.leagueHint ?? "") ? 0 : 1;
+      const bp = prefer.test(b.leagueHint ?? "") ? 0 : 1;
+      if (ap !== bp) return ap - bp;
+      return (a.estimateStartTime ?? 0) - (b.estimateStartTime ?? 0);
+    })
+    .slice(0, Math.max(limit, 8));
+
+  const details = await Promise.all(
+    upcoming.map(async (e) => {
+      const body = (await sportyGet(
+        `/factsCenter/event?eventId=${encodeURIComponent(String(e.eventId))}&productId=3`,
+      )) as { data?: EventDetail } | null;
+      return body?.data ?? null;
+    }),
+  );
+
+  const picks: TicketPick[] = [];
+  details.forEach((ev, i) => {
+    if (!ev) return;
+    const pick = eventToPick(ev, sport);
+    if (pick) picks.push(pick);
+  });
+  if (!picks.length) return { error: `Could not read ${sport} markets on SportyBet.` };
+  return picks.slice(0, limit);
 }
 
 function sportyHeaders(): Record<string, string> {

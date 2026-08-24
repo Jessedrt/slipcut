@@ -1,6 +1,6 @@
 import { analyzePicks } from "./analyze";
 import { extractShareCode } from "./parse-ticket";
-import { loadBookingCode, mintShare, sportyOf } from "./sportybet";
+import { loadBookingCode, listUpcomingPicks, mintShare, sportyOf } from "./sportybet";
 import { copyRebuild, keepTop, splitEven, trimToOdds } from "./workbench";
 import type { AnalyzedPick, TicketPick } from "./types";
 
@@ -174,7 +174,12 @@ async function analyzeAndReply(chatId: number, picks: TicketPick[], code: string
   });
 }
 
-async function sureNAndReply(chatId: number, picks: TicketPick[], count: number) {
+async function sureNAndReply(
+  chatId: number,
+  picks: TicketPick[],
+  count: number,
+  title = "",
+) {
   const n = Math.max(1, Math.min(10, Math.round(count) || 2));
   if (!picks.length) {
     await tg("sendMessage", { chat_id: chatId, text: "No football or basketball legs to score." });
@@ -193,7 +198,27 @@ async function sureNAndReply(chatId: number, picks: TicketPick[], count: number)
   const note = top
     .map((p) => `${p.probability}% ${p.home} vs ${p.away} — ${p.selection}`)
     .join("\n");
-  await mintAndReply(chatId, top, "ng", `${top.length} odds\n${note}`);
+  await mintAndReply(chatId, top, "ng", title || `${top.length} odds\n${note}`);
+}
+
+async function createSportSlip(chatId: number, sport: "football" | "basketball", count: number) {
+  const n = Math.max(1, Math.min(10, Math.round(count) || 5));
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: `Building a ${n} odds ${sport} slip from upcoming SportyBet games.`,
+  });
+  const listed = await listUpcomingPicks(sport, Math.min(14, Math.max(n + 4, 10)));
+  if ("error" in listed) {
+    await tg("sendMessage", { chat_id: chatId, text: listed.error });
+    return;
+  }
+  await sureNAndReply(chatId, listed, n, `${n} odds ${sport}`);
+}
+
+function parseSport(text: string): "football" | "basketball" | null {
+  if (/basket|hoop/i.test(text)) return "basketball";
+  if (/foot|soccer/i.test(text)) return "football";
+  return null;
 }
 
 async function mintKeepersAndReply(chatId: number, picks: TicketPick[]) {
@@ -244,7 +269,7 @@ function codeFromText(raw?: string): string | null {
 
 function parseOddsCount(text: string): number | null {
   const m =
-    text.match(/(?:sure\s*)?(\d{1,2})\s*odds\b/i) ||
+    text.match(/(?:sure\s*)?(\d{1,2})\s*odds?\b/i) ||
     text.match(/^\/odds(?:@\w+)?\s+(\d{1,2})\b/i);
   if (!m) return null;
   const n = Number(m[1]);
@@ -263,6 +288,11 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     if (!chatId) return;
     const [kind, code, arg] = data.split(":");
     if (!code) return;
+    if (kind === "c") {
+      const sport = code === "b" ? "basketball" : "football";
+      await createSportSlip(chatId, sport, Number(arg || 10));
+      return;
+    }
     const loaded = await loadBookingCode(code, "ng");
     if ("error" in loaded) {
       await tg("sendMessage", { chat_id: chatId, text: loaded.error });
@@ -319,37 +349,71 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       text: [
         "SlipCut on Telegram.",
         "",
-        "Send a SportyBet booking code.",
-        "Analyze scores football and basketball on live form.",
-        "Tap 2 odds, 3 odds, 4 odds… or type: MQVZ70 3 odds",
+        "Send a SportyBet booking code — or ask me to build one:",
+        "create a 10 odds football slip",
+        "create a 10 odds basketball slip",
         "",
         "Football and basketball only.",
       ].join("\n"),
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: "10 odds football", callback_data: "c:f:10" },
+            { text: "10 odds basketball", callback_data: "c:b:10" },
+          ],
+          [
+            { text: "5 odds football", callback_data: "c:f:5" },
+            { text: "5 odds basketball", callback_data: "c:b:5" },
+          ],
+        ],
+      },
     });
     return;
   }
   const oddsCount = parseOddsCount(text);
+  const sport = parseSport(text);
   const code = codeFromText(text) || codeFromText(msg.reply_to_message?.text);
+  if (oddsCount && sport && !code) {
+    await createSportSlip(msg.chat.id, sport, oddsCount);
+    return;
+  }
   if (oddsCount && code) {
     const loaded = await loadBookingCode(code, "ng");
     if ("error" in loaded) {
       await tg("sendMessage", { chat_id: msg.chat.id, text: loaded.error });
       return;
     }
-    await sureNAndReply(msg.chat.id, playable(loaded.picks), oddsCount);
+    const base = playable(loaded.picks);
+    const filtered = sport ? base.filter((p) => p.sport === sport) : base;
+    if (sport && !filtered.length) {
+      await tg("sendMessage", {
+        chat_id: msg.chat.id,
+        text: `That ticket has no ${sport} legs. Building a fresh ${oddsCount} odds ${sport} slip instead.`,
+      });
+      await createSportSlip(msg.chat.id, sport, oddsCount);
+      return;
+    }
+    await sureNAndReply(msg.chat.id, filtered, oddsCount);
+    return;
+  }
+  if (sport && !oddsCount && !code) {
+    await tg("sendMessage", {
+      chat_id: msg.chat.id,
+      text: `How many ${sport} odds? Example: 10 odds ${sport}`,
+    });
     return;
   }
   if (oddsCount && !code) {
     await tg("sendMessage", {
       chat_id: msg.chat.id,
-      text: `Send a booking code first, or type it with the count (example MQVZ70 ${oddsCount} odds).`,
+      text: `Say the sport too — example: ${oddsCount} odds football\nor send a booking code: MQVZ70 ${oddsCount} odds.`,
     });
     return;
   }
   if (!code) {
     await tg("sendMessage", {
       chat_id: msg.chat.id,
-      text: "Send a SportyBet booking code (example MQVZ70).\nOr MQVZ70 3 odds.",
+      text: "Send a SportyBet booking code, or ask: create a 10 odds football slip.",
     });
     return;
   }
