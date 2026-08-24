@@ -48,6 +48,15 @@ function keyboard(code: string) {
     inline_keyboard: [
       [
         { text: "Analyze", callback_data: `a:${code}` },
+        { text: "Trim", callback_data: `g:${code}` },
+      ],
+      [
+        { text: "8 legs", callback_data: `k:${code}:8` },
+        { text: "12 legs", callback_data: `k:${code}:12` },
+        { text: "20 legs", callback_data: `k:${code}:20` },
+      ],
+      [
+        { text: "Reduce to 10", callback_data: `k:${code}:10` },
         { text: "Mint all", callback_data: `m:${code}` },
       ],
     ],
@@ -55,9 +64,7 @@ function keyboard(code: string) {
 }
 
 function afterAnalyzeKeyboard(code: string) {
-  return {
-    inline_keyboard: [[{ text: "Mint all", callback_data: `m:${code}` }]],
-  };
+  return keyboard(code);
 }
 
 function listPicks(picks: TicketPick[]) {
@@ -238,7 +245,7 @@ function parseSport(text: string): "football" | "basketball" | null {
 }
 
 async function mintKeepersAndReply(chatId: number, picks: TicketPick[]) {
-  await tg("sendMessage", { chat_id: chatId, text: "Minting the strongest legs from live form." });
+  await tg("sendMessage", { chat_id: chatId, text: "Trimming to the strongest half." });
   const result = await scorePlayable(picks);
   const count = Math.max(2, Math.ceil(result.picks.filter((p) => p.sport !== "other").length / 2));
   const strongest = keepTop(result.picks, count).filter((p) => p.sporty);
@@ -266,7 +273,7 @@ async function handleCode(chatId: number, code: string) {
       "",
       listPicks(loaded.picks),
       "",
-      "Ask how many legs to keep, or Analyze / Mint all.",
+      "Trim cuts to the strongest half. Or tap 8 / 12 / 20 legs, or type: 10 legs.",
     ]
       .join("\n")
       .slice(0, 3900),
@@ -379,6 +386,15 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   const legCount = parseLegCount(text);
   const sport = parseSport(text);
   const code = codeFromText(text) || codeFromText(msg.reply_to_message?.text);
+  if (code && !legCount && /^\s*trim\b/i.test(text)) {
+    const loaded = await loadBookingCode(code, "ng");
+    if ("error" in loaded) {
+      await tg("sendMessage", { chat_id: msg.chat.id, text: loaded.error });
+      return;
+    }
+    await mintKeepersAndReply(msg.chat.id, playable(loaded.picks));
+    return;
+  }
   if (legCount && sport && !code) {
     await createSportSlip(msg.chat.id, sport, legCount);
     return;
