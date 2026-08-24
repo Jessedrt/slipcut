@@ -1,0 +1,12 @@
+node_modules
+.vercel
+.nitro
+screenshots
+artifacts
+*.log
+.grok/skills
+.grok/references
+.grok/status
+AGENTS.md
+startup.sh
+.DS_Store
