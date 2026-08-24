@@ -76,11 +76,26 @@ async function mintAndReply(chatId: number, picks: TicketPick[], country: string
     await tg("sendMessage", { chat_id: chatId, text: minted.error });
     return;
   }
-  const text = [
+  const code = minted.shareCode;
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: `<code>${esc(code)}</code>`,
+    parse_mode: "HTML",
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "Copy code", copy_text: { text: code } }],
+        [{ text: "Open on SportyBet", url: minted.shareURL }],
+        [
+          {
+            text: "Share",
+            url: `https://t.me/share/url?url=${encodeURIComponent(minted.shareURL)}&text=${encodeURIComponent(code)}`,
+          },
+        ],
+      ],
+    },
+  });
+  const detail = [
     title,
-    "",
-    minted.shareCode,
-    minted.shareURL,
     "",
     copyRebuild(picks),
     minted.unavailable ? `\n${minted.unavailable} leg(s) were unavailable.` : "",
@@ -88,16 +103,11 @@ async function mintAndReply(chatId: number, picks: TicketPick[], country: string
     .filter(Boolean)
     .join("\n")
     .slice(0, 3900);
-  await tg("sendMessage", {
-    chat_id: chatId,
-    text,
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "Open on SportyBet", url: minted.shareURL }],
-        [{ text: "Share on Telegram", url: `https://t.me/share/url?url=${encodeURIComponent(minted.shareURL)}&text=${encodeURIComponent(minted.shareCode)}` }],
-      ],
-    },
-  });
+  await tg("sendMessage", { chat_id: chatId, text: detail });
+}
+
+function esc(s: string) {
+  return s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
 }
 
 async function handleCode(chatId: number, code: string) {
