@@ -209,6 +209,19 @@ type EventDetail = {
   markets?: EventMarket[];
 };
 
+async function mapPool<T, R>(items: T[], width: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < items.length) {
+      const i = cursor++;
+      out[i] = await fn(items[i] as T);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(width, items.length) }, () => worker()));
+  return out;
+}
+
 async function sportyGet(path: string): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10_000);
@@ -377,16 +390,14 @@ export async function listUpcomingPicks(
       if (ap !== bp) return ap - bp;
       return (a.estimateStartTime ?? 0) - (b.estimateStartTime ?? 0);
     })
-    .slice(0, Math.max(limit + 4, 12));
+    .slice(0, Math.max(limit + 8, 12));
 
-  const details = await Promise.all(
-    upcoming.map(async (e) => {
-      const body = (await sportyGet(
-        `/factsCenter/event?eventId=${encodeURIComponent(String(e.eventId))}&productId=3`,
-      )) as { data?: EventDetail } | null;
-      return body?.data ?? null;
-    }),
-  );
+  const details = await mapPool(upcoming, 6, async (e) => {
+    const body = (await sportyGet(
+      `/factsCenter/event?eventId=${encodeURIComponent(String(e.eventId))}&productId=3`,
+    )) as { data?: EventDetail } | null;
+    return body?.data ?? null;
+  });
 
   const used: Record<string, number> = {};
   const picks: TicketPick[] = [];

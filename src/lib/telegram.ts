@@ -4,8 +4,14 @@ import { loadBookingCode, listUpcomingPicks, mintShare, sportyOf } from "./sport
 import { copyRebuild, keepTop, splitEven, trimToOdds } from "./workbench";
 import type { AnalyzedPick, TicketPick } from "./types";
 
+const MAX_ODDS = 50;
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
 const KEEP_LINE = 48;
+
+function clampOdds(n: number, fallback: number) {
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(1, Math.min(MAX_ODDS, Math.round(n)));
+}
 
 type TgUser = { id: number; username?: string };
 type TgChat = { id: number };
@@ -97,6 +103,22 @@ async function mintAndReply(chatId: number, picks: TicketPick[], country: string
     return;
   }
   const minted = await mintShare(selections, country);
+  if ("error" in minted && selections.length > 20) {
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `SportyBet would not take ${selections.length} in one code. Splitting.`,
+    });
+    const size = 20;
+    for (let i = 0; i < picks.length; i += size) {
+      await mintAndReply(
+        chatId,
+        picks.slice(i, i + size),
+        country,
+        `${title} · part ${Math.floor(i / size) + 1}`,
+      );
+    }
+    return;
+  }
   if ("error" in minted) {
     await tg("sendMessage", { chat_id: chatId, text: minted.error });
     return;
@@ -180,7 +202,7 @@ async function sureNAndReply(
   count: number,
   title = "",
 ) {
-  const n = Math.max(1, Math.min(10, Math.round(count) || 2));
+  const n = clampOdds(count, 2);
   if (!picks.length) {
     await tg("sendMessage", { chat_id: chatId, text: "No football or basketball legs to score." });
     return;
@@ -202,17 +224,30 @@ async function sureNAndReply(
 }
 
 async function createSportSlip(chatId: number, sport: "football" | "basketball", count: number) {
-  const n = Math.max(1, Math.min(10, Math.round(count) || 5));
+  const n = clampOdds(count, 5);
   await tg("sendMessage", {
     chat_id: chatId,
     text: `Building a ${n} odds ${sport} slip — not only 1X2. Mixing double chance, over/under, GG, and winners.`,
   });
-  const listed = await listUpcomingPicks(sport, Math.min(14, Math.max(n + 4, 10)));
+  const listed = await listUpcomingPicks(sport, Math.min(MAX_ODDS + 8, Math.max(n + 8, 12)));
   if ("error" in listed) {
     await tg("sendMessage", { chat_id: chatId, text: listed.error });
     return;
   }
-  await sureNAndReply(chatId, listed, n, `${n} odds ${sport}`);
+  const take = listed.slice(0, n);
+  if (!take.length) {
+    await tg("sendMessage", { chat_id: chatId, text: `No upcoming ${sport} to book.` });
+    return;
+  }
+  const title =
+    take.length < n
+      ? `${take.length} odds ${sport} — only ${take.length} upcoming games on SportyBet`
+      : `${take.length} odds ${sport}`;
+  if (take.length <= 8) {
+    await sureNAndReply(chatId, take, take.length, title);
+    return;
+  }
+  await mintAndReply(chatId, take, "ng", title);
 }
 
 function parseSport(text: string): "football" | "basketball" | null {
@@ -260,11 +295,11 @@ async function handleCode(chatId: number, code: string) {
 
 function codeFromText(raw?: string): string | null {
   if (!raw) return null;
-  return (
-    extractShareCode(raw) ||
-    raw.match(/^([A-Z0-9]{4,16})(?:\s|$|·)/i)?.[1]?.toUpperCase() ||
-    null
-  );
+  const labeled = extractShareCode(raw);
+  if (labeled && /\d/.test(labeled)) return labeled;
+  const head = raw.match(/^([A-Z0-9]{4,16})(?:\s|$|·)/i)?.[1];
+  if (head && /\d/.test(head) && /^[A-Z0-9]{4,16}$/i.test(head)) return head.toUpperCase();
+  return null;
 }
 
 function parseOddsCount(text: string): number | null {
@@ -273,7 +308,7 @@ function parseOddsCount(text: string): number | null {
     text.match(/^\/odds(?:@\w+)?\s+(\d{1,2})\b/i);
   if (!m) return null;
   const n = Number(m[1]);
-  if (!Number.isFinite(n) || n < 1 || n > 10) return null;
+  if (!Number.isFinite(n) || n < 1 || n > MAX_ODDS) return null;
   return n;
 }
 
@@ -351,9 +386,9 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "",
         "Send a SportyBet booking code — or ask me to build one:",
         "create a 10 odds football slip",
-        "create a 10 odds basketball slip",
+        "create a 50 odds basketball slip",
         "",
-        "Football and basketball only.",
+        "Football and basketball only. Up to 50 odds.",
       ].join("\n"),
       reply_markup: {
         inline_keyboard: [
@@ -362,8 +397,12 @@ export async function handleTelegramUpdate(update: TgUpdate) {
             { text: "10 odds basketball", callback_data: "c:b:10" },
           ],
           [
-            { text: "5 odds football", callback_data: "c:f:5" },
-            { text: "5 odds basketball", callback_data: "c:b:5" },
+            { text: "20 odds football", callback_data: "c:f:20" },
+            { text: "20 odds basketball", callback_data: "c:b:20" },
+          ],
+          [
+            { text: "50 odds football", callback_data: "c:f:50" },
+            { text: "50 odds basketball", callback_data: "c:b:50" },
           ],
         ],
       },
