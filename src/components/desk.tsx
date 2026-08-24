@@ -1,12 +1,5 @@
-import {
-  ClipboardPaste,
-  ImageIcon,
-  Loader2,
-  ScanLine,
-  Ticket,
-  Trash2,
-} from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { Loader2, ScanLine, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Mark } from "@/components/mark";
 import { Workbench } from "@/components/workbench";
@@ -16,21 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
-import { Textarea } from "@/components/ui/textarea";
 import { cutSlip, loadTicket, connectTelegram } from "@/lib/analyze";
 import { applyThreshold, combinedChance, slipLabel } from "@/lib/format";
 import { useHistory } from "@/lib/history";
 import { SAMPLE_SLIPS } from "@/lib/samples";
 import type { CutInput } from "@/lib/analyze";
-import type { CutResult, InputMode, TicketPick } from "@/lib/types";
+import type { CutResult, TicketPick } from "@/lib/types";
 import { COUNTRIES, DEFAULT_THRESHOLD } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-const MODES: { id: InputMode; label: string; icon: typeof Ticket }[] = [
-  { id: "code", label: "Code", icon: Ticket },
-  { id: "text", label: "Paste", icon: ClipboardPaste },
-  { id: "image", label: "Shot", icon: ImageIcon },
-];
 
 const PRESETS = [
   { label: "Lenient", value: 48 },
@@ -45,37 +31,9 @@ const LOADING = [
   "Cutting the weak legs",
 ];
 
-async function fileToJpeg(file: File): Promise<{ mime: string; data: string }> {
-  const bitmap = await createImageBitmap(file);
-  const max = 1280;
-  const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(bitmap.width * scale);
-  canvas.height = Math.round(bitmap.height * scale);
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Could not read image");
-  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob(resolve, "image/jpeg", 0.72),
-  );
-  if (!blob) throw new Error("Could not compress image");
-  const buf = await blob.arrayBuffer();
-  const bytes = new Uint8Array(buf);
-  let binary = "";
-  const chunk = 0x2000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return { mime: "image/jpeg", data: btoa(binary) };
-}
-
 export function Desk() {
-  const [mode, setMode] = useState<InputMode>("code");
   const [country, setCountry] = useState("ng");
   const [code, setCode] = useState("");
-  const [text, setText] = useState("");
-  const [imageName, setImageName] = useState<string | null>(null);
-  const [image, setImage] = useState<{ mime: string; data: string } | null>(null);
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD);
   const [busy, setBusy] = useState(false);
   const [busyNote, setBusyNote] = useState(LOADING[0]);
@@ -83,7 +41,6 @@ export function Desk() {
   const [result, setResult] = useState<CutResult | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [tgBusy, setTgBusy] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
   const history = useHistory();
 
   const view = useMemo(() => {
@@ -96,21 +53,6 @@ export function Desk() {
       combinedKeepChance: combinedChance(split.kept),
     };
   }, [result, threshold]);
-
-  async function attachFile(file: File) {
-    if (!file.type.startsWith("image/")) {
-      toast.error("Use a screenshot image.");
-      return;
-    }
-    try {
-      const packed = await fileToJpeg(file);
-      setImage(packed);
-      setImageName(file.name);
-      setMode("image");
-    } catch {
-      toast.error("Could not read that image.");
-    }
-  }
 
   async function run(input: CutInput, label?: string) {
     setBusy(true);
@@ -142,26 +84,16 @@ export function Desk() {
   }
 
   function onAnalyze() {
-    if (mode === "code") {
-      return run({ mode: "code", code, country, threshold });
+    if (!code.trim()) {
+      setError("Enter a SportyBet booking code.");
+      return;
     }
-    if (mode === "image") {
-      if (!image) {
-        setError("Attach a screenshot of the ticket.");
-        return;
-      }
-      return run({ mode: "image", image, threshold });
-    }
-    return run({ mode: "text", text, country, threshold });
+    return run({ mode: "code", code, country, threshold });
   }
 
   function loadSample(id: string) {
     const sample = SAMPLE_SLIPS.find((s) => s.id === id);
     if (!sample) return;
-    setMode("text");
-    setText(sample.text);
-    setImage(null);
-    setImageName(null);
     void run(
       { mode: "picks", picks: sample.picks as TicketPick[], threshold },
       sample.title,
@@ -254,125 +186,37 @@ export function Desk() {
           </div>
 
         <section className="paper rounded-xl p-4 sm:p-6">
-          <div
-            role="tablist"
-            className="grid grid-cols-3 rounded-lg bg-muted p-1"
-          >
-            {MODES.map((m) => {
-              const Icon = m.icon;
-              const active = mode === m.id;
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => setMode(m.id)}
-                  className={cn(
-                    "inline-flex h-11 items-center justify-center gap-2 rounded-md text-sm font-medium transition-colors duration-150",
-                    active
-                      ? "bg-paper text-ink"
-                      : "text-ink/50 hover:text-ink",
-                  )}
-                >
-                  <Icon className="size-4" />
-                  {m.label}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="mt-5">
-            {mode === "code" ? (
-              <div className="grid gap-4 sm:grid-cols-[1fr_9.5rem]">
-                <div>
-                  <Label htmlFor="code">Booking code</Label>
-                  <Input
-                    id="code"
-                    className="mt-1.5 font-mono uppercase tracking-wider"
-                    placeholder="MQVZ70"
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                    autoCapitalize="characters"
-                    autoCorrect="off"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="country">Market</Label>
-                  <select
-                    id="country"
-                    value={country}
-                    onChange={(e) => setCountry(e.target.value)}
-                    className="mt-1.5 flex h-11 w-full rounded-md border border-border bg-muted px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                  >
-                    {COUNTRIES.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            ) : null}
-
-            {mode === "text" ? (
-              <div>
-                <Label htmlFor="slip">Paste the slip</Label>
-                <Textarea
-                  id="slip"
-                  className="mt-1.5 min-h-48 font-mono text-[0.8rem] leading-relaxed"
-                  placeholder={"Arsenal vs Chelsea\n1X2 Home\n\nOr paste an X / SportyBet link"}
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  onPaste={(e) => {
-                    const item = [...e.clipboardData.items].find((i) =>
-                      i.type.startsWith("image/"),
-                    );
-                    const file = item?.getAsFile();
-                    if (file) {
-                      e.preventDefault();
-                      void attachFile(file);
-                    }
-                  }}
-                />
-              </div>
-            ) : null}
-
-            {mode === "image" ? (
-              <div>
-                <Label>Ticket screenshot</Label>
-                <button
-                  type="button"
-                  onClick={() => fileRef.current?.click()}
-                  onPaste={(e) => {
-                    const item = [...e.clipboardData.items].find((i) =>
-                      i.type.startsWith("image/"),
-                    );
-                    const file = item?.getAsFile();
-                    if (file) void attachFile(file);
-                  }}
-                  className="mt-1.5 flex min-h-40 w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted px-4 text-center"
-                >
-                  <ScanLine className="size-5 text-muted-foreground" />
-                  <span className="text-sm text-foreground">
-                    {imageName ?? "Drop, paste, or choose a screenshot"}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    Vision is off on this desk. Use a booking code or paste the slip.
-                  </span>
-                </button>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) void attachFile(file);
-                  }}
-                />
-              </div>
-            ) : null}
+          <div className="grid gap-4 sm:grid-cols-[1fr_9.5rem]">
+            <div>
+              <Label htmlFor="code">Booking code</Label>
+              <Input
+                id="code"
+                className="mt-1.5 font-mono uppercase tracking-wider"
+                placeholder="MQVZ70"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void onAnalyze();
+                }}
+                autoCapitalize="characters"
+                autoCorrect="off"
+              />
+            </div>
+            <div>
+              <Label htmlFor="country">Market</Label>
+              <select
+                id="country"
+                value={country}
+                onChange={(e) => setCountry(e.target.value)}
+                className="mt-1.5 flex h-11 w-full rounded-md border border-border bg-muted px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              >
+                {COUNTRIES.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <Separator className="my-5" />
