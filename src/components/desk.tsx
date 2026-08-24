@@ -181,7 +181,7 @@ export function Desk() {
             </h1>
             <p className="mt-5 max-w-md text-base leading-relaxed text-muted-foreground">
               Load a SportyBet code. Football and basketball are scored on live form — not the
-              price. Then split, trim, mint a new code, and send it on Telegram.
+              price. Then split, trim, and mint a new code.
             </p>
           </div>
 
@@ -333,7 +333,7 @@ export function Desk() {
               },
               {
                 t: "Rebuild",
-                d: "Mint a new SportyBet booking code from the edited legs, then send it on Telegram.",
+                d: "Mint a new SportyBet booking code from the edited legs.",
               },
             ].map((item) => (
               <div key={item.t} className="ticket rounded-lg">
