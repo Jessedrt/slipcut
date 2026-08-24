@@ -42,7 +42,7 @@ const PRESETS = [
 const LOADING = [
   "Loading the ticket",
   "Keeping football and basketball",
-  "Scoring form, not the line",
+  "Reading live form",
   "Cutting the weak legs",
 ];
 
@@ -318,7 +318,7 @@ export function Desk() {
                     {imageName ?? "Drop, paste, or choose a screenshot"}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    SportyBet slip photos work. JPEG or PNG.
+                    Vision is off on this desk. Use a booking code or paste the slip.
                   </span>
                 </button>
                 <input
@@ -488,11 +488,11 @@ export function Desk() {
             {[
               {
                 t: "Load",
-                d: "Booking code, pasted slip, or a screenshot. Tennis and virtuals are dropped on sight.",
+                d: "Booking code or pasted slip. Tennis and virtuals are dropped on sight.",
               },
               {
                 t: "Score",
-                d: "Each selection is read as a match question. The listed odd is stored, never consulted.",
+                d: "Each selection is scored from live form and news. The listed odd is stored, never consulted.",
               },
               {
                 t: "Cut",

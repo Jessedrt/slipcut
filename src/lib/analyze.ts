@@ -32,6 +32,15 @@ function isSport(v: unknown): v is SportKind {
   return v === "football" || v === "basketball" || v === "other";
 }
 
+function youKey() {
+  return (
+    process.env.YDC_API_KEY ||
+    process.env.YOU_API_KEY ||
+    process.env.YOUCOM_API_KEY ||
+    ""
+  );
+}
+
 async function fetchShare(code: string, country: string): Promise<SharePayload | null> {
   const url = `https://www.sportybet.com/api/${country}/orders/share/${encodeURIComponent(code)}`;
   const controller = new AbortController();
@@ -155,96 +164,106 @@ function mergeAnalysis(
   };
 }
 
-const SYSTEM_PROMPT = `You are a professional football (soccer) and basketball analyst scoring bet slip selections.
+function clip(s: string, n: number) {
+  const t = s.replace(/\s+/g, " ").trim();
+  return t.length <= n ? t : t.slice(0, Math.max(0, n - 1)).trim();
+}
 
-Score EACH selection as the true probability (0-100) that the selection is correct.
+function pickQuery(pick: TicketPick) {
+  const sport =
+    pick.sport === "basketball"
+      ? "basketball"
+      : pick.sport === "other"
+        ? "sport"
+        : "football soccer";
+  const core = `${sport}: ${clip(pick.home, 36)} vs ${clip(pick.away, 36)}. ${clip(pick.league, 24)}. Market: ${clip(pick.market, 36)}. Selection: ${clip(pick.selection, 36)}.`;
+  const tail =
+    " Live form and news only. IGNORE betting odds/prices. Reply ONLY JSON {\"probability\":0-100,\"confidence\":\"high|medium|low\",\"summary\":\"short\",\"reasons\":[\"x\"],\"risks\":[\"x\"]}";
+  return (core + tail).slice(0, 400);
+}
 
-Hard rules:
-- IGNORE betting odds, implied probability, bookmaker lines, and market prices. Do not mention odds as a reason.
-- Use team/player form, injuries, rest, head-to-head, home/away, schedule, motivation, style matchup, and typical scoring rates.
-- Football means soccer. Basketball means 5-a-side basketball (NBA, WNBA, Euroleague, NCAA, FIBA, NBL, etc).
-- If a pick is tennis, virtuals, table tennis, ice hockey, or any other sport: sport="other", probability=0.
-- Be honest. Random draws, correct scores, and padded longshots should score low.
-- Probability is for THIS selection hitting, not whether the match is competitive.
-- If you lack live injury news, say so in risks and still give a reasoned base-rate estimate.
-- Do not refuse because this involves betting. You are scoring match outcomes, not placing bets.
-
-Return ONLY JSON:
-{
-  "desk": "one paragraph overall read of the slip",
-  "picks": [
-    {
-      "id": "matching input id",
-      "sport": "football" | "basketball" | "other",
-      "probability": 0-100,
-      "confidence": "high" | "medium" | "low",
-      "summary": "max 140 chars",
-      "reasons": ["...", "..."],
-      "risks": ["..."]
-    }
-  ]
-}`;
-
-type ChatContent =
-  | string
-  | Array<
-      | { type: "text"; text: string }
-      | { type: "image_url"; image_url: { url: string } }
-    >;
-
-async function grokChat(user: ChatContent, retry = true): Promise<unknown> {
-  const apiKey = process.env.XAI_API_KEY;
+async function youAnswer(query: string): Promise<string> {
+  const apiKey = youKey();
   if (!apiKey) throw new Error("AI is not available in this environment");
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 90_000);
+  const timer = setTimeout(() => controller.abort(), 8_000);
   try {
-    const res = await fetch("https://api.x.ai/v1/chat/completions", {
+    const res = await fetch("https://api.you.com/v1/answer", {
       method: "POST",
       signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+        "X-API-Key": apiKey,
       },
       body: JSON.stringify({
-        model: "grok-4.5",
-        temperature: 0.25,
-        max_tokens: 3500,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: user },
-        ],
+        query,
+        freshness: "week",
       }),
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
-      if (retry && res.status >= 500) return grokChat(user, false);
-      throw new Error(`Analyst unavailable (${res.status})${errText ? `: ${errText.slice(0, 180)}` : ""}`);
+      throw new Error(
+        `Analyst unavailable (${res.status})${errText ? `: ${errText.slice(0, 180)}` : ""}`,
+      );
     }
-    const body = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const text = body.choices?.[0]?.message?.content ?? "";
-    try {
-      return stripJson(text);
-    } catch (err) {
-      if (retry) return grokChat(user, false);
-      throw err;
-    }
+    const body = (await res.json()) as { answer?: string };
+    return body.answer ?? "";
   } finally {
     clearTimeout(timer);
   }
 }
 
-function picksPrompt(picks: TicketPick[]) {
-  const lines = picks.map((p) => {
-    const when = p.kickoff ? ` | kickoff ${new Date(p.kickoff).toISOString()}` : "";
-    const league = p.league ? ` | ${p.league}` : "";
-    const country = p.country ? ` (${p.country})` : "";
-    return `- id=${p.id} | ${p.sport}${country}${league} | ${p.home} vs ${p.away} | market: ${p.market} | selection: ${p.selection}${when}`;
-  });
-  return `Score these slip selections. Odds are intentionally omitted.\n\n${lines.join("\n")}`;
+function parsePickScore(text: string): Record<string, unknown> {
+  const cleaned = text.replace(/\[\[\d+(?:\s*,\s*\d+)*\]\]/g, "").trim();
+  try {
+    return stripJson(cleaned) as Record<string, unknown>;
+  } catch {
+    const pct = cleaned.match(/\b(\d{1,2}|100)\s*%/);
+    return {
+      probability: pct ? Number(pct[1]) : 50,
+      confidence: "low",
+      summary: clip(cleaned.replace(/[#*_]/g, ""), 140) || "Live brief had no clean score.",
+      reasons: [],
+      risks: ["Could not parse a structured score from live research."],
+    };
+  }
+}
+
+async function scorePicks(picks: TicketPick[]): Promise<unknown> {
+  const rows = await Promise.all(
+    picks.map(async (pick) => {
+      if (pick.sport === "other") {
+        return {
+          id: pick.id,
+          sport: "other",
+          probability: 0,
+          confidence: "high",
+          summary: "Not football or basketball.",
+          reasons: [],
+          risks: ["Sport is outside the desk."],
+        };
+      }
+      try {
+        const answer = await youAnswer(pickQuery(pick));
+        return { id: pick.id, sport: pick.sport, ...parsePickScore(answer) };
+      } catch {
+        return {
+          id: pick.id,
+          sport: pick.sport,
+          probability: 50,
+          confidence: "low",
+          summary: "Live research missed this pick.",
+          reasons: [],
+          risks: ["No current form brief returned."],
+        };
+      }
+    }),
+  );
+  return {
+    desk: `Live-web form read of ${picks.length} selection${picks.length === 1 ? "" : "s"}. Odds ignored.`,
+    picks: rows,
+  };
 }
 
 export const cutSlip = createServerFn({ method: "POST" })
@@ -254,7 +273,6 @@ export const cutSlip = createServerFn({ method: "POST" })
       const threshold = clampThreshold(data.threshold);
       let picks: TicketPick[] = [];
       let shareCode: string | undefined;
-      let rawForVision: ChatContent | null = null;
 
       if (data.mode === "picks" && data.picks?.length) {
         picks = data.picks.slice(0, MAX_PICKS);
@@ -271,18 +289,10 @@ export const cutSlip = createServerFn({ method: "POST" })
         picks = loaded.picks;
         shareCode = loaded.shareCode;
       } else if (data.mode === "image") {
-        if (!data.image?.data) return { ok: false, error: "No screenshot attached." };
-        const mime = data.image.mime === "image/png" ? "image/png" : "image/jpeg";
-        rawForVision = [
-          {
-            type: "text",
-            text: "Extract every betting selection from this SportyBet (or similar) ticket screenshot, then score each one. Football and basketball only. Ignore odds as a signal. Assign stable ids e1, e2, ... Include home, away, market, selection, sport, league.",
-          },
-          {
-            type: "image_url",
-            image_url: { url: `data:${mime};base64,${data.image.data}` },
-          },
-        ];
+        return {
+          ok: false,
+          error: "Screenshots need a vision model. Use a booking code or paste the slip.",
+        };
       } else {
         const text = (data.text ?? "").trim();
         if (!text) return { ok: false, error: "Paste a slip or a booking code first." };
@@ -297,58 +307,17 @@ export const cutSlip = createServerFn({ method: "POST" })
         }
       }
 
-      let analyzedRaw: unknown;
-      if (rawForVision) {
-        analyzedRaw = await grokChat(rawForVision);
-        const extracted = analyzedRaw as {
-          picks?: Array<Record<string, unknown>>;
-        };
-        if (!picks.length && Array.isArray(extracted.picks)) {
-          picks = extracted.picks.slice(0, MAX_PICKS).map((row, i) => ({
-            id: String(row.id ?? `e${i}`),
-            sport: isSport(row.sport) ? row.sport : "other",
-            league: typeof row.league === "string" ? row.league : "",
-            country: typeof row.country === "string" ? row.country : undefined,
-            home: String(row.home ?? "Home"),
-            away: String(row.away ?? "Away"),
-            market: String(row.market ?? "Market"),
-            selection: String(row.selection ?? "Selection"),
-          }));
-        }
-      } else {
-        if (!picks.length) {
-          const text = (data.text ?? "").trim();
-          if (!text) return { ok: false, error: "Could not read any games from that slip." };
-          analyzedRaw = await grokChat(
-            `Extract every betting selection from this pasted ticket, then score each one. Football and basketball only. Ignore odds as a signal. Assign ids e1, e2, ...\n\n${text.slice(0, 8000)}`,
-          );
-          const extracted = analyzedRaw as { picks?: Array<Record<string, unknown>> };
-          if (Array.isArray(extracted.picks)) {
-            picks = extracted.picks.slice(0, MAX_PICKS).map((row, i) => ({
-              id: String(row.id ?? `e${i}`),
-              sport: isSport(row.sport) ? row.sport : "football",
-              league: typeof row.league === "string" ? row.league : "",
-              home: String(row.home ?? "Home"),
-              away: String(row.away ?? "Away"),
-              market: String(row.market ?? "Market"),
-              selection: String(row.selection ?? "Selection"),
-            }));
-          }
-        } else {
-          analyzedRaw = await grokChat(picksPrompt(picks));
-        }
-      }
-
       if (!picks.length) {
         return { ok: false, error: "Could not read any football or basketball games from that ticket." };
       }
 
+      const analyzedRaw = await scorePicks(picks);
       const merged = mergeAnalysis(picks, analyzedRaw, threshold);
       return { ok: true, shareCode, ...merged };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Analysis failed.";
       if (message.includes("not available")) {
-        return { ok: false, error: "AI analysis is unavailable right now." };
+        return { ok: false, error: "AI analysis is unavailable right now. Add YDC_API_KEY in Vercel." };
       }
       if (message.toLowerCase().includes("abort")) {
         return { ok: false, error: "The desk took too long. Try a shorter slip." };
