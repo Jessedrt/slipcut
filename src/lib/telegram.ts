@@ -43,40 +43,20 @@ async function tg(method: string, payload: Record<string, unknown>) {
   });
 }
 
-function oddsButtons(code: string) {
-  return [2, 3, 4, 5, 6].map((n) => ({
-    text: `${n} odds`,
-    callback_data: `k:${code}:${n}`,
-  }));
-}
-
 function keyboard(code: string) {
-  const odds = oddsButtons(code);
   return {
     inline_keyboard: [
-      [{ text: "Analyze", callback_data: `a:${code}` }],
-      odds.slice(0, 3),
-      odds.slice(3),
       [
+        { text: "Analyze", callback_data: `a:${code}` },
         { text: "Mint all", callback_data: `m:${code}` },
-        { text: "Split 2", callback_data: `s:${code}:2` },
-        { text: "Trim 50×", callback_data: `t:${code}:50` },
       ],
     ],
   };
 }
 
 function afterAnalyzeKeyboard(code: string) {
-  const odds = oddsButtons(code);
   return {
-    inline_keyboard: [
-      odds.slice(0, 3),
-      odds.slice(3),
-      [
-        { text: "Mint all", callback_data: `m:${code}` },
-        { text: "Split 2", callback_data: `s:${code}:2` },
-      ],
-    ],
+    inline_keyboard: [[{ text: "Mint all", callback_data: `m:${code}` }]],
   };
 }
 
@@ -285,7 +265,7 @@ async function handleCode(chatId: number, code: string) {
       "",
       listPicks(loaded.picks),
       "",
-      "Analyze the form, then tap how many odds you want.",
+      "Ask how many odds to keep, or Analyze / Mint all.",
     ]
       .join("\n")
       .slice(0, 3900),
@@ -305,7 +285,8 @@ function codeFromText(raw?: string): string | null {
 function parseOddsCount(text: string): number | null {
   const m =
     text.match(/(?:sure\s*)?(\d{1,2})\s*odds?\b/i) ||
-    text.match(/^\/odds(?:@\w+)?\s+(\d{1,2})\b/i);
+    text.match(/^\/odds(?:@\w+)?\s+(\d{1,2})\b/i) ||
+    (parseSport(text) ? text.match(/\b(\d{1,2})\b/) : null);
   if (!m) return null;
   const n = Number(m[1]);
   if (!Number.isFinite(n) || n < 1 || n > MAX_ODDS) return null;
@@ -384,28 +365,13 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       text: [
         "SlipCut on Telegram.",
         "",
-        "Send a SportyBet booking code — or ask me to build one:",
-        "create a 10 odds football slip",
-        "create a 50 odds basketball slip",
+        "Ask for a slip, for example:",
+        "12 odds football",
+        "50 odds basketball",
         "",
+        "Or send a SportyBet booking code.",
         "Football and basketball only. Up to 50 odds.",
       ].join("\n"),
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "10 odds football", callback_data: "c:f:10" },
-            { text: "10 odds basketball", callback_data: "c:b:10" },
-          ],
-          [
-            { text: "20 odds football", callback_data: "c:f:20" },
-            { text: "20 odds basketball", callback_data: "c:b:20" },
-          ],
-          [
-            { text: "50 odds football", callback_data: "c:f:50" },
-            { text: "50 odds basketball", callback_data: "c:b:50" },
-          ],
-        ],
-      },
     });
     return;
   }
