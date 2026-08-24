@@ -2,13 +2,23 @@ import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { kickoffLabel, pct } from "@/lib/format";
+import { expectedValue, formatEv, formatOdds } from "@/lib/workbench";
 import type { AnalyzedPick } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-export function PickCard({ pick }: { pick: AnalyzedPick }) {
+export function PickCard({
+  pick,
+  onToggle,
+  selected,
+}: {
+  pick: AnalyzedPick;
+  onToggle?: () => void;
+  selected?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const tone =
     pick.verdict === "keep" ? "keep" : pick.verdict === "drop" ? "drop" : "ignore";
+  const ev = expectedValue(pick.probability, pick.odds);
 
   return (
     <article
@@ -17,6 +27,7 @@ export function PickCard({ pick }: { pick: AnalyzedPick }) {
         tone === "keep" && "border-keep/30",
         tone === "drop" && "border-drop/25",
         tone === "ignore" && "border-border opacity-70",
+        selected === false && "opacity-55",
       )}
     >
       <div className="flex items-start justify-between gap-3">
@@ -28,11 +39,20 @@ export function PickCard({ pick }: { pick: AnalyzedPick }) {
             <span className="text-[0.7rem] uppercase tracking-wider text-muted-foreground">
               {pick.sport === "other" ? "other sport" : pick.sport}
             </span>
+            {onToggle && tone !== "ignore" ? (
+              <button
+                type="button"
+                onClick={onToggle}
+                className="h-8 rounded-full border border-border px-2.5 text-[0.65rem] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground"
+              >
+                {selected === false ? "Add" : "Remove"}
+              </button>
+            ) : null}
           </div>
           <h3
             className={cn(
               "mt-2 font-serif text-lg leading-snug tracking-tight text-foreground",
-              tone === "drop" && "line-through decoration-drop/60",
+              (tone === "drop" || selected === false) && "line-through decoration-drop/60",
             )}
           >
             {pick.home}
@@ -57,6 +77,12 @@ export function PickCard({ pick }: { pick: AnalyzedPick }) {
             <p className="mt-1 text-[0.65rem] uppercase tracking-wider text-muted-foreground">
               form
             </p>
+            {pick.odds ? (
+              <p className="mt-2 font-mono text-[0.7rem] tabular-nums text-muted-foreground">
+                {formatOdds(pick.odds)}
+                {ev != null ? ` · EV ${formatEv(ev)}` : ""}
+              </p>
+            ) : null}
           </div>
         ) : null}
       </div>

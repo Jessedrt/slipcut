@@ -1,6 +1,5 @@
 import {
   ClipboardPaste,
-  Copy,
   ImageIcon,
   Loader2,
   ScanLine,
@@ -10,7 +9,7 @@ import {
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Mark } from "@/components/mark";
-import { PickCard } from "@/components/pick-card";
+import { Workbench } from "@/components/workbench";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,8 +17,8 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
-import { cutSlip } from "@/lib/analyze";
-import { applyThreshold, combinedChance, copyKeepers, pct, slipLabel } from "@/lib/format";
+import { cutSlip, loadTicket } from "@/lib/analyze";
+import { applyThreshold, combinedChance, slipLabel } from "@/lib/format";
 import { useHistory } from "@/lib/history";
 import { SAMPLE_SLIPS } from "@/lib/samples";
 import type { CutInput } from "@/lib/analyze";
@@ -168,10 +167,25 @@ export function Desk() {
     );
   }
 
-  async function copyKept() {
-    if (!view?.kept.length) return;
-    await navigator.clipboard.writeText(copyKeepers(view.kept));
-    toast.success("Keepers copied.");
+  async function combineCode(code: string) {
+    if (!result) return;
+    const loaded = await loadTicket({ data: { code, country } });
+    if (!loaded.ok) {
+      toast.error(loaded.error);
+      return;
+    }
+    const seen = new Set(result.picks.map((p) => `${p.home}|${p.away}|${p.market}|${p.selection}`));
+    const fresh = loaded.picks.filter(
+      (p) => !seen.has(`${p.home}|${p.away}|${p.market}|${p.selection}`),
+    );
+    if (!fresh.length) {
+      toast.message("That code added no new games.");
+      return;
+    }
+    await run(
+      { mode: "picks", picks: [...result.picks, ...fresh].slice(0, 20), threshold },
+      `${result.shareCode ?? "slip"} + ${loaded.shareCode ?? code}`,
+    );
   }
 
   return (
@@ -201,15 +215,14 @@ export function Desk() {
       <main className="mx-auto w-full max-w-5xl px-4 pb-20 pt-8 sm:pt-12">
         <section className="rise-in max-w-2xl">
           <p className="text-[0.7rem] uppercase tracking-[0.22em] text-muted-foreground">
-            Football · basketball · odds ignored
+            Analyze · split · trim · rebuild
           </p>
           <h1 className="mt-3 font-serif text-4xl leading-[1.05] tracking-tight sm:text-5xl">
             Cut the weak legs.
           </h1>
           <p className="mt-4 max-w-xl text-base leading-relaxed text-muted-foreground">
-            Load a SportyBet ticket. Each pick is scored on form, not the price.
-            Anything below your bar — and anything that is not football or basketball —
-            comes off the slip.
+            Load a SportyBet code, paste a slip, or drop an X link. Football and basketball
+            are scored on live form — not the price. Then split, trim, edit, and copy a rebuild list.
           </p>
         </section>
 
@@ -281,7 +294,7 @@ export function Desk() {
                 <Textarea
                   id="slip"
                   className="mt-1.5 min-h-48 font-mono text-[0.8rem] leading-relaxed"
-                  placeholder={"Arsenal vs Chelsea\n1X2 Home\n\nLakers vs Celtics\nWinner Away"}
+                  placeholder={"Arsenal vs Chelsea\n1X2 Home\n\nOr paste an X / SportyBet link"}
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   onPaste={(e) => {
@@ -415,88 +428,39 @@ export function Desk() {
         ) : null}
 
         {view ? (
-          <section className="mt-10">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="text-[0.7rem] uppercase tracking-[0.22em] text-muted-foreground">
-                  Desk note
-                </p>
-                <p className="mt-2 max-w-2xl font-serif text-xl leading-snug text-foreground">
-                  {view.desk}
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" size="sm" onClick={() => void copyKept()} disabled={!view.kept.length}>
-                  <Copy />
-                  Copy keepers
-                </Button>
-              </div>
-            </div>
-
-            <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Stat label="Kept" value={String(view.kept.length)} tone="keep" />
-              <Stat label="Cut" value={String(view.dropped.length)} tone="drop" />
-              <Stat label="Ignored" value={String(view.ignored.length)} />
-              <Stat
-                label="Remaining combined"
-                value={view.combinedKeepChance == null ? "—" : pct(view.combinedKeepChance)}
-              />
-            </div>
-            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-              Combined chance multiplies the kept form scores as if the remaining legs were
-              independent. Odds were not used.
-            </p>
-
-            <div className="mt-8 grid gap-8 lg:grid-cols-2">
-              <div>
-                <h2 className="font-serif text-2xl tracking-tight">Keep</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  At or above {view.threshold}% form.
-                </p>
-                <div className="mt-4 grid gap-3">
-                  {view.kept.length ? (
-                    view.kept.map((p) => <PickCard key={p.id} pick={p} />)
-                  ) : (
-                    <EmptyNote text="Nothing cleared the bar. Raise the slip quality or lower the threshold." />
-                  )}
-                </div>
-              </div>
-              <div>
-                <h2 className="font-serif text-2xl tracking-tight">Cut</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Weak form, or the wrong sport.
-                </p>
-                <div className="mt-4 grid gap-3">
-                  {view.dropped.length || view.ignored.length ? (
-                    <>
-                      {view.dropped.map((p) => (
-                        <PickCard key={p.id} pick={p} />
-                      ))}
-                      {view.ignored.map((p) => (
-                        <PickCard key={p.id} pick={p} />
-                      ))}
-                    </>
-                  ) : (
-                    <EmptyNote text="Every football and basketball pick held up." />
-                  )}
-                </div>
-              </div>
-            </div>
-          </section>
+          <Workbench
+            result={view}
+            threshold={threshold}
+            onThreshold={setThreshold}
+            onCombine={combineCode}
+            busy={busy}
+          />
         ) : (
-          <section className="mt-10 grid gap-3 sm:grid-cols-3">
+          <section className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {[
               {
-                t: "Load",
-                d: "Booking code or pasted slip. Tennis and virtuals are dropped on sight.",
+                t: "Analyze",
+                d: "Live form and news. Odds are stored for size and EV, never used as the score.",
               },
               {
-                t: "Score",
-                d: "Each selection is scored from live form and news. The listed odd is stored, never consulted.",
+                t: "Split",
+                d: "Cut a fat accumulator into 2, 3, or 4 even slips. No duplicated legs.",
               },
               {
-                t: "Cut",
-                d: "Set how strict the desk is. Copy the keepers and rebuild the ticket yourself.",
+                t: "Trim",
+                d: "Drop the weakest legs until the ticket sits near 20×, 50×, or 100×.",
+              },
+              {
+                t: "Edit",
+                d: "Add or remove a pick from the working slip without reloading the code.",
+              },
+              {
+                t: "Combine",
+                d: "Fold another SportyBet booking code into the desk, then rescore.",
+              },
+              {
+                t: "Rebuild",
+                d: "Copy a clean match list. This desk does not book or mint other-book codes.",
               },
             ].map((item) => (
               <div key={item.t} className="rounded-lg border border-border bg-card p-4">
@@ -571,38 +535,5 @@ export function Desk() {
         </div>
       ) : null}
     </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone?: "keep" | "drop";
-}) {
-  return (
-    <div className="rounded-lg border border-border bg-card px-3 py-3">
-      <p className="text-[0.65rem] uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p
-        className={cn(
-          "mt-1 font-mono text-2xl tabular-nums tracking-tight",
-          tone === "keep" && "text-keep",
-          tone === "drop" && "text-drop",
-        )}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function EmptyNote({ text }: { text: string }) {
-  return (
-    <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-      {text}
-    </p>
   );
 }

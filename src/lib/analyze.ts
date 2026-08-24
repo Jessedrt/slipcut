@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { applyThreshold, combinedChance } from "./format";
 import { extractShareCode, parseTicketText } from "./parse-ticket";
 import { picksFromShare, type SharePayload } from "./sportybet";
+import { firstUrl, youAnswer, youContents } from "./you";
 import type {
   AnalyzedPick,
   CutResponse,
@@ -30,15 +31,6 @@ function clampThreshold(n: number) {
 
 function isSport(v: unknown): v is SportKind {
   return v === "football" || v === "basketball" || v === "other";
-}
-
-function youKey() {
-  return (
-    process.env.YDC_API_KEY ||
-    process.env.YOU_API_KEY ||
-    process.env.YOUCOM_API_KEY ||
-    ""
-  );
 }
 
 async function fetchShare(code: string, country: string): Promise<SharePayload | null> {
@@ -182,38 +174,6 @@ function pickQuery(pick: TicketPick) {
   return (core + tail).slice(0, 400);
 }
 
-async function youAnswer(query: string): Promise<string> {
-  const apiKey = youKey();
-  if (!apiKey) throw new Error("AI is not available in this environment");
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8_000);
-  try {
-    const res = await fetch("https://api.you.com/v1/answer", {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": apiKey,
-      },
-      body: JSON.stringify({
-        query,
-        freshness: "week",
-      }),
-    });
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      throw new Error(
-        `Analyst unavailable (${res.status})${errText ? `: ${errText.slice(0, 180)}` : ""}`,
-      );
-    }
-    const body = (await res.json()) as { answer?: string };
-    return body.answer ?? "";
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 function parsePickScore(text: string): Record<string, unknown> {
   const cleaned = text.replace(/\[\[\d+(?:\s*,\s*\d+)*\]\]/g, "").trim();
   try {
@@ -261,10 +221,65 @@ async function scorePicks(picks: TicketPick[]): Promise<unknown> {
     }),
   );
   return {
-    desk: `Live-web form read of ${picks.length} selection${picks.length === 1 ? "" : "s"}. Odds ignored.`,
+    desk: `Live-web form read of ${picks.length} selection${picks.length === 1 ? "" : "s"}. Odds ignored as a signal.`,
     picks: rows,
   };
 }
+
+async function picksFromPaste(text: string, country?: string): Promise<{
+  picks: TicketPick[];
+  shareCode?: string;
+} | { error: string }> {
+  const url = firstUrl(text);
+  if (url) {
+    try {
+      const parsedUrl = new URL(url);
+      const shareFromUrl =
+        extractShareCode(url) ||
+        parsedUrl.searchParams.get("shareCode") ||
+        parsedUrl.searchParams.get("code");
+      if (shareFromUrl && /^[A-Z0-9]{4,16}$/i.test(shareFromUrl)) {
+        return loadBookingCode(shareFromUrl.toUpperCase(), country);
+      }
+      const markdown = await youContents(url);
+      const parsed = parseTicketText(markdown).slice(0, MAX_PICKS);
+      if (parsed.length) return { picks: parsed };
+      return { error: "That link did not contain football or basketball selections." };
+    } catch (err) {
+      return {
+        error: err instanceof Error ? err.message : "Could not read that link.",
+      };
+    }
+  }
+  const maybeCode = extractShareCode(text);
+  if (maybeCode && text.length < 80) {
+    return loadBookingCode(maybeCode, country);
+  }
+  const picks = parseTicketText(text).slice(0, MAX_PICKS);
+  if (!picks.length) return { error: "Could not read any games from that paste." };
+  return { picks };
+}
+
+export const loadTicket = createServerFn({ method: "POST" })
+  .validator((input: { code?: string; country?: string; text?: string }) => input)
+  .handler(async ({ data }): Promise<
+    { ok: true; picks: TicketPick[]; shareCode?: string } | { ok: false; error: string }
+  > => {
+    const code =
+      extractShareCode(data.code ?? "") ||
+      extractShareCode(data.text ?? "") ||
+      (data.code ?? "").trim().toUpperCase();
+    if (code && /^[A-Z0-9]{4,16}$/.test(code)) {
+      const loaded = await loadBookingCode(code, data.country);
+      if ("error" in loaded) return { ok: false, error: loaded.error };
+      return { ok: true, ...loaded };
+    }
+    const text = (data.text ?? data.code ?? "").trim();
+    if (!text) return { ok: false, error: "Paste a booking code or slip first." };
+    const loaded = await picksFromPaste(text, data.country);
+    if ("error" in loaded) return { ok: false, error: loaded.error };
+    return { ok: true, ...loaded };
+  });
 
 export const cutSlip = createServerFn({ method: "POST" })
   .validator((input: CutInput) => input)
@@ -291,20 +306,15 @@ export const cutSlip = createServerFn({ method: "POST" })
       } else if (data.mode === "image") {
         return {
           ok: false,
-          error: "Screenshots need a vision model. Use a booking code or paste the slip.",
+          error: "Screenshots need a vision model. Use a booking code, paste, or drop an X link.",
         };
       } else {
         const text = (data.text ?? "").trim();
-        if (!text) return { ok: false, error: "Paste a slip or a booking code first." };
-        const maybeCode = extractShareCode(text);
-        if (maybeCode && text.length < 24) {
-          const loaded = await loadBookingCode(maybeCode, data.country);
-          if ("error" in loaded) return { ok: false, error: loaded.error };
-          picks = loaded.picks;
-          shareCode = loaded.shareCode;
-        } else {
-          picks = parseTicketText(text).slice(0, MAX_PICKS);
-        }
+        if (!text) return { ok: false, error: "Paste a slip, a booking code, or a link first." };
+        const loaded = await picksFromPaste(text, data.country);
+        if ("error" in loaded) return { ok: false, error: loaded.error };
+        picks = loaded.picks;
+        shareCode = loaded.shareCode;
       }
 
       if (!picks.length) {
