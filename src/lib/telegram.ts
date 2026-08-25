@@ -324,7 +324,7 @@ async function handleCode(chatId: number, code: string) {
       listPicks(loaded.picks),
       "",
       "Trim am, study am, split, or change market. Talk to me like person.",
-      "e.g. drop 3 8 · split 2 · change to over 2.5 · study",
+      "e.g. comot game 3 and 8 · split 2 · change to over 2.5 · study",
     ]
       .join("\n")
       .slice(0, 3900),
@@ -387,14 +387,19 @@ function codeFromText(raw?: string): string | null {
 }
 
 function parseDropIndexes(text: string): number[] | null {
-  const m = text.match(/^(?:drop|remove|delete)\s+(?:(?:legs?|games?)\s+)?([\d,\s&and]+)$/i);
+  const m = text.match(
+    /(?:drop|remove|delete|comot)\s+(?:(?:legs?|games?|match(?:es)?)\s+)?(?:game\s+)?([\d,\s&and]+)/i,
+  );
   if (!m) return null;
-  const nums = [...m[1].matchAll(/\d+/g)].map((x) => Number(x[0])).filter((n) => n >= 1);
+  if (!/(?:drop|remove|delete|comot)/i.test(text)) return null;
+  const nums = [...m[1].matchAll(/\d+/g)].map((x) => Number(x[0])).filter((n) => n >= 1 && n <= 80);
   return nums.length ? nums : null;
 }
 
 function parseCombineCode(text: string): string | null {
-  const m = text.match(/\bcombin(?:e|ing)\s+(?:with\s+)?([A-Z0-9]{4,16})\b/i);
+  const m = text.match(
+    /\b(?:combin(?:e|ing)|join|add|merge|plus)\s+(?:am\s+)?(?:with\s+)?(?:code\s+)?([A-Z0-9]{4,16})\b/i,
+  );
   if (!m?.[1] || !looksLikeShareCode(m[1])) return null;
   return m[1].toUpperCase();
 }
@@ -661,12 +666,12 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       text: [
         "<b>After you send a code</b>",
         "",
-        "<code>drop 3 8</code> — comot those games",
+        "<code>comot game 3 and 8</code> — remove those matches",
         "<code>split 2</code> — share into 2 slips",
         "<code>change to over 2.5</code>",
         "<code>change to GG</code>",
         "<code>trim to 50x</code>",
-        "<code>combine NXPSTB</code>",
+        "<code>add another booking code</code> — join two tickets",
         "<code>study</code> — after the games finish",
         "",
         "<b>Cook new slip</b>",
