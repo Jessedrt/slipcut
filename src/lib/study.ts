@@ -209,7 +209,7 @@ async function saveLessons(code: string, legs: StudiedLeg[]) {
 
 function buildLesson(legs: StudiedLeg[]): string {
   const lost = legs.filter((l) => l.result === "lost");
-  if (!lost.length) return "No cuts. I'll keep leaning on the same market mix.";
+  if (!lost.length) return "E no cut. I go hold this same market mix for the next one.";
   const famCount: Record<string, number> = {};
   const leagueCount: Record<string, number> = {};
   for (const l of lost) {
@@ -226,16 +226,16 @@ function buildLesson(legs: StudiedLeg[]): string {
     dnb: "draw no bet",
     win: "1X2 / winner",
   };
-  const bits = ["I'll correct the next slip:"];
-  if (worstFam) bits.push(`ease off ${famLabel[worstFam[0]] ?? worstFam[0]} (${worstFam[1]} cut)`);
-  if (worstLg && worstLg[1] >= 2) bits.push(`be tighter on ${worstLg[0]}`);
-  bits.push("prefer markets that actually landed.");
-  return bits.join(" ");
+  const bits = ["For the next slip I go wise up:"];
+  if (worstFam) bits.push(`I go reduce ${famLabel[worstFam[0]] ?? worstFam[0]} — na im cut ${worstFam[1]} times`);
+  if (worstLg && worstLg[1] >= 2) bits.push(`${worstLg[0]} dey catch us, I go dey careful`);
+  bits.push("I go chase the markets wey dey land.");
+  return bits.join(". ") + ".";
 }
 
 export async function studyCode(code: string, picks?: TicketPick[]): Promise<StudyReport | { error: string }> {
   const stored = picks?.length ? compactPicks(picks) : await loadStored(code);
-  if (!stored?.length) return { error: "I don't have that slip saved. Send the booking code first." };
+  if (!stored?.length) return { error: "I no get that slip. Send the booking code first." };
 
   const ids = [...new Set(stored.map((p) => p.eventId).filter(Boolean))] as string[];
   const details = await Promise.all(ids.map((id) => getEventDetail(id)));
@@ -341,10 +341,10 @@ export async function improvePicks<T extends TicketPick>(picks: T[]): Promise<T[
 
 export function formatStudy(report: StudyReport): string {
   const head = report.cut
-    ? `📉 ${report.code} was CUT`
+    ? `📉 ${report.code} CUT — e no hit`
     : report.hit
-      ? `✅ ${report.code} HIT`
-      : `⏳ ${report.code} still in play`;
+      ? `✅ ${report.code} HIT — we good`
+      : `⏳ ${report.code} still dey play`;
   const lostLines = report.legs
     .filter((l) => l.result === "lost")
     .slice(0, 12)
@@ -355,11 +355,11 @@ export function formatStudy(report: StudyReport): string {
     .map((l) => `✅ ${l.home} vs ${l.away} — ${l.selection}`);
   return [
     head,
-    `Won ${report.won} · Lost ${report.lost} · Pending ${report.pending}${report.voided ? ` · Void ${report.voided}` : ""}`,
+    `Win ${report.won} · Cut ${report.lost} · Still dey ${report.pending}${report.voided ? ` · Void ${report.voided}` : ""}`,
     "",
-    lostLines.length ? "Cuts:" : "",
+    lostLines.length ? "The ones wey cut:" : "",
     ...lostLines,
-    wonLines.length ? "\nLanded:" : "",
+    wonLines.length ? "\nThe ones wey hit:" : "",
     ...wonLines,
     "",
     `📓 ${report.lesson}`,
