@@ -7,9 +7,10 @@ const FOOTBALL_HINT =
 const BASKETBALL_HINT =
   /\b(basketball|nba|wnba|ncaa|euroleague|fiba|nbl|cba|acb|bbl)\b/i;
 const OTHER_HINT =
-  /\b(tennis|table tennis|volleyball|ice hockey|virtual|esport|cricket|rugby|handball|snooker|darts|mma|ufc|boxing|baseball|nfl|nhl)\b/i;
+  /\b(table tennis|volleyball|ice hockey|virtual|esport|cricket|rugby|handball|snooker|darts|mma|ufc|boxing|baseball|nfl|nhl)\b/i;
 
 function guessSport(blob: string): SportKind {
+  if (/\btennis\b/i.test(blob)) return "tennis";
   if (BASKETBALL_HINT.test(blob)) return "basketball";
   if (OTHER_HINT.test(blob) && !FOOTBALL_HINT.test(blob)) return "other";
   if (FOOTBALL_HINT.test(blob)) return "football";

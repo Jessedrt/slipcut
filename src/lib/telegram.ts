@@ -5,7 +5,7 @@ import { normalizePidgin, pidginSmallTalk, slangHelp, splitChat, wantsCreate } f
 import { getEventDetail, eventScore, loadBookingCode, listUpcomingPicks, mintShare, parseMarketTarget, retargetPicks, sportyOf, windowLabel, type CookWindow } from "./sportybet";
 import { addBlock, applyLessonScores, blockedBy, formatBook, formatStudy, improvePicks, latestCode, latestUnstudiedCode, listBlocks, listChats, loadOddsBand, recordSlip, rememberChat, removeBlock, saveOddsBand, studyCode } from "./study";
 import { buildToOdds, combinedOdds, copyRebuild, formatKickoff, formatOdds, keepTop, parseCommand, splitEven, trimToOdds, uniqueEvents } from "./workbench";
-import type { TicketPick } from "./types";
+import type { BookSport, TicketPick } from "./types";
 
 const MAX_LEGS = 35;
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
@@ -69,7 +69,7 @@ function parseBlock(text: string): { add?: string; remove?: string; list?: boole
   if (!add?.[1]) return null;
   const v = add[1].trim().replace(/[.!?]+$/, "");
   if (v.length < 3) return null;
-  if (/^(football|basketball|legs?|games?|odds?|code|bola|hoop)/i.test(v)) return null;
+  if (/^(football|basketball|tennis|legs?|games?|odds?|code|bola|hoop)/i.test(v)) return null;
   return { add: v };
 }
 
@@ -162,8 +162,15 @@ async function tg(method: string, payload: Record<string, unknown>) {
 
 function sportIcon(sport: string) {
   if (sport === "basketball") return "🏀";
+  if (sport === "tennis") return "🎾";
   if (sport === "football") return "⚽";
   return "🎟️";
+}
+
+function sportFromFlag(code: string): BookSport {
+  if (code === "b") return "basketball";
+  if (code === "t") return "tennis";
+  return "football";
 }
 
 function startKeyboard() {
@@ -176,6 +183,10 @@ function startKeyboard() {
       [
         { text: "⚽ 12 games football", callback_data: "c:f:12" },
         { text: "🏀 12 games basketball", callback_data: "c:b:12" },
+      ],
+      [
+        { text: "🎾 Cook 10× tennis", callback_data: "o:t:10" },
+        { text: "🎾 12 games tennis", callback_data: "c:t:12" },
       ],
       [{ text: "📓 Study last slip", callback_data: "y:LAST" }],
       [{ text: "⚽🏀 Mix 12 games", callback_data: "x:m:12" }],
@@ -334,7 +345,7 @@ async function sureNAndReply(
 
 async function createSportSlip(
   chatId: number,
-  sport: "football" | "basketball",
+  sport: BookSport,
   count: number,
   window: CookWindow = "soon",
   band?: OddsBand | null,
@@ -370,7 +381,7 @@ async function createSportSlip(
 
 async function createOddsSlip(
   chatId: number,
-  sport: "football" | "basketball",
+  sport: BookSport,
   targetRaw: number,
   window: CookWindow = "soon",
   band?: OddsBand | null,
@@ -426,21 +437,22 @@ async function createMixSlip(
   await tg("sendMessage", {
     chat_id: chatId,
     text: opts.odds
-      ? `⚽🏀 Mix — I dey cook about ${formatOdds(clampOddsTarget(opts.odds))} football + basketball${span ? ` · ${span}` : ""}.`
-      : `⚽🏀 Mix — ${n} games, football and basketball${span ? ` · ${span}` : ""}.`,
+      ? `⚽🏀🎾 Mix — I dey cook about ${formatOdds(clampOddsTarget(opts.odds))} football + basketball + tennis${span ? ` · ${span}` : ""}.`
+      : `⚽🏀🎾 Mix — ${n} games, football, basketball and tennis${span ? ` · ${span}` : ""}.`,
   });
-  const [foot, hoop] = await Promise.all([
-    listUpcomingPicks("football", 20, window),
-    listUpcomingPicks("basketball", 20, window),
+  const [foot, hoop, ten] = await Promise.all([
+    listUpcomingPicks("football", 16, window),
+    listUpcomingPicks("basketball", 16, window),
+    listUpcomingPicks("tennis", 16, window),
   ]);
-  if ("error" in foot && "error" in hoop) {
-    await tg("sendMessage", { chat_id: chatId, text: foot.error });
+  const pools = [foot, hoop, ten].filter((p) => !("error" in p)) as TicketPick[][];
+  if (!pools.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "error" in foot ? foot.error : "No mix sports now." });
     return;
   }
-  const f = "error" in foot ? [] : foot;
-  const h = "error" in hoop ? [] : hoop;
   await maybeStudyLast(chatId);
-  const mixed = await cookPool(uniqueEvents(interleave(f, h)).picks, useBand);
+  const stacked = interleave(pools[0] ?? [], interleave(pools[1] ?? [], pools[2] ?? []));
+  const mixed = await cookPool(uniqueEvents(stacked).picks, useBand);
   const improved = await improvePicks(mixed);
   const take = opts.odds
     ? buildToOdds(improved, clampOddsTarget(opts.odds)).slice(0, MAX_LEGS)
@@ -452,11 +464,12 @@ async function createMixSlip(
   const actual = combinedOdds(take);
   const fc = take.filter((p) => p.sport === "football").length;
   const bc = take.filter((p) => p.sport === "basketball").length;
+  const tc = take.filter((p) => p.sport === "tennis").length;
   await mintAndReply(
     chatId,
     take,
     "ng",
-    `Mix ${fc} football + ${bc} basketball${actual ? ` · ${formatOdds(actual)}` : ""}${span ? ` · ${span}` : ""}`,
+    `Mix ${fc} football + ${bc} basketball + ${tc} tennis${actual ? ` · ${formatOdds(actual)}` : ""}${span ? ` · ${span}` : ""}`,
   );
 }
 
@@ -501,7 +514,8 @@ function parseCookWindow(text: string): CookWindow {
   return "soon";
 }
 
-function parseSport(text: string): "football" | "basketball" | null {
+function parseSport(text: string): BookSport | null {
+  if (/tennis|atp|wta/i.test(text)) return "tennis";
   if (/basket|hoop/i.test(text)) return "basketball";
   if (/foot|soccer|bola/i.test(text)) return "football";
   return null;
@@ -595,7 +609,9 @@ const NOT_A_CODE = new Set([
   "LOST",
   "COOK",
   "LIKE",
-  "BOLA",
+  "TENNIS",
+  "ATP",
+  "WTA",
   "BOOK",
   "COMBINE",
   "WEEKEND",
@@ -781,17 +797,17 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     const [kind, code, arg] = data.split(":");
     if (!code) return;
     if (kind === "c") {
-      const sport = code === "b" ? "basketball" : "football";
+      const sport = sportFromFlag(code);
       await createSportSlip(chatId, sport, Number(arg || 10));
       return;
     }
     if (kind === "o") {
-      const sport = code === "b" ? "basketball" : "football";
+      const sport = sportFromFlag(code);
       await createOddsSlip(chatId, sport, Number(arg || 10));
       return;
     }
     if (kind === "l") {
-      const sport = code === "b" ? "basketball" : "football";
+      const sport = sportFromFlag(code);
       const window: CookWindow =
         arg === "weekend" ? "weekend" : arg === "fortnight" ? "fortnight" : "week";
       await createSportSlip(chatId, sport, 12, window);
@@ -903,11 +919,11 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "Or yarn me like person:",
         "",
         "<code>cook 10 odds football</code>",
-        "<code>12 games basketball</code>",
+        "<code>12 games tennis</code>",
         "<code>how far help me cook like 30odds</code>",
         "",
         "<b>odds</b> = combined ×   ·   <b>games</b> = number of matches",
-        "Football & basketball only · max 35 games",
+        "Football, basketball and tennis. Max 35 games.",
         "",
         "Tap below or send /help for the full list.",
       ].join("\n"),
@@ -938,7 +954,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "<code>no game above 1.70</code> — cap each selection",
         "<code>no Palace</code> / <code>no FA Cup</code> — blacklist",
         "<code>score</code> — live scores on a code",
-        "<code>12 games basketball</code> — 12 matches",
+        "<code>12 games tennis</code> — ATP/WTA",
         "<code>longshot 12 games football</code> — across 1 week",
         "<code>weekend 10 odds bola</code> — Saturday and Sunday only",
         "<code>2 weeks 12 games basketball</code>",

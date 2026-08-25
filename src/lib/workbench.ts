@@ -112,7 +112,7 @@ export type DeskCommand =
   | { type: "trim"; targetOdds: number }
   | { type: "keepLegs"; count: number }
   | { type: "threshold"; value: number }
-  | { type: "sport"; sport: "football" | "basketball" }
+  | { type: "sport"; sport: "football" | "basketball" | "tennis" }
   | { type: "dropOther" }
   | { type: "unknown"; hint: string };
 
@@ -133,7 +133,7 @@ export function parseCommand(raw: string): DeskCommand {
   if (th) return { type: "threshold", value: Number(th[1]) };
 
   if (/only\s+football|keep\s+football/.test(t)) return { type: "sport", sport: "football" };
-  if (/only\s+basket|keep\s+basket/.test(t)) return { type: "sport", sport: "basketball" };
+  if (/only\s+tennis|keep\s+tennis/.test(t)) return { type: "sport", sport: "tennis" };
   if (/drop\s+(other|tennis|virtuals?)/.test(t)) return { type: "dropOther" };
 
   return {

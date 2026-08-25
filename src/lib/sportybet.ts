@@ -1,4 +1,4 @@
-import type { SportKind, SportySelection, TicketPick } from "./types";
+import type { BookSport, SportKind, SportySelection, TicketPick } from "./types";
 
 export type ShareOutcome = {
   eventId?: string;
@@ -42,12 +42,14 @@ export type SharePayload = {
 
 const FOOTBALL_IDS = new Set(["sr:sport:1", "1"]);
 const BASKETBALL_IDS = new Set(["sr:sport:2", "2"]);
+const TENNIS_IDS = new Set(["sr:sport:5", "5"]);
 const COUNTRY_FALLBACKS = ["ng", "gh", "ke", "za", "tz", "ug", "zm", "cm"];
 
 export function mapSport(name?: string, id?: string): SportKind {
   const n = (name ?? "").toLowerCase();
   const sid = (id ?? "").toLowerCase();
   if (n.includes("virtual")) return "other";
+  if (n.includes("tennis") || TENNIS_IDS.has(sid)) return "tennis";
   if (n.includes("basket") || BASKETBALL_IDS.has(sid)) return "basketball";
   if (
     (n.includes("football") && !n.includes("american")) ||
@@ -189,6 +191,7 @@ export function sportyOf(picks: TicketPick[]): SportySelection[] {
 const FOOTBALL_LEAGUES =
   /premier league|laliga|la liga|serie a|bundesliga|ligue 1|champions league|europa league|conference league|eredivisie|primeira|championship|mls|copa libertadores|nations league|pro league|saudi/i;
 const BASKETBALL_LEAGUES = /nba|euroleague|eurocup|ncaa|wnba|nbl|acb|bbl/i;
+const TENNIS_LEAGUES = /atp|wta|us open|australian open|wimbledon|roland|french open|masters|challenger|grand slam/i;
 
 type EventMarket = {
   id?: string;
@@ -258,10 +261,13 @@ function inBookWindow(odds?: number) {
 export function marketFamily(id?: string, desc?: string): "win" | "dc" | "ou" | "gg" | "dnb" | "hcp" | "ou1h" {
   const d = (desc ?? "").toLowerCase();
   if (id === "10" || d.includes("double chance")) return "dc";
-  if (id === "16" || id === "14" || id === "223" || id === "66" || d.includes("handicap")) return "hcp";
+  if (id === "186" || id === "202") return "win";
+  if (id === "187" || id === "188" || id === "16" || id === "14" || id === "223" || id === "66" || d.includes("handicap"))
+    return "hcp";
   if (id === "68" || (id === "236" && d.includes("1st")) || d.includes("1st half") && d.includes("over"))
     return "ou1h";
-  if (id === "18" || id === "225" || d.includes("over/under")) return "ou";
+  if (id === "189" || id === "204" || id === "314" || id === "18" || id === "225" || d.includes("over/under") || d.includes("total games"))
+    return "ou";
   if (id === "29" || d.includes("gg/ng")) return "gg";
   if (id === "11" || d.includes("draw no bet")) return "dnb";
   return "win";
@@ -269,7 +275,7 @@ export function marketFamily(id?: string, desc?: string): "win" | "dc" | "ou" | 
 
 function toPick(
   ev: EventDetail,
-  sport: "football" | "basketball",
+  sport: BookSport,
   market: EventMarket,
   outcome: NonNullable<EventMarket["outcomes"]>[number],
 ): TicketPick | null {
@@ -285,6 +291,12 @@ function toPick(
   else if (market.id === "68") label = `1st Half O/U ${total}`.trim();
   else if (market.id === "66") label = `1st Half Handicap ${hcp}`.trim();
   else if (market.id === "236" && spec.includes("quarternr=1")) label = `1st quarter O/U ${total}`.trim();
+  else if (market.id === "186") label = "Winner";
+  else if (market.id === "187") label = `Game handicap ${hcp}`.trim();
+  else if (market.id === "188") label = `Set handicap ${hcp}`.trim();
+  else if (market.id === "189") label = `Total games ${total}`.trim();
+  else if (market.id === "202") label = "1st set winner";
+  else if (market.id === "204") label = `1st set total ${total}`.trim();
   return {
     id: `${ev.eventId}-${market.id}-${market.specifier ?? ""}-${outcome.id}`,
     sport,
@@ -365,7 +377,7 @@ function mostBalanced(markets: EventMarket[]): EventMarket | undefined {
 function pushMarket(
   picks: TicketPick[],
   ev: EventDetail,
-  sport: "football" | "basketball",
+  sport: BookSport,
   market: EventMarket | undefined,
 ) {
   if (!market) return;
@@ -395,6 +407,28 @@ function basketballCandidates(ev: EventDetail): TicketPick[] {
     mostBalanced(markets.filter((m) => m.id === "236" && (m.specifier ?? "").includes("quarternr=1"))),
   );
   pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "66")));
+  return picks;
+}
+
+function tennisCandidates(ev: EventDetail): TicketPick[] {
+  const markets = (ev.markets ?? []).filter((m) => m.status === 0);
+  const picks: TicketPick[] = [];
+  pushMarket(picks, ev, "tennis", markets.find((m) => m.id === "186"));
+  pushMarket(picks, ev, "tennis", mostBalanced(markets.filter((m) => m.id === "188")));
+  pushMarket(picks, ev, "tennis", mostBalanced(markets.filter((m) => m.id === "187")));
+  pushMarket(picks, ev, "tennis", mostBalanced(markets.filter((m) => m.id === "189")));
+  pushMarket(
+    picks,
+    ev,
+    "tennis",
+    markets.find((m) => m.id === "202" && (m.specifier ?? "").includes("setnr=1")),
+  );
+  pushMarket(
+    picks,
+    ev,
+    "tennis",
+    mostBalanced(markets.filter((m) => m.id === "204" && (m.specifier ?? "").includes("setnr=1"))),
+  );
   return picks;
 }
 
@@ -463,18 +497,19 @@ export function windowLabel(window: CookWindow) {
 }
 
 export async function listUpcomingPicks(
-  sport: "football" | "basketball",
+  sport: BookSport,
   limit = 14,
   window: CookWindow = "soon",
 ): Promise<TicketPick[] | { error: string }> {
-  const sportId = sport === "basketball" ? "sr:sport:2" : "sr:sport:1";
+  const sportId = sport === "basketball" ? "sr:sport:2" : sport === "tennis" ? "sr:sport:5" : "sr:sport:1";
   const payload = (await sportyGet(
     `/factsCenter/commonThumbnailEvents?sportId=${encodeURIComponent(sportId)}`,
   )) as SharePayload & { data?: Array<{ name?: string; events?: ShareOutcome[] }> } | null;
   const tours = Array.isArray(payload?.data) ? payload.data : [];
   if (!tours.length) return { error: `No upcoming ${sport} on SportyBet right now.` };
 
-  const prefer = sport === "basketball" ? BASKETBALL_LEAGUES : FOOTBALL_LEAGUES;
+  const prefer =
+    sport === "basketball" ? BASKETBALL_LEAGUES : sport === "tennis" ? TENNIS_LEAGUES : FOOTBALL_LEAGUES;
   const now = Date.now();
   const upcoming = spreadByDay(
     tours
@@ -512,7 +547,12 @@ export async function listUpcomingPicks(
     });
     for (const ev of details) {
       if (!ev || ev.status !== 0 || ev.banned) continue;
-      const cands = sport === "basketball" ? basketballCandidates(ev) : footballCandidates(ev);
+      const cands =
+        sport === "basketball"
+          ? basketballCandidates(ev)
+          : sport === "tennis"
+            ? tennisCandidates(ev)
+            : footballCandidates(ev);
       const pick = pickFromEvent(cands, used);
       if (pick) picks.push(pick);
       if (picks.length >= want) break;

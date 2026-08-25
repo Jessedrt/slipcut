@@ -1,4 +1,5 @@
-export type SportKind = "football" | "basketball" | "other";
+export type BookSport = "football" | "basketball" | "tennis";
+export type SportKind = BookSport | "other";
 
 export type SportySelection = {
   eventId: string;

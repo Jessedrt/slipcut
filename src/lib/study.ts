@@ -164,6 +164,57 @@ function settleBasket(pick: StoredPick, home: number, away: number, finished: bo
   return home > away ? { result: "won", note: `${home}-${away} home` } : { result: "lost", note: `${home}-${away} home lost` };
 }
 
+function settleTennis(
+  pick: StoredPick,
+  home: number,
+  away: number,
+  finished: boolean,
+  setScore?: string,
+): { result: LegResult; note: string } {
+  const parts = [...String(setScore ?? "").matchAll(/(\d+)\s*[:\-]\s*(\d+)/g)].map((m) => [
+    Number(m[1]),
+    Number(m[2]),
+  ]);
+  let setsH = home;
+  let setsA = away;
+  let gamesH = 0;
+  let gamesA = 0;
+  if (parts.length >= 2) {
+    setsH = 0;
+    setsA = 0;
+    for (const [h, a] of parts) {
+      gamesH += h;
+      gamesA += a;
+      if (h > a) setsH += 1;
+      else if (a > h) setsA += 1;
+    }
+  }
+  const fam = pick.family;
+  const sel = pick.selection.toLowerCase();
+  const line = lineFromMarket(pick.market, pick.selection);
+  if (fam === "ou" && line != null && gamesH + gamesA > 0) {
+    const total = gamesH + gamesA;
+    const over = !sel.includes("under");
+    if (over) {
+      if (total > line) return { result: "won", note: `${total} games over ${line}` };
+      if (finished) return { result: "lost", note: `${total} games under ${line}` };
+      return { result: "pending", note: `${total} games so far` };
+    }
+    if (total > line) return { result: "lost", note: `${total} games busted under ${line}` };
+    if (finished) return { result: "won", note: `${total} games under ${line}` };
+    return { result: "pending", note: `${total} games so far` };
+  }
+  if (!finished) return { result: "pending", note: `${setsH}-${setsA} still on court` };
+  if (sel.includes("away")) {
+    return setsA > setsH
+      ? { result: "won", note: `${setsH}-${setsA} away` }
+      : { result: "lost", note: `${setsH}-${setsA} away lost` };
+  }
+  return setsH > setsA
+    ? { result: "won", note: `${setsH}-${setsA} home` }
+    : { result: "lost", note: `${setsH}-${setsA} home lost` };
+}
+
 export async function recordSlip(code: string, picks: TicketPick[]) {
   const payload = JSON.stringify(compactPicks(picks));
   try {
@@ -257,9 +308,11 @@ export async function studyCode(code: string, picks?: TicketPick[]): Promise<Stu
       };
     }
     const settled =
-      pick.sport === "basketball"
-        ? settleBasket(pick, score.home, score.away, score.finished)
-        : settleFootball(pick, score.home, score.away, score.finished);
+      pick.sport === "tennis"
+        ? settleTennis(pick, score.home, score.away, score.finished, ev && "setScore" in ev ? String(ev.setScore ?? "") : "")
+        : pick.sport === "basketball"
+          ? settleBasket(pick, score.home, score.away, score.finished)
+          : settleFootball(pick, score.home, score.away, score.finished);
     return { ...pick, ...settled };
   });
 
