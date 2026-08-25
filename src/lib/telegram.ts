@@ -21,14 +21,19 @@ const MENU = [
 
 let menuReady = false;
 
-async function ensureMenu() {
-  if (menuReady) return;
+async function ensureMenu(force = false) {
+  if (menuReady && !force) return;
+  const scopes = [{ type: "default" }, { type: "all_private_chats" }, { type: "all_group_chats" }];
+  for (const scope of scopes) {
+    await tg("setMyCommands", { commands: MENU, scope });
+  }
   menuReady = true;
-  await tg("setMyCommands", { commands: MENU });
 }
 
 function isCmd(raw: string, name: string) {
-  return new RegExp(`^/${name}(?:@\\w+)?(?:\\s|$)`, "i").test(raw.trim());
+  const t = raw.trim();
+  if (new RegExp(`^/${name}(?:@\\w+)?(?:\\s|$)`, "i").test(t)) return true;
+  return new RegExp(`^${name}$`, "i").test(t);
 }
 
 function cmdArg(raw: string) {
@@ -214,14 +219,16 @@ function sportFromFlag(code: string): BookSport {
   return "football";
 }
 
-function startKeyboard() {
+function deskKeyboard() {
   return {
-    inline_keyboard: [
-      [
-        { text: "Cook 10×", callback_data: "o:f:10" },
-        { text: "Weekend", callback_data: "l:f:weekend" },
-      ],
+    keyboard: [
+      [{ text: "Today" }, { text: "Weekend" }, { text: "Mix" }],
+      [{ text: "Book" }, { text: "Recap" }, { text: "Ping" }],
+      [{ text: "Filter" }, { text: "Help" }],
     ],
+    resize_keyboard: true,
+    is_persistent: true,
+    input_field_placeholder: "Code, or say what to cook",
   };
 }
 
@@ -938,7 +945,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   await rememberChat(msg.chat.id);
   const raw = msg.text.trim();
   if (raw === "/start" || isCmd(raw, "start")) {
-    await ensureMenu();
+    await ensureMenu(true);
     await tg("setMyDescription", {
       description: "SportyBet desk. Send a code, or say what to cook.",
     });
@@ -948,9 +955,9 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     await tg("sendPhoto", {
       chat_id: msg.chat.id,
       photo: BANNER_URL,
-      caption: "<b>SlipCut</b>\n\nSend a booking code.\nOr say what to cook.",
+      caption: "<b>SlipCut</b>\n\nSend a booking code.\nOr use the menu below.",
       parse_mode: "HTML",
-      reply_markup: startKeyboard(),
+      reply_markup: deskKeyboard(),
     });
     return;
   }
@@ -970,6 +977,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "<code>only EPL</code>",
         "<code>today 8 games basketball</code>",
       ].join("\n"),
+      reply_markup: deskKeyboard(),
     });
     return;
   }
