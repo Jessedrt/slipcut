@@ -553,6 +553,8 @@ export type EventScore = {
   finished: boolean;
   live: boolean;
   label: string;
+  period?: number;
+  clock?: string;
 };
 
 export function eventScore(ev: {
@@ -560,11 +562,25 @@ export function eventScore(ev: {
   setScore?: string;
   gameScore?: string[];
   matchStatus?: string;
+  period?: number;
 } | null): EventScore | null {
   if (!ev) return null;
   const raw = ev.setScore || ev.gameScore?.[0] || "";
   const m = String(raw).match(/(\d+)\s*[:\-]\s*(\d+)/);
-  if (!m) return null;
+  if (!m) {
+    const ms0 = String(ev.matchStatus ?? "").toUpperCase();
+    if (ev.status === 0 || !ms0) return null;
+    const live0 = ev.status === 1;
+    return {
+      home: 0,
+      away: 0,
+      finished: false,
+      live: live0,
+      label: live0 ? "live" : ms0 || "—",
+      period: ev.period,
+      clock: ev.matchStatus,
+    };
+  }
   const home = Number(m[1]);
   const away = Number(m[2]);
   const ms = String(ev.matchStatus ?? "").toUpperCase();
@@ -573,7 +589,17 @@ export function eventScore(ev: {
     ev.status === 3 ||
     ["FT", "ENDED", "END", "AET", "AP", "FINISHED", "FINAL", "AOT"].includes(ms);
   const live = ev.status === 1 && !finished;
-  return { home, away, finished, live, label: `${home}-${away}${finished ? " FT" : live ? " live" : ""}` };
+  const clock = ev.matchStatus || (ev.period ? `P${ev.period}` : "");
+  const tag = finished ? "FT" : live ? clock || "live" : clock;
+  return {
+    home,
+    away,
+    finished,
+    live,
+    label: `${home}-${away}${tag ? ` ${tag}` : ""}`,
+    period: ev.period,
+    clock: ev.matchStatus,
+  };
 }
 
 function selectionBias(selection: string): string {

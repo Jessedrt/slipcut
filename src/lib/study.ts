@@ -330,6 +330,70 @@ export async function latestCode(): Promise<string | null> {
   }
 }
 
+export async function addBlock(value: string) {
+  const v = value.trim().toLowerCase();
+  if (v.length < 3) return;
+  try {
+    const sql = await getSql();
+    await sql`insert into desk_blocks (value) values (${v}) on conflict (value) do nothing`;
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function removeBlock(value: string) {
+  const v = value.trim().toLowerCase();
+  try {
+    const sql = await getSql();
+    await sql`delete from desk_blocks where value = ${v}`;
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function listBlocks(): Promise<string[]> {
+  try {
+    const sql = await getSql();
+    const rows = await sql<{ value: string }>`select value from desk_blocks order by value`;
+    return rows.map((r) => r.value);
+  } catch {
+    return [];
+  }
+}
+
+export async function saveOddsBand(min: number, max: number) {
+  try {
+    const sql = await getSql();
+    await sql`insert into desk_settings (key, value) values ('odd_min', ${String(min)}) on conflict (key) do update set value = excluded.value`;
+    await sql`insert into desk_settings (key, value) values ('odd_max', ${String(max)}) on conflict (key) do update set value = excluded.value`;
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function loadOddsBand(): Promise<{ min: number; max: number } | null> {
+  try {
+    const sql = await getSql();
+    const rows = await sql<{ key: string; value: string }>`
+      select key, value from desk_settings where key in ('odd_min', 'odd_max')
+    `;
+    const min = Number(rows.find((r) => r.key === "odd_min")?.value);
+    const max = Number(rows.find((r) => r.key === "odd_max")?.value);
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+    return { min, max };
+  } catch {
+    return null;
+  }
+}
+
+export function blockedBy<T extends TicketPick>(picks: T[], blocks: string[]): T[] {
+  if (!blocks.length) return picks;
+  return picks.filter((p) => {
+    const hay = `${p.home} ${p.away} ${p.league ?? ""}`.toLowerCase();
+    return !blocks.some((b) => hay.includes(b));
+  });
+}
+
 export async function formatBook(): Promise<string> {
   try {
     const sql = await getSql();
