@@ -514,6 +514,88 @@ export async function getSetting(key: string): Promise<string | null> {
   }
 }
 
+type AccessRow = { user_id: string; username: string; role: string };
+
+export async function accessLocked(): Promise<boolean> {
+  return (await getSetting("access_lock")) === "1";
+}
+
+export async function listAccess(): Promise<AccessRow[]> {
+  try {
+    const sql = await getSql();
+    return await sql<AccessRow>`select user_id, username, role from desk_access order by role, username`;
+  } catch {
+    return [];
+  }
+}
+
+export async function hasAccess(user: { id: number; username?: string }): Promise<boolean> {
+  if (!(await accessLocked())) return true;
+  const id = String(user.id);
+  const name = (user.username ?? "").toLowerCase();
+  try {
+    const sql = await getSql();
+    const rows = await sql<AccessRow>`select user_id, username, role from desk_access`;
+    if (!rows.length) return true;
+    return rows.some(
+      (r) => r.user_id === id || (name && r.username.toLowerCase() === name),
+    );
+  } catch {
+    return true;
+  }
+}
+
+export async function isOwner(user: { id: number; username?: string }): Promise<boolean> {
+  const id = String(user.id);
+  const name = (user.username ?? "").toLowerCase();
+  try {
+    const sql = await getSql();
+    const rows = await sql<AccessRow>`select user_id, username, role from desk_access where role = 'owner'`;
+    if (!rows.length) return true;
+    return rows.some(
+      (r) => r.user_id === id || (name && r.username.toLowerCase() === name),
+    );
+  } catch {
+    return true;
+  }
+}
+
+export async function grantAccess(
+  userId: string,
+  username: string,
+  role: "owner" | "guest" = "guest",
+) {
+  try {
+    const sql = await getSql();
+    await sql`
+      insert into desk_access (user_id, username, role)
+      values (${userId}, ${username.toLowerCase()}, ${role})
+      on conflict (user_id) do update set username = excluded.username, role = excluded.role
+    `;
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function revokeAccess(token: string) {
+  const t = token.replace(/^@/, "").toLowerCase();
+  try {
+    const sql = await getSql();
+    await sql`delete from desk_access where user_id = ${t} or lower(username) = ${t}`;
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function lockDesk(owner: { id: number; username?: string }) {
+  await grantAccess(String(owner.id), owner.username ?? "", "owner");
+  await setSetting("access_lock", "1");
+}
+
+export async function unlockDesk() {
+  await setSetting("access_lock", "0");
+}
+
 export async function recordStake(code: string, stake: number, combo: number) {
   try {
     const sql = await getSql();

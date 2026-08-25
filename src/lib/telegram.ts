@@ -3,7 +3,7 @@ import { analyzePicks } from "./analyze";
 import { extractShareCode } from "./parse-ticket";
 import { normalizePidgin, pidginSmallTalk, slangHelp, splitChat, wantsCreate } from "./pidgin";
 import { getEventDetail, eventScore, loadBookingCode, listUpcomingPicks, mintShare, parseMarketTarget, retargetPicks, sportyOf, windowLabel, type CookWindow } from "./sportybet";
-import { addAllow, addBlock, allowedBy, applyLessonScores, blockedBy, clearAllows, formatBankroll, formatBook, formatRecap, formatStudy, getSetting, improvePicks, latestCode, latestUnstudiedCode, listAllows, listBlocks, listChats, loadOddsBand, loadOpenSlips, pingSent, recordSlip, recordStake, rememberChat, removeBlock, saveOddsBand, setSetting, studyCode } from "./study";
+import { addAllow, addBlock, allowedBy, applyLessonScores, accessLocked, blockedBy, clearAllows, formatBankroll, formatBook, formatRecap, formatStudy, getSetting, grantAccess, hasAccess, improvePicks, isOwner, latestCode, latestUnstudiedCode, listAccess, listAllows, listBlocks, listChats, loadOddsBand, loadOpenSlips, lockDesk, pingSent, recordSlip, recordStake, rememberChat, removeBlock, revokeAccess, saveOddsBand, setSetting, studyCode, unlockDesk } from "./study";
 import { buildToOdds, combinedOdds, copyRebuild, formatKickoff, formatOdds, keepTop, parseCommand, splitEven, trimToOdds, uniqueEvents } from "./workbench";
 import type { BookSport, TicketPick } from "./types";
 
@@ -849,6 +849,41 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   if (!TOKEN()) return;
   await ensureMenu();
 
+  const from = update.callback_query?.from ?? update.message?.from;
+  const chatId = update.callback_query?.message?.chat.id ?? update.message?.chat.id;
+  const incoming = update.message?.text?.trim() ?? "";
+
+  if (from && chatId && isCmd(incoming, "lock")) {
+    if ((await accessLocked()) && !(await isOwner(from))) {
+      await tg("sendMessage", { chat_id: chatId, text: "Private desk." });
+      return;
+    }
+    await lockDesk(from);
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: "Locked.\n/grant @username\n/revoke @username\n/who\n/unlock",
+    });
+    return;
+  }
+  if (from && chatId && isCmd(incoming, "unlock")) {
+    if (!(await isOwner(from))) {
+      await tg("sendMessage", { chat_id: chatId, text: "Private desk." });
+      return;
+    }
+    await unlockDesk();
+    await tg("sendMessage", { chat_id: chatId, text: "Open. Anyone can use it." });
+    return;
+  }
+
+  if (from && !(await hasAccess(from))) {
+    if (update.callback_query) {
+      await tg("answerCallbackQuery", { callback_query_id: update.callback_query.id, text: "Private desk." });
+    } else if (chatId) {
+      await tg("sendMessage", { chat_id: chatId, text: "Private desk." });
+    }
+    return;
+  }
+
   if (update.callback_query) {
     const cq = update.callback_query;
     const chatId = cq.message?.chat.id;
@@ -986,6 +1021,58 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   }
   if (raw === "/slang") {
     await tg("sendMessage", { chat_id: msg.chat.id, text: slangHelp() });
+    return;
+  }
+  if (isCmd(raw, "who") || isCmd(raw, "grant") || isCmd(raw, "revoke")) {
+    const user = msg.from;
+    if (!user || !(await isOwner(user))) {
+      await tg("sendMessage", { chat_id: msg.chat.id, text: "Private desk." });
+      return;
+    }
+    if (isCmd(raw, "who")) {
+      const locked = await accessLocked();
+      const rows = await listAccess();
+      const lines = rows.map((r) => `${r.role}  ·  ${r.username ? `@${r.username}` : r.user_id}`);
+      await tg("sendMessage", {
+        chat_id: msg.chat.id,
+        text: [locked ? "Locked" : "Open", "", ...lines].join("\n") || "Empty.",
+      });
+      return;
+    }
+    if (isCmd(raw, "revoke")) {
+      const token = cmdArg(raw);
+      if (!token) {
+        await tg("sendMessage", { chat_id: msg.chat.id, text: "/revoke @username" });
+        return;
+      }
+      await revokeAccess(token);
+      await tg("sendMessage", { chat_id: msg.chat.id, text: `Revoked ${token}.` });
+      return;
+    }
+    const reply = msg.reply_to_message?.from;
+    const arg = cmdArg(raw);
+    let userId = "";
+    let username = "";
+    if (reply?.id) {
+      userId = String(reply.id);
+      username = reply.username ?? "";
+    } else if (/^\d{5,}$/.test(arg)) {
+      userId = arg;
+    } else if (arg) {
+      username = arg.replace(/^@/, "");
+      userId = `@${username.toLowerCase()}`;
+    } else {
+      await tg("sendMessage", {
+        chat_id: msg.chat.id,
+        text: "Reply to their message with /grant, or /grant @username",
+      });
+      return;
+    }
+    await grantAccess(userId, username, "guest");
+    await tg("sendMessage", {
+      chat_id: msg.chat.id,
+      text: `Granted ${username ? `@${username}` : userId}. They must tap Start.`,
+    });
     return;
   }
   if (isCmd(raw, "today")) {
