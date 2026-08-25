@@ -18,6 +18,24 @@ export function formatOdds(n: number) {
   return `${n.toFixed(2)}×`;
 }
 
+export function buildToOdds<T extends { odds?: number }>(picks: T[], target: number): T[] {
+  const cap = Math.max(1.2, Math.min(1000, target));
+  const pool = picks
+    .filter((p) => p.odds && p.odds > 1.08 && p.odds < 6)
+    .slice()
+    .sort((a, b) => (a.odds as number) - (b.odds as number));
+  const kept: T[] = [];
+  let prod = 1;
+  for (const pick of pool) {
+    const next = prod * (pick.odds as number);
+    if (kept.length && next > cap * 1.15) continue;
+    kept.push(pick);
+    prod = next;
+    if (prod >= cap * 0.9) break;
+  }
+  return kept;
+}
+
 export function formatEv(n: number) {
   const pct = Math.round(n * 1000) / 10;
   const sign = pct > 0 ? "+" : "";
@@ -77,7 +95,7 @@ export type DeskCommand =
 
 export function parseCommand(raw: string): DeskCommand {
   const t = raw.trim().toLowerCase();
-  if (!t) return { type: "unknown", hint: "Try: split into 3 · trim to 50x · keep 6 legs" };
+  if (!t) return { type: "unknown", hint: "Try: split into 3 · trim to 50x · keep 6 games" };
 
   const split = t.match(/split(?:\s+into)?\s+(\d+)/);
   if (split) return { type: "split", parts: Number(split[1]) };
@@ -97,7 +115,7 @@ export function parseCommand(raw: string): DeskCommand {
 
   return {
     type: "unknown",
-    hint: "Try: split into 3 · trim to 50x · keep 6 legs · threshold 65 · keep football",
+    hint: "Try: split into 3 · trim to 50x · keep 6 games · keep football",
   };
 }
 
@@ -122,7 +140,7 @@ export function copySplitBook(slips: AnalyzedPick[][]) {
   return slips
     .map((slip, i) => {
       const odds = combinedOdds(slip);
-      const head = `SLIP ${i + 1} · ${slip.length} legs${odds ? ` · ${formatOdds(odds)}` : ""}`;
+      const head = `SLIP ${i + 1} · ${slip.length} games${odds ? ` · ${formatOdds(odds)}` : ""}`;
       return `${head}\n${copyRebuild(slip)}`;
     })
     .join("\n\n—\n\n");

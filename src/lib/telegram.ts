@@ -64,9 +64,9 @@ function keyboard(code: string) {
         { text: "🎫 Book am", callback_data: `m:${code}` },
       ],
       [
-        { text: "🔻 8 legs", callback_data: `k:${code}:8` },
-        { text: "🔻 12 legs", callback_data: `k:${code}:12` },
-        { text: "🔻 20 legs", callback_data: `k:${code}:20` },
+        { text: "🔻 8 games", callback_data: `k:${code}:8` },
+        { text: "🔻 12 games", callback_data: `k:${code}:12` },
+        { text: "🔻 20 games", callback_data: `k:${code}:20` },
       ],
       [
         { text: "⚡ Over 2.5", callback_data: `ch:${code}:ou25` },
@@ -173,26 +173,26 @@ async function sureNAndReply(
   }
   await tg("sendMessage", {
     chat_id: chatId,
-    text: `I dey pick the strongest ${n} legs. Hold on.`,
+    text: `I dey pick the strongest ${n} games. Hold on.`,
   });
   const result = await scorePlayable(picks);
   const top = keepTop(await applyLessonScores(result.picks), n);
   if (!top.length) {
-    await tg("sendMessage", { chat_id: chatId, text: `I no fit pick ${n} sure legs from that ticket.` });
+    await tg("sendMessage", { chat_id: chatId, text: `I no fit pick ${n} sure games from that ticket.` });
     return;
   }
   const note = top
     .map((p) => `${p.probability}% ${p.home} vs ${p.away} — ${p.selection}`)
     .join("\n");
-  await mintAndReply(chatId, top, "ng", title || `${top.length} legs\n${note}`);
+  await mintAndReply(chatId, top, "ng", title || `${top.length} games\n${note}`);
 }
 
 async function createSportSlip(chatId: number, sport: "football" | "basketball", count: number) {
   const n = clampLegs(count, 5);
-  const capNote = count > MAX_LEGS ? ` Max na ${MAX_LEGS} legs.` : "";
+  const capNote = count > MAX_LEGS ? ` Max na ${MAX_LEGS} games.` : "";
   await tg("sendMessage", {
     chat_id: chatId,
-    text: `${sportIcon(sport)} I dey cook ${n} legs ${sport} slip — no be 1X2 alone. DC, over/under, GG, winner mix.${capNote}`,
+    text: `${sportIcon(sport)} I dey cook ${n} games ${sport} slip — no be 1X2 alone. DC, over/under, GG, winner mix.${capNote}`,
   });
   const listed = await listUpcomingPicks(sport, Math.min(n + 8, 40));
   if ("error" in listed) {
@@ -208,8 +208,8 @@ async function createSportSlip(chatId: number, sport: "football" | "basketball",
   }
   const title =
     take.length < n
-      ? `${take.length} legs ${sport} — na only ${take.length} games SportyBet get now`
-      : `${take.length} legs ${sport} — I don book am`;
+      ? `${take.length} games ${sport} — na only ${take.length} games SportyBet get now`
+      : `${take.length} games ${sport} — I don book am`;
   await mintAndReply(chatId, take, "ng", title);
 }
 
@@ -217,7 +217,7 @@ async function createOddsSlip(chatId: number, sport: "football" | "basketball", 
   const target = clampOddsTarget(targetRaw);
   await tg("sendMessage", {
     chat_id: chatId,
-    text: `${sportIcon(sport)} I dey cook about ${formatOdds(target)} ${sport} — no be ${Math.round(target)} games. I go pack legs wey go reach that odds.`,
+    text: `${sportIcon(sport)} I dey cook about ${formatOdds(target)} ${sport} — no be ${Math.round(target)} games. I go pack games wey go reach that odds.`,
   });
   const listed = await listUpcomingPicks(sport, 35);
   if ("error" in listed) {
@@ -234,8 +234,8 @@ async function createOddsSlip(chatId: number, sport: "football" | "basketball", 
   const actual = combinedOdds(take);
   const title =
     actual && actual < target * 0.75
-      ? `${take.length} legs ${sport} · ${formatOdds(actual)} — pool no reach ${formatOdds(target)}`
-      : `${take.length} legs ${sport} · ${actual ? formatOdds(actual) : "—"} (you ask ${formatOdds(target)})`;
+      ? `${take.length} games ${sport} · ${formatOdds(actual)} — pool no reach ${formatOdds(target)}`
+      : `${take.length} games ${sport} · ${actual ? formatOdds(actual) : "—"} (you ask ${formatOdds(target)})`;
   await mintAndReply(chatId, take, "ng", title);
 }
 
@@ -258,7 +258,7 @@ async function mintKeepersAndReply(chatId: number, picks: TicketPick[]) {
     });
     return;
   }
-  await mintAndReply(chatId, strongest, "ng", `Strongest ${strongest.length} legs`);
+  await mintAndReply(chatId, strongest, "ng", `Strongest ${strongest.length} games`);
 }
 
 async function studyAndReply(chatId: number, code: string, picks?: TicketPick[]) {
@@ -290,7 +290,7 @@ async function handleCode(chatId: number, code: string) {
   await tg("sendMessage", {
     chat_id: chatId,
     text: [
-      `🎫 ${loaded.shareCode} · ${loaded.picks.length} legs · ${play.length} fit book`,
+      `🎫 ${loaded.shareCode} · ${loaded.picks.length} games · ${play.length} fit book`,
       "",
       listPicks(loaded.picks),
       "",
@@ -309,6 +309,7 @@ const NOT_A_CODE = new Set([
   "START",
   "HELP",
   "LEGS",
+  "GAMES",
   "ODDS",
   "TRIM",
   "MINT",
@@ -357,7 +358,7 @@ function codeFromText(raw?: string): string | null {
 }
 
 function parseDropIndexes(text: string): number[] | null {
-  const m = text.match(/^(?:drop|remove|delete)\s+(?:legs?\s+)?([\d,\s&and]+)$/i);
+  const m = text.match(/^(?:drop|remove|delete)\s+(?:(?:legs?|games?)\s+)?([\d,\s&and]+)$/i);
   if (!m) return null;
   const nums = [...m[1].matchAll(/\d+/g)].map((x) => Number(x[0])).filter((n) => n >= 1);
   return nums.length ? nums : null;
@@ -392,7 +393,7 @@ async function runTicketCommand(chatId: number, code: string, text: string): Pro
       await tg("sendMessage", { chat_id: chatId, text: "Nothing remain after I drop those ones." });
       return true;
     }
-    await mintAndReply(chatId, play, "ng", `🗑 Dropped ${drop.join(", ")} · ${play.length} legs`);
+    await mintAndReply(chatId, play, "ng", `🗑 Dropped ${drop.join(", ")} · ${play.length} games`);
     return true;
   }
   const other = parseCombineCode(text);
@@ -409,7 +410,7 @@ async function runTicketCommand(chatId: number, code: string, text: string): Pro
       seen.add(id);
       return true;
     });
-    await mintAndReply(chatId, merged, "ng", `🔗 Combined ${loaded.shareCode} + ${extra.shareCode} · ${merged.length} legs`);
+    await mintAndReply(chatId, merged, "ng", `🔗 Combined ${loaded.shareCode} + ${extra.shareCode} · ${merged.length} games`);
     return true;
   }
   const market = wantsMarketChange(text);
@@ -420,14 +421,14 @@ async function runTicketCommand(chatId: number, code: string, text: string): Pro
       await tg("sendMessage", { chat_id: chatId, text: "That market no gree change." });
       return true;
     }
-    await mintAndReply(chatId, next, "ng", `⚡ Market don change · ${next.length} legs`);
+    await mintAndReply(chatId, next, "ng", `⚡ Market don change · ${next.length} games`);
     return true;
   }
   const cmd = parseCommand(text);
   if (cmd.type === "split") {
     const slips = splitEven(base, cmd.parts);
     for (let i = 0; i < slips.length; i++) {
-      await mintAndReply(chatId, slips[i] ?? [], "ng", `Slip ${i + 1} · ${slips[i]?.length ?? 0} legs`);
+      await mintAndReply(chatId, slips[i] ?? [], "ng", `Slip ${i + 1} · ${slips[i]?.length ?? 0} games`);
     }
     return true;
   }
@@ -442,7 +443,7 @@ async function runTicketCommand(chatId: number, code: string, text: string): Pro
       verdict: "keep" as const,
     }));
     const trimmed = trimToOdds(scored, cmd.targetOdds);
-    await mintAndReply(chatId, trimmed, "ng", `Trimmed to ${cmd.targetOdds}× · ${trimmed.length} legs`);
+    await mintAndReply(chatId, trimmed, "ng", `Trimmed to ${cmd.targetOdds}× · ${trimmed.length} games`);
     return true;
   }
   if (cmd.type === "keepLegs") {
@@ -455,7 +456,7 @@ async function runTicketCommand(chatId: number, code: string, text: string): Pro
       await tg("sendMessage", { chat_id: chatId, text: `That ticket no get ${cmd.sport} at all.` });
       return true;
     }
-    await mintAndReply(chatId, filtered, "ng", `${cmd.sport} only · ${filtered.length} legs`);
+    await mintAndReply(chatId, filtered, "ng", `${cmd.sport} only · ${filtered.length} games`);
     return true;
   }
   return false;
@@ -467,7 +468,7 @@ function clampOddsTarget(n: number) {
 }
 
 function parseOddsTarget(text: string): number | null {
-  if (/\blegs?\b/i.test(text) && !/\bodds?\b|[x×]/i.test(text)) return null;
+  if (/\b(?:legs?|games?)\b/i.test(text) && !/\bodds?\b|[x×]/i.test(text)) return null;
   const m =
     text.match(/(\d{1,4}(?:\.\d+)?)\s*odds?\b/i) ||
     text.match(/(\d{1,4}(?:\.\d+)?)\s*[x×]\b/i) ||
@@ -479,10 +480,10 @@ function parseOddsTarget(text: string): number | null {
 }
 
 function parseLegCount(text: string): number | null {
-  if (/\bodds?\b/i.test(text) && !/\blegs?\b/i.test(text)) return null;
+  if (/\bodds?\b/i.test(text) && !/\b(?:legs?|games?)\b/i.test(text)) return null;
   const m =
-    text.match(/(?:sure\s*)?(\d{1,4})\s*legs?\b/i) ||
-    text.match(/^\/(?:legs?)(?:@\w+)?\s+(\d{1,4})\b/i) ||
+    text.match(/(?:sure\s*)?(\d{1,4})\s*(?:legs?|games?|matches)\b/i) ||
+    text.match(/^\/(?:legs?|games?)(?:@\w+)?\s+(\d{1,4})\b/i) ||
     (parseSport(text) && !/\bodds?\b/i.test(text) ? text.match(/\b(\d{1,4})\b/) : null);
   if (!m) return null;
   const n = Number(m[1]);
@@ -524,7 +525,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       const target = parseMarketTarget(arg || "ou25") ?? "ou25";
       await tg("sendMessage", { chat_id: chatId, text: `⚡ I dey change market for ${loaded.shareCode}.` });
       const next = playable(await retargetPicks(base, target));
-      await mintAndReply(chatId, next, "ng", `⚡ Market don change · ${next.length} legs`);
+      await mintAndReply(chatId, next, "ng", `⚡ Market don change · ${next.length} games`);
       return;
     }
     if (kind === "y") {
@@ -532,14 +533,14 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       return;
     }
     if (kind === "m") {
-      await mintAndReply(chatId, base, "ng", `🎫 SportyBet code · ${base.length} legs`);
+      await mintAndReply(chatId, base, "ng", `🎫 SportyBet code · ${base.length} games`);
       return;
     }
     if (kind === "s") {
       const parts = Number(arg || 2);
       const slips = splitEven(base, parts);
       for (let i = 0; i < slips.length; i++) {
-        await mintAndReply(chatId, slips[i] ?? [], "ng", `Slip ${i + 1} · ${slips[i]?.length ?? 0} legs`);
+        await mintAndReply(chatId, slips[i] ?? [], "ng", `Slip ${i + 1} · ${slips[i]?.length ?? 0} games`);
       }
       return;
     }
@@ -555,7 +556,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         verdict: "keep" as const,
       }));
       const trimmed = trimToOdds(scored, target);
-      await mintAndReply(chatId, trimmed, "ng", `Trimmed to ${target}× · ${trimmed.length} legs`);
+      await mintAndReply(chatId, trimmed, "ng", `Trimmed to ${target}× · ${trimmed.length} games`);
     }
     return;
   }
@@ -590,14 +591,14 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "🤝  change to GG",
         "🎯  trim to 50x",
         "🔗  combine NXPSTB",
-        "🔻  12 legs",
+        "🔻  12 games",
         "📓  study — after the games finish",
         "",
         "Or yarn me like person: how far help me cook like 30odds",
-        "(30odds = about 30× combined. 12 legs = 12 games.)",
-        "Basketball na: 12 legs basketball",
+        "(30odds = about 30× combined. 12 games = 12 matches.)",
+        "Basketball na: 12 games basketball",
         "",
-        "Football and basketball only. Max 35 new legs.",
+        "Football and basketball only. Max 35 new games.",
         "Yarn me like person — I go reply pidgin.",
         "Send /slang see the dictionary.",
       ].join("\n"),
@@ -672,7 +673,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       msg.chat.id,
       trimmed,
       "ng",
-      `Trimmed to about ${formatOdds(clampOddsTarget(oddsOnTicket))} · ${trimmed.length} legs`,
+      `Trimmed to about ${formatOdds(clampOddsTarget(oddsOnTicket))} · ${trimmed.length} games`,
     );
     return;
   }
@@ -702,7 +703,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       return;
     }
     const base = playable(loaded.picks);
-    await mintAndReply(msg.chat.id, base, "ng", `🎫 SportyBet code · ${base.length} legs`);
+    await mintAndReply(msg.chat.id, base, "ng", `🎫 SportyBet code · ${base.length} games`);
     return;
   }
   if (legCount && sport && !code) {
@@ -724,7 +725,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     if (sport && !filtered.length) {
       await tg("sendMessage", {
         chat_id: msg.chat.id,
-        text: `That ticket no get ${sport}. Make I cook fresh ${clampLegs(legCount, 5)} legs ${sport} instead.`,
+        text: `That ticket no get ${sport}. Make I cook fresh ${clampLegs(legCount, 5)} games ${sport} instead.`,
       });
       await createSportSlip(msg.chat.id, sport, legCount);
       return;
@@ -735,14 +736,14 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   if (sport && !legCount && !code) {
     await tg("sendMessage", {
       chat_id: msg.chat.id,
-      text: `How many ${sport} legs you want? Type: 12 legs ${sport}`,
+      text: `How many ${sport} games you want? Type: 12 games ${sport}`,
     });
     return;
   }
   if (legCount && !code) {
     await tg("sendMessage", {
       chat_id: msg.chat.id,
-      text: `Add the sport — type: ${clampLegs(legCount, 5)} legs football`,
+      text: `Add the sport — type: ${clampLegs(legCount, 5)} games football`,
     });
     return;
   }

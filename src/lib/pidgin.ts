@@ -18,19 +18,19 @@ export const PIDGIN_SLANG: Array<{ slang: string; meaning: string; use: string }
   { slang: "round leather", meaning: "football", use: "sport" },
   { slang: "soccer", meaning: "football", use: "sport" },
   { slang: "hoop / basket", meaning: "basketball", use: "sport" },
-  { slang: "legs", meaning: "selections on a slip", use: "ticket" },
+  { slang: "legs / games", meaning: "number of matches on a slip", use: "ticket" },
   { slang: "odds", meaning: "combined multiplier, e.g. 30odds ≈ 30×", use: "ticket" },
   { slang: "code", meaning: "SportyBet booking code", use: "ticket" },
   { slang: "slip / ticket", meaning: "accumulator", use: "ticket" },
   { slang: "cook / arrange / pack", meaning: "build a new slip", use: "create" },
   { slang: "book am / mint am", meaning: "give me a SportyBet code", use: "mint" },
   { slang: "trim am / cut am down / reduce am", meaning: "keep the strongest half", use: "trim" },
-  { slang: "comot / remove / kolo out", meaning: "drop those legs", use: "drop" },
+  { slang: "comot / remove / kolo out", meaning: "drop those games", use: "drop" },
   { slang: "join / mix", meaning: "combine two codes", use: "combine" },
   { slang: "split am / share am", meaning: "split the slip", use: "split" },
   { slang: "e cut / the slip cut / e no hit / e dry", meaning: "the acca lost — study it", use: "study" },
   { slang: "e hit / e run / e bang / e chop", meaning: "the acca won — still study it", use: "study" },
-  { slang: "sure 2 / sure odds", meaning: "few strongest legs", use: "keep" },
+  { slang: "sure 2 / sure odds", meaning: "few strongest games", use: "keep" },
   { slang: "over two five / o2.5", meaning: "over 2.5", use: "market" },
   { slang: "gg / both team", meaning: "both teams to score", use: "market" },
   { slang: "1x / dc", meaning: "double chance", use: "market" },
@@ -75,9 +75,10 @@ const PHRASES: Array<[RegExp, string]> = [
   [/\bcomot virtuals?\b/gi, "drop other"],
   [/\bcomot\b/gi, "drop"],
   [/\bkolo out\b/gi, "drop"],
-  [/\bsure\s+(\d{1,2})\b/gi, "$1 legs"],
+  [/\bsure\s+(\d{1,2})\b/gi, "$1 games"],
   [/\blike\s+(\d{1,4})\s*odds?\b/gi, "$1 odds"],
   [/\b(\d{1,4})odds?\b/gi, "$1 odds"],
+  [/\bmatches\b/gi, "games"],
   [/\bbola\b/gi, "football"],
   [/\bhoops?\b/gi, "basketball"],
   [/\bbasket\b/gi, "basketball"],
@@ -87,8 +88,8 @@ const GREET = /^(how far|wetin dey(?: sup)?|wetin you dey|you dey(?: there)?|hel
 const THANKS = /^(thanks?|thank you|cheers|god bless|e se|na you)\b/i;
 
 const GREET_REPLIES = [
-  "How far my guy. Send code or tell me how many legs you want.",
-  "I dey. Drop booking code make I load am, or yarn 12 legs football.",
+  "How far my guy. Send code or tell me how many games you want.",
+  "I dey. Drop booking code make I load am, or yarn 12 games football.",
   "Omo I dey available. Code, or cook slip — your call.",
 ];
 
@@ -135,7 +136,7 @@ export function pidginSmallTalk(text: string): string | null {
   if (GREET.test(t)) return pick(GREET_REPLIES);
   if (THANKS.test(t)) return pick(THANKS_REPLIES);
   if (/^(you sabi|you dey hear|you understand)\b/i.test(t)) {
-    return "I sabi. Send code, or tell me: cook 12 legs bola.";
+    return "I sabi. Send code, or tell me: cook 12 games bola.";
   }
   if (/^(ok|okay|ehn|ehen|na so|correct|sharp)\s*[.!]?\s*$/i.test(t)) {
     return "Sharp. Drop the next code when you ready.";
@@ -149,9 +150,9 @@ export function slangHelp(): string {
     "",
     "how far — I go yarn you back",
     "how far help me cook like 30odds — about 30×, not 30 games",
-    "12 legs bola — 12 games",
+    "12 games bola — 12 matches",
     "trim am — keep strong half",
-    "comot 3 8 — drop those legs",
+    "comot 3 8 — drop those games",
     "e cut — study why e no hit",
     "book am — give SportyBet code",
     "change am to over 2.5",
