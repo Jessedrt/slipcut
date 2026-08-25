@@ -6,7 +6,7 @@
   "crons": [
     {
       "path": "/api/cron/longshot",
-      "schedule": "0 * * * *"
+      "schedule": "0 7 * * *"
     }
   ]
 }

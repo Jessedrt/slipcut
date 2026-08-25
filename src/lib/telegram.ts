@@ -33,7 +33,7 @@ async function ensureMenu(force = false) {
 }
 
 function isCmd(raw: string, name: string) {
-  const t = raw.trim();
+  const t = raw.trim().replace(/[\u200b\u2060]/g, "");
   if (new RegExp(`^/${name}(?:@\\w+)?(?:\\s|$)`, "i").test(t)) return true;
   return new RegExp(`^${name}$`, "i").test(t);
 }
