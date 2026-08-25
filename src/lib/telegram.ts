@@ -9,6 +9,7 @@ import type { TicketPick } from "./types";
 const MAX_LEGS = 35;
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
 const BANNER_URL = "https://slipcut.vercel.app/banner.jpg";
+const KEEP_LINE = 45;
 
 function clampLegs(n: number, fallback: number) {
   if (!Number.isFinite(n)) return fallback;
