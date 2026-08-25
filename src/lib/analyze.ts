@@ -147,20 +147,69 @@ function parsePickScore(text: string): Record<string, unknown> {
   }
 }
 
-async function scorePicks(picks: TicketPick[]): Promise<unknown> {
-  const rows = await Promise.all(
-    picks.map(async (pick) => {
-      if (pick.sport === "other") {
-        return {
+async function mapPool<T, R>(items: T[], n: number, fn: (item: T, i: number) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      const idx = i++;
+      out[idx] = await fn(items[idx] as T, idx);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
+  return out;
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+async function scoreChunk(picks: TicketPick[]): Promise<Record<string, unknown>[]> {
+  if (picks.length === 1) {
+    const pick = picks[0]!;
+    try {
+      const answer = await youAnswer(pickQuery(pick));
+      return [{ id: pick.id, sport: pick.sport, ...parsePickScore(answer) }];
+    } catch {
+      return [
+        {
           id: pick.id,
-          sport: "other",
-          probability: 0,
-          confidence: "high",
-          summary: "Not football or basketball.",
+          sport: pick.sport,
+          probability: 50,
+          confidence: "low",
+          summary: "Live research missed this pick.",
           reasons: [],
-          risks: ["Sport is outside the desk."],
-        };
-      }
+          risks: ["No current form brief returned."],
+        },
+      ];
+    }
+  }
+  const lines = picks
+    .map(
+      (p, i) =>
+        `${i + 1}. ${p.sport}: ${clip(p.home, 28)} vs ${clip(p.away, 28)}. ${clip(p.league, 20)}. ${clip(p.market, 24)} — ${clip(p.selection, 24)}`,
+    )
+    .join("\n");
+  const query = `Score these ${picks.length} football/basketball selections from live form and news only. IGNORE betting odds. Reply ONLY JSON {"picks":[{"i":1,"probability":0-100,"confidence":"high|medium|low","summary":"one line","reasons":["form"],"risks":["x"]}]}\n${lines}`.slice(
+    0,
+    1600,
+  );
+  try {
+    const answer = await youAnswer(query);
+    const parsed = stripJson(answer) as { picks?: unknown };
+    const rows = Array.isArray(parsed.picks) ? parsed.picks : [];
+    return picks.map((pick, i) => {
+      const row =
+        rows.find((r) => r && typeof r === "object" && Number((r as { i?: number }).i) === i + 1) ??
+        rows[i] ??
+        {};
+      const rec = (row && typeof row === "object" ? row : {}) as Record<string, unknown>;
+      return { id: pick.id, sport: pick.sport, ...rec };
+    });
+  } catch {
+    const singles = await mapPool(picks, 2, async (pick) => {
       try {
         const answer = await youAnswer(pickQuery(pick));
         return { id: pick.id, sport: pick.sport, ...parsePickScore(answer) };
@@ -175,10 +224,31 @@ async function scorePicks(picks: TicketPick[]): Promise<unknown> {
           risks: ["No current form brief returned."],
         };
       }
-    }),
-  );
+    });
+    return singles;
+  }
+}
+
+async function scorePicks(picks: TicketPick[]): Promise<unknown> {
+  const rows: Record<string, unknown>[] = [];
+  const others = picks.filter((p) => p.sport === "other");
+  const playable = picks.filter((p) => p.sport !== "other");
+  for (const pick of others) {
+    rows.push({
+      id: pick.id,
+      sport: "other",
+      probability: 0,
+      confidence: "high",
+      summary: "Not football or basketball.",
+      reasons: [],
+      risks: ["Sport is outside the desk."],
+    });
+  }
+  const groups = chunk(playable, 4);
+  const scored = await mapPool(groups, 2, (group) => scoreChunk(group));
+  for (const group of scored) rows.push(...group);
   return {
-    desk: `Live-web form read of ${picks.length} selection${picks.length === 1 ? "" : "s"}. Odds ignored as a signal.`,
+    desk: `🧠 AI form read of ${playable.length} selection${playable.length === 1 ? "" : "s"}. Odds ignored.`,
     picks: rows,
   };
 }

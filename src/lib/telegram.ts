@@ -161,16 +161,18 @@ function formatAnalysis(picks: AnalyzedPick[], desk: string) {
     .filter((p) => p.sport !== "other")
     .slice()
     .sort((a, b) => b.probability - a.probability);
-  const lines = ranked.slice(0, 18).map((p, i) => {
+  const lines = ranked.slice(0, 20).map((p, i) => {
     const heat = p.probability >= 70 ? "🔥" : p.probability >= 55 ? "✨" : "❄️";
-    const summary = p.summary ? `\n   ${p.summary}` : "";
-    return `${i + 1}. ${heat} ${p.probability}%  ${sportIcon(p.sport)} ${p.home} vs ${p.away}\n   ${p.market} — ${p.selection}${summary}`;
+    const why = p.reasons[0] || p.summary;
+    const risk = p.risks[0] ? `\n   ⚠️ ${p.risks[0]}` : "";
+    return `${i + 1}. ${heat} ${p.probability}%  ${sportIcon(p.sport)} ${p.home} vs ${p.away}\n   ${p.market} — ${p.selection}\n   ${why}${risk}`;
   });
   return [
-    "🔍 Analyze · live form",
+    "🧠 AI analysis · live form, odds ignored",
     desk,
     "",
     ...lines,
+    ranked.length > 20 ? `\n… +${ranked.length - 20} more` : "",
     "",
     `📊 Scored ${ranked.length} legs. Strongest first.`,
   ]
@@ -240,15 +242,21 @@ async function createSportSlip(chatId: number, sport: "football" | "basketball",
     await tg("sendMessage", { chat_id: chatId, text: `No upcoming ${sport} to book.` });
     return;
   }
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: `🧠 Scoring ${take.length} ${sport} legs with AI.`,
+  });
+  const scored = await scorePlayable(take);
+  const ranked = keepTop(scored.picks, take.length);
   const title =
     take.length < n
       ? `${take.length} legs ${sport} — only ${take.length} upcoming games on SportyBet`
       : `${take.length} legs ${sport}`;
-  if (take.length <= 8) {
-    await sureNAndReply(chatId, take, take.length, title);
-    return;
-  }
-  await mintAndReply(chatId, take, "ng", title);
+  await mintAndReply(chatId, ranked.length ? ranked : take, "ng", title);
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: formatAnalysis(scored.picks, scored.desk),
+  });
 }
 
 function parseSport(text: string): "football" | "basketball" | null {
@@ -293,6 +301,7 @@ async function handleCode(chatId: number, code: string) {
       .slice(0, 3900),
     reply_markup: keyboard(loaded.shareCode),
   });
+  await analyzeAndReply(chatId, play, loaded.shareCode);
 }
 
 const NOT_A_CODE = new Set([
