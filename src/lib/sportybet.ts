@@ -126,7 +126,7 @@ export async function loadBookingCode(code: string, preferred?: string): Promise
     if (payload.bizCode === 10000 && payload.data) {
       const picks = picksFromShare(payload);
       if (!picks.length) return { error: "That code loaded, but the slip had no selections." };
-      return { picks: picks.slice(0, 20), shareCode: payload.data.shareCode ?? code };
+      return { picks: picks.slice(0, 50), shareCode: payload.data.shareCode ?? code };
     }
     lastMessage = payload.message || lastMessage;
   }

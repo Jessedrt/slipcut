@@ -68,11 +68,12 @@ function afterAnalyzeKeyboard(code: string) {
 }
 
 function listPicks(picks: TicketPick[]) {
-  const lines = picks.slice(0, 18).map((p, i) => {
+  const shown = picks.slice(0, 35);
+  const lines = shown.map((p, i) => {
     const mark = p.sport === "other" ? "· skip" : "";
     return `${i + 1}. ${p.home} vs ${p.away}\n   ${p.market} — ${p.selection} ${mark}`.trim();
   });
-  if (picks.length > 18) lines.push(`… +${picks.length - 18} more`);
+  if (picks.length > shown.length) lines.push(`… +${picks.length - shown.length} more`);
   return lines.join("\n");
 }
 
