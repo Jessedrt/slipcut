@@ -828,10 +828,16 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       await tg("sendMessage", { chat_id: chatId, text: "Private desk." });
       return;
     }
-    await lockDesk(from);
+    const result = await lockDesk(from);
+    if (!result.ok) {
+      await tg("sendMessage", { chat_id: chatId, text: result.error || "Lock no save." });
+      return;
+    }
+    const rows = await listAccess();
+    const lines = rows.map((r) => `${r.role}  ·  ${r.username ? `@${r.username}` : r.user_id}`);
     await tg("sendMessage", {
       chat_id: chatId,
-      text: "Locked.\n/grant @username\n/revoke @username\n/who\n/unlock",
+      text: ["Locked. Only these people:", "", ...lines, "", "/grant @username"].join("\n"),
     });
     return;
   }
@@ -1005,7 +1011,13 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       const lines = rows.map((r) => `${r.role}  ·  ${r.username ? `@${r.username}` : r.user_id}`);
       await tg("sendMessage", {
         chat_id: msg.chat.id,
-        text: [locked ? "Locked" : "Open", "", ...lines].join("\n") || "Empty.",
+        text: [
+          locked ? "Locked — only people you grant" : "Open — anybody fit use this bot",
+          "",
+          ...lines,
+        ]
+          .filter((l, i, arr) => l !== "" || arr[i - 1] !== "")
+          .join("\n"),
       });
       return;
     }

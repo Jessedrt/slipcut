@@ -494,6 +494,7 @@ export async function listAllows(): Promise<string[]> {
 
 export async function setSetting(key: string, value: string) {
   try {
+    await ensureAccessSchema();
     const sql = await getSql();
     await sql`
       insert into desk_settings (key, value) values (${key}, ${value})
@@ -504,8 +505,19 @@ export async function setSetting(key: string, value: string) {
   }
 }
 
+async function ensureAccessSchema() {
+  const sql = await getSql();
+  await sql.query(
+    "create table if not exists desk_settings (key text primary key, value text not null)",
+  );
+  await sql.query(
+    "create table if not exists desk_access (user_id text primary key, username text not null default '', role text not null default 'guest')",
+  );
+}
+
 export async function getSetting(key: string): Promise<string | null> {
   try {
+    await ensureAccessSchema();
     const sql = await getSql();
     const rows = await sql<{ value: string }>`select value from desk_settings where key = ${key} limit 1`;
     return rows[0]?.value ?? null;
@@ -522,6 +534,7 @@ export async function accessLocked(): Promise<boolean> {
 
 export async function listAccess(): Promise<AccessRow[]> {
   try {
+    await ensureAccessSchema();
     const sql = await getSql();
     return await sql<AccessRow>`select user_id, username, role from desk_access order by role, username`;
   } catch {
@@ -534,14 +547,15 @@ export async function hasAccess(user: { id: number; username?: string }): Promis
   const id = String(user.id);
   const name = (user.username ?? "").toLowerCase();
   try {
+    await ensureAccessSchema();
     const sql = await getSql();
     const rows = await sql<AccessRow>`select user_id, username, role from desk_access`;
-    if (!rows.length) return true;
+    if (!rows.length) return false;
     return rows.some(
       (r) => r.user_id === id || (name && r.username.toLowerCase() === name),
     );
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -549,6 +563,7 @@ export async function isOwner(user: { id: number; username?: string }): Promise<
   const id = String(user.id);
   const name = (user.username ?? "").toLowerCase();
   try {
+    await ensureAccessSchema();
     const sql = await getSql();
     const rows = await sql<AccessRow>`select user_id, username, role from desk_access where role = 'owner'`;
     if (!rows.length) return true;
@@ -565,31 +580,36 @@ export async function grantAccess(
   username: string,
   role: "owner" | "guest" = "guest",
 ) {
-  try {
-    const sql = await getSql();
-    await sql`
-      insert into desk_access (user_id, username, role)
-      values (${userId}, ${username.toLowerCase()}, ${role})
-      on conflict (user_id) do update set username = excluded.username, role = excluded.role
-    `;
-  } catch {
-    /* ignore */
-  }
+  await ensureAccessSchema();
+  const sql = await getSql();
+  await sql`
+    insert into desk_access (user_id, username, role)
+    values (${userId}, ${username.toLowerCase()}, ${role})
+    on conflict (user_id) do update set username = excluded.username, role = excluded.role
+  `;
 }
 
 export async function revokeAccess(token: string) {
   const t = token.replace(/^@/, "").toLowerCase();
-  try {
-    const sql = await getSql();
-    await sql`delete from desk_access where user_id = ${t} or lower(username) = ${t}`;
-  } catch {
-    /* ignore */
-  }
+  await ensureAccessSchema();
+  const sql = await getSql();
+  await sql`delete from desk_access where user_id = ${t} or lower(username) = ${t}`;
 }
 
-export async function lockDesk(owner: { id: number; username?: string }) {
-  await grantAccess(String(owner.id), owner.username ?? "", "owner");
-  await setSetting("access_lock", "1");
+export async function lockDesk(owner: { id: number; username?: string }): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await ensureAccessSchema();
+    await grantAccess(String(owner.id), owner.username ?? "", "owner");
+    await setSetting("access_lock", "1");
+    const locked = await accessLocked();
+    const rows = await listAccess();
+    if (!locked || !rows.length) {
+      return { ok: false, error: "Lock no save. Database no dey ready on Vercel." };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Lock no save. Database no dey ready on Vercel." };
+  }
 }
 
 export async function unlockDesk() {
