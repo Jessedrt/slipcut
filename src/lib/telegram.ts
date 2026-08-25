@@ -2,7 +2,7 @@ import { analyzePicks } from "./analyze";
 import { extractShareCode } from "./parse-ticket";
 import { loadBookingCode, listUpcomingPicks, mintShare, parseMarketTarget, retargetPicks, sportyOf } from "./sportybet";
 import { buildToOdds, combinedOdds, copyRebuild, formatOdds, keepTop, parseCommand, splitEven, trimToOdds } from "./workbench";
-import type { AnalyzedPick, TicketPick } from "./types";
+import type { TicketPick } from "./types";
 
 const MAX_LEGS = 35;
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
@@ -53,12 +53,12 @@ function keyboard(code: string) {
   return {
     inline_keyboard: [
       [
-        { text: "🔍 Analyze", callback_data: `a:${code}` },
         { text: "✂️ Trim", callback_data: `g:${code}` },
+        { text: "➗ Split 2", callback_data: `s:${code}:2` },
       ],
       [
-        { text: "➗ Split 2", callback_data: `s:${code}:2` },
         { text: "🎯 Optimize 50×", callback_data: `t:${code}:50` },
+        { text: "🎫 Mint all", callback_data: `m:${code}` },
       ],
       [
         { text: "🔻 8 legs", callback_data: `k:${code}:8` },
@@ -68,14 +68,9 @@ function keyboard(code: string) {
       [
         { text: "⚡ Over 2.5", callback_data: `ch:${code}:ou25` },
         { text: "🤝 GG", callback_data: `ch:${code}:gg` },
-        { text: "🎫 Mint all", callback_data: `m:${code}` },
       ],
     ],
   };
-}
-
-function afterAnalyzeKeyboard(code: string) {
-  return keyboard(code);
 }
 
 function listPicks(picks: TicketPick[]) {
@@ -156,46 +151,8 @@ function esc(s: string) {
   return s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
 }
 
-function formatAnalysis(picks: AnalyzedPick[], desk: string) {
-  const ranked = picks
-    .filter((p) => p.sport !== "other")
-    .slice()
-    .sort((a, b) => b.probability - a.probability);
-  const lines = ranked.slice(0, 20).map((p, i) => {
-    const heat = p.probability >= 70 ? "🔥" : p.probability >= 45 ? "✨" : "❄️";
-    const why = p.reasons[0] || p.summary;
-    const risk = p.risks[0] ? `\n   ⚠️ ${p.risks[0]}` : "";
-    return `${i + 1}. ${heat} ${p.probability}%  ${sportIcon(p.sport)} ${p.home} vs ${p.away}\n   ${p.market} — ${p.selection}\n   ${why}${risk}`;
-  });
-  return [
-    "🧠 AI analysis · live form, odds ignored",
-    desk,
-    "",
-    ...lines,
-    ranked.length > 20 ? `\n… +${ranked.length - 20} more` : "",
-    "",
-    `📊 Scored ${ranked.length} legs. Strongest first.`,
-  ]
-    .join("\n")
-    .slice(0, 3900);
-}
-
 async function scorePlayable(picks: TicketPick[]) {
   return analyzePicks(picks, KEEP_LINE);
-}
-
-async function analyzeAndReply(chatId: number, picks: TicketPick[], code: string) {
-  if (!picks.length) {
-    await tg("sendMessage", { chat_id: chatId, text: "No football or basketball legs to score." });
-    return;
-  }
-  await tg("sendMessage", { chat_id: chatId, text: "📡 Reading live form. Odds ignored." });
-  const result = await scorePlayable(picks);
-  await tg("sendMessage", {
-    chat_id: chatId,
-    text: formatAnalysis(result.picks, result.desk),
-    reply_markup: afterAnalyzeKeyboard(code),
-  });
 }
 
 async function sureNAndReply(
@@ -242,21 +199,11 @@ async function createSportSlip(chatId: number, sport: "football" | "basketball",
     await tg("sendMessage", { chat_id: chatId, text: `No upcoming ${sport} to book.` });
     return;
   }
-  await tg("sendMessage", {
-    chat_id: chatId,
-    text: `🧠 Scoring ${take.length} ${sport} legs with AI.`,
-  });
-  const scored = await scorePlayable(take);
-  const ranked = keepTop(scored.picks, take.length);
   const title =
     take.length < n
       ? `${take.length} legs ${sport} — only ${take.length} upcoming games on SportyBet`
       : `${take.length} legs ${sport}`;
-  await mintAndReply(chatId, ranked.length ? ranked : take, "ng", title);
-  await tg("sendMessage", {
-    chat_id: chatId,
-    text: formatAnalysis(scored.picks, scored.desk),
-  });
+  await mintAndReply(chatId, take, "ng", title);
 }
 
 function parseSport(text: string): "football" | "basketball" | null {
@@ -273,7 +220,7 @@ async function mintKeepersAndReply(chatId: number, picks: TicketPick[]) {
   if (!strongest.length) {
     await tg("sendMessage", {
       chat_id: chatId,
-      text: formatAnalysis(result.picks, "No legs to mint."),
+      text: "No legs left to mint after trim.",
     });
     return;
   }
@@ -301,7 +248,6 @@ async function handleCode(chatId: number, code: string) {
       .slice(0, 3900),
     reply_markup: keyboard(loaded.shareCode),
   });
-  await analyzeAndReply(chatId, play, loaded.shareCode);
 }
 
 const NOT_A_CODE = new Set([
@@ -486,10 +432,6 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       return;
     }
     const base = playable(loaded.picks);
-    if (kind === "a") {
-      await analyzeAndReply(chatId, base, loaded.shareCode);
-      return;
-    }
     if (kind === "k") {
       await sureNAndReply(chatId, base, Number(arg || 2));
       return;
