@@ -247,19 +247,48 @@ function encodeAccess(state: AccessState) {
   return `${PUBLIC_DESC}\n${blob}`.slice(0, 512);
 }
 
+function encodeShort(state: AccessState) {
+  const ids = state.users.map((u) => u.user_id).join(",");
+  const label = state.locked ? "Private desk." : "SportyBet desk.";
+  return `${label} SC#${state.locked ? "1" : "0"}#${ids}`.slice(0, 120);
+}
+
+function parseShort(text: string): AccessState | null {
+  const m = text.match(/SC#([01])#([^]*)/);
+  if (!m) return null;
+  const users = (m[2] || "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .map((user_id, i) => ({
+      user_id,
+      username: "",
+      role: i === 0 ? ("owner" as const) : ("guest" as const),
+    }));
+  return { locked: m[1] === "1", users };
+}
+
+function descText(result: unknown): string {
+  if (typeof result === "string") return result;
+  if (result && typeof result === "object" && "description" in result) {
+    return String((result as { description?: string }).description ?? "");
+  }
+  if (result && typeof result === "object" && "short_description" in result) {
+    return String((result as { short_description?: string }).short_description ?? "");
+  }
+  return "";
+}
+
 async function loadAccess(): Promise<AccessState> {
-  const result = await tg("getMyDescription", {});
-  const desc =
-    typeof result === "string"
-      ? result
-      : result && typeof result === "object" && "description" in result
-        ? String((result as { description?: string }).description ?? "")
-        : "";
-  return parseAccess(desc);
+  const long = parseAccess(descText(await tg("getMyDescription", {})));
+  if (long.locked || long.users.length) return long;
+  const short = parseShort(descText(await tg("getMyShortDescription", {})));
+  return short ?? long;
 }
 
 async function saveAccess(state: AccessState) {
   await tg("setMyDescription", { description: encodeAccess(state) });
+  await tg("setMyShortDescription", { short_description: encodeShort(state) });
 }
 
 function userAllowed(state: AccessState, user: { id: number; username?: string }) {
@@ -1054,12 +1083,8 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   const raw = msg.text.trim();
   if (raw === "/start" || isCmd(raw, "start")) {
     await ensureMenu(true);
-    await tg("setMyDescription", {
-      description: "Paste a SportyBet code, or cook a new slip.",
-    });
-    await tg("setMyShortDescription", {
-      short_description: "SportyBet desk.",
-    });
+    const access = await loadAccess();
+    await saveAccess(access);
     await tg("sendPhoto", {
       chat_id: msg.chat.id,
       photo: BANNER_URL,
