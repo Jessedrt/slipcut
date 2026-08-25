@@ -643,6 +643,18 @@ async function createDrawSlip(chatId: number, count: number, window: CookWindow 
   );
 }
 
+async function askDrawCount(chatId: number) {
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: "How many draw games?",
+    reply_markup: {
+      force_reply: true,
+      selective: true,
+      input_field_placeholder: "Any number, e.g. 8",
+    },
+  });
+}
+
 function interleave<T>(a: T[], b: T[]): T[] {
   const out: T[] = [];
   const n = Math.max(a.length, b.length);
@@ -1190,6 +1202,16 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   if (!msg?.text || !msg.chat) return;
   await rememberChat(msg.chat.id);
   const raw = msg.text.trim();
+  const drawAsk = msg.reply_to_message?.text ?? "";
+  if (/how many draw/i.test(drawAsk)) {
+    const n = Number(raw.match(/\d{1,4}/)?.[0]);
+    if (Number.isFinite(n) && n >= 1) {
+      await createDrawSlip(msg.chat.id, n, "today");
+      return;
+    }
+    await askDrawCount(msg.chat.id);
+    return;
+  }
   if (raw === "/start" || isCmd(raw, "start")) {
     await ensureMenu(true);
     const access = await loadAccess();
@@ -1218,6 +1240,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "<code>weekend mix</code>",
         "<code>stake 2</code>",
         "<code>2 odds</code>",
+        "<code>8 draw</code>",
         "<code>20 draw football</code>",
         "",
         "<b>On a slip</b>",
@@ -1321,9 +1344,14 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     return;
   }
   if (isCmd(raw, "draw") || /^(draw|draws)\s*$/i.test(raw)) {
-    const n = parseLegCount(cmdArg(raw)) ?? 12;
-    const w = parseCookWindow(raw);
-    await createDrawSlip(msg.chat.id, n, w === "soon" ? "today" : w);
+    const arg = cmdArg(raw);
+    const n = Number(arg.match(/\d{1,4}/)?.[0]);
+    if (Number.isFinite(n) && n >= 1) {
+      const w = parseCookWindow(raw);
+      await createDrawSlip(msg.chat.id, n, w === "soon" ? "today" : w);
+      return;
+    }
+    await askDrawCount(msg.chat.id);
     return;
   }
   if (isCmd(raw, "weekend")) {
