@@ -3,7 +3,7 @@ import { analyzePicks } from "./analyze";
 import { extractShareCode } from "./parse-ticket";
 import { normalizePidgin, pidginSmallTalk, slangHelp, splitChat, wantsCreate } from "./pidgin";
 import { getEventDetail, eventScore, loadBookingCode, listUpcomingPicks, mintShare, parseMarketTarget, retargetPicks, sportyOf, windowLabel, type CookWindow } from "./sportybet";
-import { addAllow, addBlock, allowedBy, applyLessonScores, accessLocked, blockedBy, clearAllows, formatBankroll, formatBook, formatRecap, formatStudy, getSetting, grantAccess, hasAccess, improvePicks, isOwner, latestCode, latestUnstudiedCode, listAccess, listAllows, listBlocks, listChats, loadOddsBand, lockDesk, recordSlip, recordStake, rememberChat, removeBlock, revokeAccess, saveOddsBand, setSetting, studyCode, unlockDesk } from "./study";
+import { addAllow, addBlock, allowedBy, applyLessonScores, blockedBy, clearAllows, formatBankroll, formatBook, formatRecap, formatStudy, getSetting, improvePicks, latestCode, latestUnstudiedCode, listAllows, listBlocks, listChats, loadOddsBand, recordSlip, recordStake, rememberChat, removeBlock, saveOddsBand, setSetting, studyCode } from "./study";
 import { buildToOdds, combinedOdds, copyRebuild, formatKickoff, formatOdds, keepTop, parseCommand, splitEven, trimToOdds, uniqueEvents } from "./workbench";
 import type { BookSport, TicketPick } from "./types";
 
@@ -192,19 +192,108 @@ export type ChatBridge = {
 
 export const chatBridge = new AsyncLocalStorage<ChatBridge>();
 
-async function tg(method: string, payload: Record<string, unknown>) {
+async function tg(method: string, payload: Record<string, unknown> = {}) {
   const bridged = chatBridge.getStore();
   if (bridged) {
     await bridged.send(method, payload);
-    return;
+    return null;
   }
   const token = TOKEN();
-  if (!token) return;
-  await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+  if (!token) return null;
+  const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+  try {
+    const data = (await res.json()) as { ok?: boolean; result?: unknown };
+    return data.ok ? data.result : null;
+  } catch {
+    return null;
+  }
+}
+
+type AccessUser = { user_id: string; username: string; role: "owner" | "guest" };
+type AccessState = { locked: boolean; users: AccessUser[] };
+
+const ACCESS_MARK = "#A#";
+const PUBLIC_DESC = "Paste a SportyBet code, or cook a new slip.";
+
+function parseAccess(desc: string): AccessState {
+  const idx = desc.indexOf(ACCESS_MARK);
+  if (idx < 0) return { locked: false, users: [] };
+  const rest = desc.slice(idx + ACCESS_MARK.length);
+  const [flag, list = ""] = rest.split("#");
+  const users = list
+    .split("|")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const [user_id = "", role = "guest", username = ""] = part.split(":");
+      return {
+        user_id,
+        username,
+        role: role === "owner" ? ("owner" as const) : ("guest" as const),
+      };
+    })
+    .filter((u) => u.user_id);
+  return { locked: flag === "1", users };
+}
+
+function encodeAccess(state: AccessState) {
+  const blob = `${ACCESS_MARK}${state.locked ? "1" : "0"}#${state.users
+    .map((u) => `${u.user_id}:${u.role}:${u.username.replace(/[:|#]/g, "")}`)
+    .join("|")}`;
+  return `${PUBLIC_DESC}\n${blob}`.slice(0, 512);
+}
+
+async function loadAccess(): Promise<AccessState> {
+  const result = await tg("getMyDescription", {});
+  const desc =
+    typeof result === "string"
+      ? result
+      : result && typeof result === "object" && "description" in result
+        ? String((result as { description?: string }).description ?? "")
+        : "";
+  return parseAccess(desc);
+}
+
+async function saveAccess(state: AccessState) {
+  await tg("setMyDescription", { description: encodeAccess(state) });
+}
+
+function userAllowed(state: AccessState, user: { id: number; username?: string }) {
+  const id = String(user.id);
+  const name = (user.username ?? "").toLowerCase();
+  return state.users.some(
+    (u) => u.user_id === id || (name && u.username.toLowerCase() === name),
+  );
+}
+
+async function accessLocked() {
+  return (await loadAccess()).locked;
+}
+
+async function hasAccess(user: { id: number; username?: string }) {
+  const state = await loadAccess();
+  if (!state.locked) return true;
+  return userAllowed(state, user);
+}
+
+async function isOwner(user: { id: number; username?: string }) {
+  const state = await loadAccess();
+  if (!state.users.some((u) => u.role === "owner")) return true;
+  const id = String(user.id);
+  const name = (user.username ?? "").toLowerCase();
+  return state.users.some(
+    (u) =>
+      u.role === "owner" &&
+      (u.user_id === id || (name && u.username.toLowerCase() === name)),
+  );
+}
+
+function accessLines(state: AccessState) {
+  return state.users.map((r) => `${r.role}  ·  ${r.username ? `@${r.username}` : r.user_id}`);
 }
 
 function sportIcon(sport: string) {
@@ -828,16 +917,21 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       await tg("sendMessage", { chat_id: chatId, text: "Private desk." });
       return;
     }
-    const result = await lockDesk(from);
-    if (!result.ok) {
-      await tg("sendMessage", { chat_id: chatId, text: result.error || "Lock no save." });
+    const state = await loadAccess();
+    const id = String(from.id);
+    const username = from.username ?? "";
+    const users = state.users.filter((u) => u.user_id !== id && u.username.toLowerCase() !== username.toLowerCase());
+    users.unshift({ user_id: id, username, role: "owner" });
+    const next = { locked: true, users };
+    await saveAccess(next);
+    const check = await loadAccess();
+    if (!check.locked || !check.users.length) {
+      await tg("sendMessage", { chat_id: chatId, text: "Lock no save. Try /lock again." });
       return;
     }
-    const rows = await listAccess();
-    const lines = rows.map((r) => `${r.role}  ·  ${r.username ? `@${r.username}` : r.user_id}`);
     await tg("sendMessage", {
       chat_id: chatId,
-      text: ["Locked. Only these people:", "", ...lines, "", "/grant @username"].join("\n"),
+      text: ["Locked. Only these people:", "", ...accessLines(check), "", "/grant @username"].join("\n"),
     });
     return;
   }
@@ -846,7 +940,8 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       await tg("sendMessage", { chat_id: chatId, text: "Private desk." });
       return;
     }
-    await unlockDesk();
+    const state = await loadAccess();
+    await saveAccess({ ...state, locked: false });
     await tg("sendMessage", { chat_id: chatId, text: "Open. Anyone can use it." });
     return;
   }
@@ -1006,13 +1101,12 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       return;
     }
     if (isCmd(raw, "who")) {
-      const locked = await accessLocked();
-      const rows = await listAccess();
-      const lines = rows.map((r) => `${r.role}  ·  ${r.username ? `@${r.username}` : r.user_id}`);
+      const state = await loadAccess();
+      const lines = accessLines(state);
       await tg("sendMessage", {
         chat_id: msg.chat.id,
         text: [
-          locked ? "Locked — only people you grant" : "Open — anybody fit use this bot",
+          state.locked ? "Locked — only people you grant" : "Open — anybody fit use this bot",
           "",
           ...lines,
         ]
@@ -1022,12 +1116,19 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       return;
     }
     if (isCmd(raw, "revoke")) {
-      const token = cmdArg(raw);
+      const token = cmdArg(raw).replace(/^@/, "");
       if (!token) {
         await tg("sendMessage", { chat_id: msg.chat.id, text: "/revoke @username" });
         return;
       }
-      await revokeAccess(token);
+      const state = await loadAccess();
+      const next = {
+        ...state,
+        users: state.users.filter(
+          (u) => u.user_id !== token && u.username.toLowerCase() !== token.toLowerCase(),
+        ),
+      };
+      await saveAccess(next);
       await tg("sendMessage", { chat_id: msg.chat.id, text: `Revoked ${token}.` });
       return;
     }
@@ -1042,7 +1143,12 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       userId = arg;
     } else if (arg) {
       username = arg.replace(/^@/, "");
-      userId = `@${username.toLowerCase()}`;
+      const chat = await tg("getChat", { chat_id: `@${username}` });
+      if (chat && typeof chat === "object" && "id" in chat) {
+        userId = String((chat as { id: number }).id);
+      } else {
+        userId = `@${username.toLowerCase()}`;
+      }
     } else {
       await tg("sendMessage", {
         chat_id: msg.chat.id,
@@ -1050,7 +1156,12 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       });
       return;
     }
-    await grantAccess(userId, username, "guest");
+    const state = await loadAccess();
+    const users = state.users.filter(
+      (u) => u.user_id !== userId && u.username.toLowerCase() !== username.toLowerCase(),
+    );
+    users.push({ user_id: userId, username, role: "guest" });
+    await saveAccess({ ...state, locked: true, users });
     await tg("sendMessage", {
       chat_id: msg.chat.id,
       text: `Granted ${username ? `@${username}` : userId}. They must tap Start.`,
