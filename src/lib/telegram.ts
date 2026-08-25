@@ -213,6 +213,32 @@ async function createSportSlip(chatId: number, sport: "football" | "basketball",
   await mintAndReply(chatId, take, "ng", title);
 }
 
+async function createOddsSlip(chatId: number, sport: "football" | "basketball", targetRaw: number) {
+  const target = clampOddsTarget(targetRaw);
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: `${sportIcon(sport)} I dey cook about ${formatOdds(target)} ${sport} — no be ${Math.round(target)} games. I go pack legs wey go reach that odds.`,
+  });
+  const listed = await listUpcomingPicks(sport, 35);
+  if ("error" in listed) {
+    await tg("sendMessage", { chat_id: chatId, text: listed.error });
+    return;
+  }
+  await maybeStudyLast(chatId);
+  const improved = await improvePicks(listed);
+  const take = buildToOdds(improved, target).slice(0, MAX_LEGS);
+  if (!take.length) {
+    await tg("sendMessage", { chat_id: chatId, text: `I no fit build ${formatOdds(target)} from the ${sport} wey dey now.` });
+    return;
+  }
+  const actual = combinedOdds(take);
+  const title =
+    actual && actual < target * 0.75
+      ? `${take.length} legs ${sport} · ${formatOdds(actual)} — pool no reach ${formatOdds(target)}`
+      : `${take.length} legs ${sport} · ${actual ? formatOdds(actual) : "—"} (you ask ${formatOdds(target)})`;
+  await mintAndReply(chatId, take, "ng", title);
+}
+
 function parseSport(text: string): "football" | "basketball" | null {
   if (/basket|hoop/i.test(text)) return "basketball";
   if (/foot|soccer|bola/i.test(text)) return "football";
@@ -430,12 +456,29 @@ async function runTicketCommand(chatId: number, code: string, text: string): Pro
   return false;
 }
 
-function parseLegCount(text: string): number | null {
+function clampOddsTarget(n: number) {
+  if (!Number.isFinite(n)) return 20;
+  return Math.max(1.5, Math.min(1000, n));
+}
+
+function parseOddsTarget(text: string): number | null {
+  if (/\blegs?\b/i.test(text) && !/\bodds?\b|[x×]/i.test(text)) return null;
   const m =
-    text.match(/(?:sure\s*)?(\d{1,4})\s*(?:legs?|odds?)\b/i) ||
-    text.match(/\blike\s+(\d{1,4})\b/i) ||
-    text.match(/^\/(?:legs?|odds)(?:@\w+)?\s+(\d{1,4})\b/i) ||
-    (parseSport(text) || wantsCreate(text) ? text.match(/\b(\d{1,4})\b/) : null);
+    text.match(/(\d{1,4}(?:\.\d+)?)\s*odds?\b/i) ||
+    text.match(/(\d{1,4}(?:\.\d+)?)\s*[x×]\b/i) ||
+    (/\bodds?\b/i.test(text) ? text.match(/\blike\s+(\d{1,4}(?:\.\d+)?)\b/i) : null);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n < 1.2) return null;
+  return n;
+}
+
+function parseLegCount(text: string): number | null {
+  if (/\bodds?\b/i.test(text) && !/\blegs?\b/i.test(text)) return null;
+  const m =
+    text.match(/(?:sure\s*)?(\d{1,4})\s*legs?\b/i) ||
+    text.match(/^\/(?:legs?)(?:@\w+)?\s+(\d{1,4})\b/i) ||
+    (parseSport(text) && !/\bodds?\b/i.test(text) ? text.match(/\b(\d{1,4})\b/) : null);
   if (!m) return null;
   const n = Number(m[1]);
   if (!Number.isFinite(n) || n < 1) return null;
@@ -546,6 +589,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "📓  study — after the games finish",
         "",
         "Or yarn me like person: how far help me cook like 30odds",
+        "(30odds = about 30× combined. 12 legs = 12 games.)",
         "Basketball na: 12 legs basketball",
         "",
         "Football and basketball only. Max 35 new legs.",
@@ -591,10 +635,40 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     await studyAndReply(msg.chat.id, studyCodeToken, picks);
     return;
   }
+  const oddsTarget = parseOddsTarget(text);
   const legCount = parseLegCount(text);
   const sport = parseSport(text);
   const code = codeFromText(text) || codeFromText(msg.reply_to_message?.text);
   const isBareCode = Boolean(code && looksLikeShareCode(text));
+  if (oddsTarget && !code) {
+    await createOddsSlip(msg.chat.id, sport ?? "football", oddsTarget);
+    return;
+  }
+  if (oddsTarget && code) {
+    const loaded = await loadBookingCode(code, "ng");
+    if ("error" in loaded) {
+      await tg("sendMessage", { chat_id: msg.chat.id, text: loaded.error });
+      return;
+    }
+    const base = playable(loaded.picks);
+    const scored = base.map((p) => ({
+      ...p,
+      probability: p.odds ? Math.max(8, Math.min(90, Math.round(100 / p.odds))) : 50,
+      confidence: "medium" as const,
+      summary: "",
+      reasons: [] as string[],
+      risks: [] as string[],
+      verdict: "keep" as const,
+    }));
+    const trimmed = trimToOdds(scored, clampOddsTarget(oddsTarget));
+    await mintAndReply(
+      msg.chat.id,
+      trimmed,
+      "ng",
+      `Trimmed to about ${formatOdds(clampOddsTarget(oddsTarget))} · ${trimmed.length} legs`,
+    );
+    return;
+  }
   if (code && /\b(study|results|cut|lost)\b/i.test(text) && !isBareCode) {
     const loaded = await loadBookingCode(code, "ng");
     const picks = "error" in loaded ? undefined : playable(loaded.picks);
