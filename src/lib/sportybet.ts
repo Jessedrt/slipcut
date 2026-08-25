@@ -258,7 +258,7 @@ function inBookWindow(odds?: number) {
 export function marketFamily(id?: string, desc?: string): "win" | "dc" | "ou" | "gg" | "dnb" | "hcp" | "ou1h" {
   const d = (desc ?? "").toLowerCase();
   if (id === "10" || d.includes("double chance")) return "dc";
-  if (id === "223" || id === "66" || d.includes("handicap")) return "hcp";
+  if (id === "16" || id === "14" || id === "223" || id === "66" || d.includes("handicap")) return "hcp";
   if (id === "68" || (id === "236" && d.includes("1st")) || d.includes("1st half") && d.includes("over"))
     return "ou1h";
   if (id === "18" || id === "225" || d.includes("over/under")) return "ou";
@@ -280,7 +280,8 @@ function toPick(
   const hcp = spec.match(/hcp=([-\d.]+)/)?.[1] ?? "";
   let label = market.desc ?? "Market";
   if (market.id === "18" || market.id === "225") label = `Over/Under ${total}`.trim();
-  else if (market.id === "223") label = `Handicap ${hcp}`.trim();
+  else if (market.id === "16") label = `Asian Handicap ${hcp}`.trim();
+  else if (market.id === "223" || market.id === "14") label = `Handicap ${hcp}`.trim();
   else if (market.id === "68") label = `1st Half O/U ${total}`.trim();
   else if (market.id === "66") label = `1st Half Handicap ${hcp}`.trim();
   else if (market.id === "236" && spec.includes("quarternr=1")) label = `1st quarter O/U ${total}`.trim();
@@ -322,6 +323,10 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
   first((m) => m.id === "18" && m.specifier === "total=1.5");
   first((m) => m.id === "18" && (m.specifier === "total=2.5" || m.specifier === "total=2"));
   first((m) => m.id === "18" && (m.specifier === "total=3.5" || m.specifier === "total=3"));
+  const ah = mostBalanced(markets.filter((m) => m.id === "16"));
+  const ah1h = mostBalanced(markets.filter((m) => m.id === "66"));
+  if (ah) want.push(ah);
+  if (ah1h) want.push(ah1h);
   const picks: TicketPick[] = [];
   for (const market of want) {
     for (const outcome of openOutcomes(market)) {
@@ -357,10 +362,15 @@ function mostBalanced(markets: EventMarket[]): EventMarket | undefined {
   return best;
 }
 
-function pushMarket(picks: TicketPick[], ev: EventDetail, market: EventMarket | undefined) {
+function pushMarket(
+  picks: TicketPick[],
+  ev: EventDetail,
+  sport: "football" | "basketball",
+  market: EventMarket | undefined,
+) {
   if (!market) return;
   for (const outcome of openOutcomes(market)) {
-    const pick = toPick(ev, "basketball", market, outcome);
+    const pick = toPick(ev, sport, market, outcome);
     if (pick && inBookWindow(pick.odds)) picks.push(pick);
   }
 }
@@ -371,18 +381,20 @@ function basketballCandidates(ev: EventDetail): TicketPick[] {
   pushMarket(
     picks,
     ev,
+    "basketball",
     markets.find((m) => m.id === "219") ||
       markets.find((m) => /winner/i.test(m.desc ?? "") && openOutcomes(m).length >= 2),
   );
-  pushMarket(picks, ev, mostBalanced(markets.filter((m) => m.id === "225")));
-  pushMarket(picks, ev, mostBalanced(markets.filter((m) => m.id === "223")));
-  pushMarket(picks, ev, mostBalanced(markets.filter((m) => m.id === "68")));
+  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "225")));
+  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "223")));
+  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "68")));
   pushMarket(
     picks,
     ev,
+    "basketball",
     mostBalanced(markets.filter((m) => m.id === "236" && (m.specifier ?? "").includes("quarternr=1"))),
   );
-  pushMarket(picks, ev, mostBalanced(markets.filter((m) => m.id === "66")));
+  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "66")));
   return picks;
 }
 
