@@ -418,6 +418,125 @@ export async function listUpcomingPicks(
   return picks;
 }
 
+export type MarketTarget = "ou15" | "ou25" | "ou35" | "gg" | "dc" | "dnb" | "win";
+
+export function parseMarketTarget(text: string): MarketTarget | null {
+  const t = text.toLowerCase().trim();
+  if (t === "ou35" || /over\s*3\.5|o3\.5|ou\s*3\.5/.test(t)) return "ou35";
+  if (t === "ou25" || /over\s*2\.5|o2\.5|ou\s*2\.5/.test(t)) return "ou25";
+  if (t === "ou15" || /over\s*1\.5|o1\.5|ou\s*1\.5/.test(t)) return "ou15";
+  if (t === "gg" || /\bgg\b|btts|both teams/.test(t)) return "gg";
+  if (t === "dc" || /double chance|\bdc\b/.test(t)) return "dc";
+  if (t === "dnb" || /draw no bet|\bdnb\b/.test(t)) return "dnb";
+  if (t === "win" || /1x2|match winner|straight win/.test(t)) return "win";
+  return null;
+}
+
+async function fetchEvent(eventId: string): Promise<EventDetail | null> {
+  const body = (await sportyGet(
+    `/factsCenter/event?eventId=${encodeURIComponent(eventId)}&productId=3`,
+  )) as { data?: EventDetail } | null;
+  return body?.data ?? null;
+}
+
+function selectionBias(selection: string): string {
+  const s = selection.toLowerCase();
+  if (s.includes("under")) return "under";
+  if (s.includes("over")) return "over";
+  if (s === "no" || s.includes("ng")) return "no";
+  if (s === "yes" || s.includes("gg")) return "yes";
+  if (s.includes("home") && s.includes("away")) return "12";
+  if (s.includes("home") && s.includes("draw")) return "1x";
+  if (s.includes("draw") && s.includes("away")) return "x2";
+  if (s.includes("home")) return "home";
+  if (s.includes("away")) return "away";
+  if (s.includes("draw")) return "draw";
+  return "other";
+}
+
+function chooseOutcome(
+  market: EventMarket,
+  prefer: string,
+): NonNullable<EventMarket["outcomes"]>[number] | undefined {
+  const outs = openOutcomes(market);
+  const hit = outs.find((o) => selectionBias(o.desc ?? "") === prefer);
+  return hit ?? outs[0];
+}
+
+function marketForTarget(ev: EventDetail, sport: TicketPick["sport"], target: MarketTarget): EventMarket | null {
+  const markets = (ev.markets ?? []).filter((m) => m.status === 0);
+  if (sport === "basketball") {
+    if (target === "win") {
+      return markets.find((m) => m.id === "219") ?? null;
+    }
+    const line = target === "ou15" ? "1.5" : target === "ou35" ? "3.5" : "2.5";
+    const totals = markets.filter((m) => m.id === "225");
+    return (
+      totals.find((m) => (m.specifier ?? "").includes(line)) ??
+      totals.find((m) => {
+        const outs = openOutcomes(m);
+        const prices = outs.map((o) => Number(o.odds ?? 99));
+        return prices.every((n) => n >= 1.45 && n <= 2.4);
+      }) ??
+      null
+    );
+  }
+  if (target === "win") return markets.find((m) => m.id === "1") ?? null;
+  if (target === "dc") return markets.find((m) => m.id === "10") ?? null;
+  if (target === "dnb") return markets.find((m) => m.id === "11") ?? null;
+  if (target === "gg") return markets.find((m) => m.id === "29") ?? null;
+  const spec = target === "ou15" ? "total=1.5" : target === "ou35" ? "total=3.5" : "total=2.5";
+  return (
+    markets.find((m) => m.id === "18" && m.specifier === spec) ??
+    markets.find((m) => m.id === "18" && (m.specifier === spec.replace(".5", ""))) ??
+    null
+  );
+}
+
+function preferForTarget(target: MarketTarget, original: TicketPick): string {
+  const bias = selectionBias(original.selection);
+  if (target.startsWith("ou")) return bias === "under" ? "under" : "over";
+  if (target === "gg") return bias === "no" ? "no" : "yes";
+  if (target === "dc") {
+    if (bias === "home" || bias === "1x") return "1x";
+    if (bias === "away" || bias === "x2") return "x2";
+    return "12";
+  }
+  if (target === "dnb" || target === "win") {
+    if (bias === "away" || bias === "x2") return "away";
+    if (bias === "home" || bias === "1x") return "home";
+    return "away";
+  }
+  return "over";
+}
+
+export async function retargetPicks(
+  picks: TicketPick[],
+  target: MarketTarget,
+): Promise<TicketPick[]> {
+  const ids = [...new Set(picks.map((p) => p.sporty?.eventId).filter(Boolean))] as string[];
+  const details = await mapPool(ids, 6, fetchEvent);
+  const byId = new Map<string, EventDetail>();
+  ids.forEach((id, i) => {
+    const ev = details[i];
+    if (ev) byId.set(id, ev);
+  });
+  const next: TicketPick[] = [];
+  for (const pick of picks) {
+    const eventId = pick.sporty?.eventId;
+    const ev = eventId ? byId.get(eventId) : undefined;
+    if (!ev) {
+      next.push(pick);
+      continue;
+    }
+    const market = marketForTarget(ev, pick.sport, target);
+    const outcome = market ? chooseOutcome(market, preferForTarget(target, pick)) : undefined;
+    const swapped = market && outcome ? toPick(ev, pick.sport === "basketball" ? "basketball" : "football", market, outcome) : null;
+    next.push(swapped ?? pick);
+  }
+  return next;
+}
+
 function sportyHeaders(): Record<string, string> {
   return {
     Accept: "application/json",

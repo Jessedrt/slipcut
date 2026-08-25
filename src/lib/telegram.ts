@@ -1,7 +1,7 @@
 import { analyzePicks } from "./analyze";
 import { extractShareCode } from "./parse-ticket";
-import { loadBookingCode, listUpcomingPicks, mintShare, sportyOf } from "./sportybet";
-import { buildToOdds, combinedOdds, copyRebuild, formatOdds, keepTop, splitEven, trimToOdds } from "./workbench";
+import { loadBookingCode, listUpcomingPicks, mintShare, parseMarketTarget, retargetPicks, sportyOf } from "./sportybet";
+import { buildToOdds, combinedOdds, copyRebuild, formatOdds, keepTop, parseCommand, splitEven, trimToOdds } from "./workbench";
 import type { AnalyzedPick, TicketPick } from "./types";
 
 const MAX_LEGS = 35;
@@ -51,12 +51,17 @@ function keyboard(code: string) {
         { text: "Trim", callback_data: `g:${code}` },
       ],
       [
+        { text: "Split 2", callback_data: `s:${code}:2` },
+        { text: "Optimize 50×", callback_data: `t:${code}:50` },
+      ],
+      [
         { text: "8 legs", callback_data: `k:${code}:8` },
         { text: "12 legs", callback_data: `k:${code}:12` },
         { text: "20 legs", callback_data: `k:${code}:20` },
       ],
       [
-        { text: "Reduce to 10", callback_data: `k:${code}:10` },
+        { text: "Over 2.5", callback_data: `ch:${code}:ou25` },
+        { text: "GG", callback_data: `ch:${code}:gg` },
         { text: "Mint all", callback_data: `m:${code}` },
       ],
     ],
@@ -274,7 +279,8 @@ async function handleCode(chatId: number, code: string) {
       "",
       listPicks(loaded.picks),
       "",
-      "Trim cuts to the strongest half. Or tap 8 / 12 / 20 legs, or type: 10 legs.",
+      "Trim · Split · Optimize · change markets in chat.",
+      "Examples: drop 3 8 · split 2 · change to over 2.5 · trim to 50x · combine NXPSTB",
     ]
       .join("\n")
       .slice(0, 3900),
@@ -326,6 +332,111 @@ function codeFromText(raw?: string): string | null {
   return null;
 }
 
+function parseDropIndexes(text: string): number[] | null {
+  const m = text.match(/^(?:drop|remove|delete)\s+(?:legs?\s+)?([\d,\s&and]+)$/i);
+  if (!m) return null;
+  const nums = [...m[1].matchAll(/\d+/g)].map((x) => Number(x[0])).filter((n) => n >= 1);
+  return nums.length ? nums : null;
+}
+
+function parseCombineCode(text: string): string | null {
+  const m = text.match(/\bcombin(?:e|ing)\s+(?:with\s+)?([A-Z0-9]{4,16})\b/i);
+  if (!m?.[1] || !looksLikeShareCode(m[1])) return null;
+  return m[1].toUpperCase();
+}
+
+function wantsMarketChange(text: string) {
+  const target = parseMarketTarget(text);
+  if (!target) return null;
+  if (/change|convert|swap|make|all\b|to over|to gg|to double|to dnb|to 1x2/i.test(text)) return target;
+  if (/^(over\s*[123]\.5|gg|btts|double chance|draw no bet|1x2)\b/i.test(text.trim())) return target;
+  return null;
+}
+
+async function runTicketCommand(chatId: number, code: string, text: string): Promise<boolean> {
+  const loaded = await loadBookingCode(code, "ng");
+  if ("error" in loaded) {
+    await tg("sendMessage", { chat_id: chatId, text: loaded.error });
+    return true;
+  }
+  const base = playable(loaded.picks);
+  const drop = parseDropIndexes(text);
+  if (drop) {
+    const kept = loaded.picks.filter((_, i) => !drop.includes(i + 1));
+    const play = playable(kept);
+    if (!play.length) {
+      await tg("sendMessage", { chat_id: chatId, text: "Nothing left to book after that drop." });
+      return true;
+    }
+    await mintAndReply(chatId, play, "ng", `Dropped ${drop.join(", ")} · ${play.length} legs`);
+    return true;
+  }
+  const other = parseCombineCode(text);
+  if (other && other !== loaded.shareCode) {
+    const extra = await loadBookingCode(other, "ng");
+    if ("error" in extra) {
+      await tg("sendMessage", { chat_id: chatId, text: extra.error });
+      return true;
+    }
+    const seen = new Set<string>();
+    const merged = playable([...loaded.picks, ...extra.picks]).filter((p) => {
+      const id = p.sporty?.eventId ?? p.id;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+    await mintAndReply(chatId, merged, "ng", `Combined ${loaded.shareCode} + ${extra.shareCode} · ${merged.length} legs`);
+    return true;
+  }
+  const market = wantsMarketChange(text);
+  if (market) {
+    await tg("sendMessage", { chat_id: chatId, text: `Changing markets on ${loaded.shareCode}.` });
+    const next = playable(await retargetPicks(base, market));
+    if (!next.length) {
+      await tg("sendMessage", { chat_id: chatId, text: "Could not change those markets." });
+      return true;
+    }
+    await mintAndReply(chatId, next, "ng", `Changed markets · ${next.length} legs`);
+    return true;
+  }
+  const cmd = parseCommand(text);
+  if (cmd.type === "split") {
+    const slips = splitEven(base, cmd.parts);
+    for (let i = 0; i < slips.length; i++) {
+      await mintAndReply(chatId, slips[i] ?? [], "ng", `Slip ${i + 1} · ${slips[i]?.length ?? 0} legs`);
+    }
+    return true;
+  }
+  if (cmd.type === "trim") {
+    const scored = base.map((p) => ({
+      ...p,
+      probability: p.odds ? Math.max(8, Math.min(90, Math.round(100 / p.odds))) : 50,
+      confidence: "medium" as const,
+      summary: "",
+      reasons: [] as string[],
+      risks: [] as string[],
+      verdict: "keep" as const,
+    }));
+    const trimmed = trimToOdds(scored, cmd.targetOdds);
+    await mintAndReply(chatId, trimmed, "ng", `Trimmed to ${cmd.targetOdds}× · ${trimmed.length} legs`);
+    return true;
+  }
+  if (cmd.type === "keepLegs") {
+    await sureNAndReply(chatId, base, cmd.count);
+    return true;
+  }
+  if (cmd.type === "sport") {
+    const filtered = base.filter((p) => p.sport === cmd.sport);
+    if (!filtered.length) {
+      await tg("sendMessage", { chat_id: chatId, text: `No ${cmd.sport} legs on that ticket.` });
+      return true;
+    }
+    await mintAndReply(chatId, filtered, "ng", `${cmd.sport} only · ${filtered.length} legs`);
+    return true;
+  }
+  return false;
+}
+
 function parseLegCount(text: string): number | null {
   const m =
     text.match(/(?:sure\s*)?(\d{1,4})\s*(?:legs?|odds?)\b/i) ||
@@ -371,6 +482,13 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       await mintKeepersAndReply(chatId, base);
       return;
     }
+    if (kind === "ch") {
+      const target = parseMarketTarget(arg || "ou25") ?? "ou25";
+      await tg("sendMessage", { chat_id: chatId, text: `Changing markets on ${loaded.shareCode}.` });
+      const next = playable(await retargetPicks(base, target));
+      await mintAndReply(chatId, next, "ng", `Changed markets · ${next.length} legs`);
+      return;
+    }
     if (kind === "m") {
       await mintAndReply(chatId, base, "ng", `SportyBet code · ${base.length} legs`);
       return;
@@ -404,17 +522,35 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   if (!msg?.text || !msg.chat) return;
   const text = msg.text.trim();
   if (text === "/start" || text === "/help") {
+    await tg("setMyCommands", {
+      commands: [
+        { command: "start", description: "How to use SlipCut" },
+        { command: "help", description: "Edit, split, change markets" },
+      ],
+    });
+    await tg("setMyDescription", {
+      description:
+        "Convert SportyBet codes, change markets, edit tickets in seconds, and get AI predictions by chatting.",
+    });
+    await tg("setMyShortDescription", {
+      short_description: "Edit SportyBet tickets, change markets, and get AI predictions.",
+    });
     await tg("sendMessage", {
       chat_id: msg.chat.id,
       text: [
         "SlipCut on Telegram.",
         "",
-        "Ask for a slip, for example:",
-        "12 legs football",
-        "35 legs basketball",
+        "Send a SportyBet booking code, then:",
+        "drop 3 8",
+        "split 2",
+        "change to over 2.5",
+        "change to GG",
+        "trim to 50x",
+        "combine NXPSTB",
+        "12 legs",
         "",
-        "Or send a SportyBet booking code.",
-        "Football and basketball only. Max 35 legs.",
+        "Or build one: 12 legs football",
+        "Football and basketball only. Max 35 new legs.",
       ].join("\n"),
     });
     return;
@@ -422,7 +558,12 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   const legCount = parseLegCount(text);
   const sport = parseSport(text);
   const code = codeFromText(text) || codeFromText(msg.reply_to_message?.text);
-  if (code && !legCount && /^\s*trim\b/i.test(text)) {
+  const isBareCode = Boolean(code && looksLikeShareCode(text));
+  if (code && !isBareCode) {
+    const handled = await runTicketCommand(msg.chat.id, code, text);
+    if (handled) return;
+  }
+  if (code && !legCount && /^\s*trim\s*$/i.test(text)) {
     const loaded = await loadBookingCode(code, "ng");
     if ("error" in loaded) {
       await tg("sendMessage", { chat_id: msg.chat.id, text: loaded.error });
