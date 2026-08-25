@@ -14,6 +14,7 @@ const MENU = [
   { command: "weekend", description: "Weekend slip" },
   { command: "mix", description: "Mix all sports" },
   { command: "stake", description: "Stake.com daily 2 odds" },
+  { command: "daily2", description: "SportyBet daily 2 odds" },
   { command: "book", description: "Slips and bankroll" },
   { command: "recap", description: "This week" },
   { command: "filter", description: "only EPL NBA ATP" },
@@ -343,7 +344,7 @@ function deskKeyboard() {
   return {
     keyboard: [
       [{ text: "Today" }, { text: "Weekend" }, { text: "Mix" }],
-      [{ text: "Stake 2" }, { text: "Book" }, { text: "Help" }],
+      [{ text: "2 odds" }, { text: "Stake 2" }, { text: "Help" }],
     ],
     resize_keyboard: true,
     is_persistent: true,
@@ -592,6 +593,29 @@ async function createStakeDaily(chatId: number) {
       ],
     },
   });
+}
+
+async function createSportyDaily2(chatId: number) {
+  await tg("sendMessage", { chat_id: chatId, text: "Cooking 2 odds…" });
+  const listed = await listUpcomingPicks("football", 28, "today");
+  if ("error" in listed) {
+    await tg("sendMessage", { chat_id: chatId, text: listed.error });
+    return;
+  }
+  const short = listed.filter((p) => p.odds && p.odds >= 1.12 && p.odds <= 1.55);
+  const pool = await improvePicks(await cookPool(uniqueEvents(short).picks, null));
+  const take = buildToOdds(pool, 2).slice(0, 5);
+  if (!take.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "No 2-odds football for SportyBet today. Try later." });
+    return;
+  }
+  const combo = combinedOdds(take);
+  await mintAndReply(
+    chatId,
+    take,
+    "ng",
+    `SportyBet · daily 2${combo ? ` · ${formatOdds(combo)}` : ""}`,
+  );
 }
 
 function interleave<T>(a: T[], b: T[]): T[] {
@@ -1161,6 +1185,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "<code>12 games tennis</code>",
         "<code>weekend mix</code>",
         "<code>stake 2</code>",
+        "<code>2 odds</code>",
         "",
         "<b>On a slip</b>",
         "trim  ·  study  ·  stake 2000",
@@ -1253,9 +1278,13 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   }
   if (
     isCmd(raw, "stake") ||
-    /^(stake 2|2 odds stake|stake daily|daily 2)\s*$/i.test(raw)
+    /^(stake 2|2 odds stake|stake daily)\s*$/i.test(raw)
   ) {
     await createStakeDaily(msg.chat.id);
+    return;
+  }
+  if (isCmd(raw, "daily2") || /^(2 odds|daily 2)\s*$/i.test(raw)) {
+    await createSportyDaily2(msg.chat.id);
     return;
   }
   if (isCmd(raw, "weekend")) {
