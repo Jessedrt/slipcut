@@ -177,22 +177,8 @@ function startKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: "⚽ Cook 10× football", callback_data: "o:f:10" },
-        { text: "🏀 Cook 10× basketball", callback_data: "o:b:10" },
-      ],
-      [
-        { text: "⚽ 12 games football", callback_data: "c:f:12" },
-        { text: "🏀 12 games basketball", callback_data: "c:b:12" },
-      ],
-      [
-        { text: "🎾 Cook 10× tennis", callback_data: "o:t:10" },
-        { text: "🎾 12 games tennis", callback_data: "c:t:12" },
-      ],
-      [{ text: "📓 Study last slip", callback_data: "y:LAST" }],
-      [{ text: "⚽🏀 Mix 12 games", callback_data: "x:m:12" }],
-      [
-        { text: "🎯 Longshot · week", callback_data: "l:f:week" },
-        { text: "🎯 Weekends", callback_data: "l:f:weekend" },
+        { text: "Cook 10×", callback_data: "o:f:10" },
+        { text: "Weekend", callback_data: "l:f:weekend" },
       ],
     ],
   };
@@ -202,22 +188,8 @@ function keyboard(code: string) {
   return {
     inline_keyboard: [
       [
-        { text: "✂️ Trim am", callback_data: `g:${code}` },
-        { text: "📓 Study am", callback_data: `y:${code}` },
-      ],
-      [
-        { text: "➗ Split 2", callback_data: `s:${code}:2` },
-        { text: "🎯 50×", callback_data: `t:${code}:50` },
-        { text: "🎫 Book am", callback_data: `m:${code}` },
-      ],
-      [
-        { text: "🔻 8 games", callback_data: `k:${code}:8` },
-        { text: "🔻 12 games", callback_data: `k:${code}:12` },
-        { text: "🔻 20 games", callback_data: `k:${code}:20` },
-      ],
-      [
-        { text: "⚡ Over 2.5", callback_data: `ch:${code}:ou25` },
-        { text: "🤝 GG", callback_data: `ch:${code}:gg` },
+        { text: "Trim", callback_data: `g:${code}` },
+        { text: "Book", callback_data: `m:${code}` },
       ],
     ],
   };
@@ -226,13 +198,12 @@ function keyboard(code: string) {
 function listPicks(picks: TicketPick[]) {
   const shown = picks.slice(0, 35);
   const lines = shown.map((p, i) => {
-    const mark = p.sport === "other" ? "· skip" : "";
     const when = formatKickoff(p.kickoff);
     const price = p.odds ? formatOdds(p.odds) : "";
-    const meta = [when, price].filter(Boolean).join(" · ");
-    return `${i + 1}. ${sportIcon(p.sport)} ${p.home} vs ${p.away}\n   ${p.market} — ${p.selection} ${mark}\n   ${meta}`.trim();
+    const bits = [`${p.home} vs ${p.away}`, p.selection, price, when].filter(Boolean);
+    return `${i + 1}  ${bits.join("  ·  ")}`;
   });
-  if (picks.length > shown.length) lines.push(`… +${picks.length - shown.length} more`);
+  if (picks.length > shown.length) lines.push(`+${picks.length - shown.length} more`);
   return lines.join("\n");
 }
 
@@ -275,41 +246,36 @@ async function mintAndReply(chatId: number, picks: TicketPick[], country: string
     return;
   }
   const code = minted.shareCode;
+  const combo = combinedOdds(work);
+  const body = [
+    `<code>${esc(code)}</code>`,
+    `${work.length} games${combo ? `  ·  ${formatOdds(combo)}` : ""}`,
+    unique.dropped ? `dropped ${unique.dropped} same match` : "",
+    "",
+    copyRebuild(work),
+    minted.unavailable ? `\n${minted.unavailable} unavailable` : "",
+  ]
+    .filter((l, i, arr) => l !== "" || arr[i - 1] !== "")
+    .join("\n")
+    .slice(0, 3900);
   await tg("sendMessage", {
     chat_id: chatId,
-    text: `✅ <code>${esc(code)}</code>`,
+    text: body,
     parse_mode: "HTML",
     reply_markup: {
       inline_keyboard: [
-        [{ text: "📋 Copy code", copy_text: { text: code } }],
-        [{ text: "📓 Check if e cut", callback_data: `y:${code}` }],
-        [{ text: "🌐 Open SportyBet", url: minted.shareURL }],
         [
-          {
-            text: "📤 Share give paddy",
-            url: `https://t.me/share/url?url=${encodeURIComponent(minted.shareURL)}&text=${encodeURIComponent(code)}`,
-          },
+          { text: "Copy", copy_text: { text: code } },
+          { text: "Open", url: minted.shareURL },
         ],
       ],
     },
   });
-  const combo = combinedOdds(work);
-  const detail = [
-    head,
-    combo ? `Combined ${formatOdds(combo)} · stake 2000 go return ${naira(2000 * combo)}` : "",
-    "",
-    copyRebuild(work),
-    minted.unavailable ? `\n${minted.unavailable} game(s) no gree book.` : "",
-  ]
-    .filter(Boolean)
-    .join("\n")
-    .slice(0, 3900);
-  await tg("sendMessage", { chat_id: chatId, text: detail });
   await recordSlip(code, work);
 }
 
 function esc(s: string) {
-  return s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
+  return s.replace(/[&<>]/g, (ch) => ({ "&": "&", "<": "<", ">": ">" })[ch] as string);
 }
 
 async function scorePlayable(picks: TicketPick[]) {
@@ -329,7 +295,7 @@ async function sureNAndReply(
   }
   await tg("sendMessage", {
     chat_id: chatId,
-    text: `I dey pick the strongest ${n} games. Hold on.`,
+    text: `Picking ${n}…`,
   });
   const result = await scorePlayable(picks);
   const top = keepTop(await applyLessonScores(result.picks), n);
@@ -351,14 +317,11 @@ async function createSportSlip(
   band?: OddsBand | null,
 ) {
   const n = clampLegs(count, 5);
-  const capNote = count > MAX_LEGS ? ` Max na ${MAX_LEGS} games.` : "";
   const span = windowLabel(window);
   const useBand = band ?? (await loadOddsBand());
   await tg("sendMessage", {
     chat_id: chatId,
-    text: span
-      ? `${sportIcon(sport)} Longshot ${span} — I dey pick ${n} ${sport} games across different days, no be one day pack.`
-      : `${sportIcon(sport)} I dey cook ${n} games ${sport} slip — no be 1X2 alone. DC, over/under, GG, winner mix.${capNote}`,
+    text: span ? `Cooking ${span}…` : `Cooking ${n} ${sport}…`,
   });
   const listed = await listUpcomingPicks(sport, Math.min(n + 12, 40), window);
   if ("error" in listed) {
@@ -391,9 +354,7 @@ async function createOddsSlip(
   const useBand = band ?? (await loadOddsBand());
   await tg("sendMessage", {
     chat_id: chatId,
-    text: span
-      ? `${sportIcon(sport)} Longshot ${span} — I dey cook about ${formatOdds(target)} ${sport} across different days.`
-      : `${sportIcon(sport)} I dey cook about ${formatOdds(target)} ${sport} — no be ${Math.round(target)} games. I go pack games wey go reach that odds.`,
+    text: span ? `Cooking ${span}…` : `Cooking ${formatOdds(target)} ${sport}…`,
   });
   const listed = await listUpcomingPicks(sport, 35, window);
   if ("error" in listed) {
@@ -436,9 +397,7 @@ async function createMixSlip(
   const span = windowLabel(window);
   await tg("sendMessage", {
     chat_id: chatId,
-    text: opts.odds
-      ? `⚽🏀🎾 Mix — I dey cook about ${formatOdds(clampOddsTarget(opts.odds))} football + basketball + tennis${span ? ` · ${span}` : ""}.`
-      : `⚽🏀🎾 Mix — ${n} games, football, basketball and tennis${span ? ` · ${span}` : ""}.`,
+    text: span ? `Cooking mix · ${span}…` : "Cooking mix…",
   });
   const [foot, hoop, ten] = await Promise.all([
     listUpcomingPicks("football", 16, window),
@@ -474,19 +433,19 @@ async function createMixSlip(
 }
 
 async function liveScoreAndReply(chatId: number, code: string, picks: TicketPick[]) {
-  await tg("sendMessage", { chat_id: chatId, text: `📡 I dey check live score for ${code}.` });
   const ids = [...new Set(picks.map((p) => p.sporty?.eventId).filter(Boolean))] as string[];
   const details = await Promise.all(ids.map((id) => getEventDetail(id)));
   const byId = new Map(ids.map((id, i) => [id, details[i]]));
   const lines = picks.slice(0, 35).map((p, i) => {
     const ev = p.sporty?.eventId ? byId.get(p.sporty.eventId) : null;
     const score = eventScore(ev ?? null);
-    const tag = score ? score.label : formatKickoff(p.kickoff) || "no score";
-    return `${i + 1}. ${p.home} vs ${p.away}\n   ${tag}\n   ${p.market} — ${p.selection}`;
+    const tag = score ? score.label : formatKickoff(p.kickoff) || "—";
+    return `${i + 1}  ${p.home} vs ${p.away}  ·  ${tag}  ·  ${p.selection}`;
   });
   await tg("sendMessage", {
     chat_id: chatId,
-    text: [`📡 ${code}`, "", ...lines].join("\n").slice(0, 3900),
+    parse_mode: "HTML",
+    text: [`<code>${esc(code)}</code>`, "", ...lines].join("\n").slice(0, 3900),
   });
 }
 
@@ -501,7 +460,7 @@ export async function sendScheduledLongshot() {
   for (const id of chats) {
     const chatId = Number(id);
     if (!Number.isFinite(chatId)) continue;
-    await tg("sendMessage", { chat_id: chatId, text: `🎯 ${label}` });
+    await tg("sendMessage", { chat_id: chatId, text: label });
     await createSportSlip(chatId, "football", 12, window);
   }
   return { sent: chats.length };
@@ -522,7 +481,7 @@ function parseSport(text: string): BookSport | null {
 }
 
 async function mintKeepersAndReply(chatId: number, picks: TicketPick[]) {
-  await tg("sendMessage", { chat_id: chatId, text: "✂️ I dey trim am to the strong half." });
+  await tg("sendMessage", { chat_id: chatId, text: "Trimming…" });
   const result = await scorePlayable(picks);
   const counted = result.picks.filter((p) => p.sport !== "other");
   const count = Math.max(2, Math.ceil(counted.length / 2));
@@ -538,7 +497,6 @@ async function mintKeepersAndReply(chatId: number, picks: TicketPick[]) {
 }
 
 async function studyAndReply(chatId: number, code: string, picks?: TicketPick[]) {
-  await tg("sendMessage", { chat_id: chatId, text: `📓 Make I check ${code} whether e cut.` });
   const report = await studyCode(code, picks);
   if ("error" in report) {
     await tg("sendMessage", { chat_id: chatId, text: report.error });
@@ -565,13 +523,12 @@ async function handleCode(chatId: number, code: string) {
   const play = playable(loaded.picks);
   await tg("sendMessage", {
     chat_id: chatId,
+    parse_mode: "HTML",
     text: [
-      `🎫 ${loaded.shareCode} · ${loaded.picks.length} games · ${play.length} fit book`,
+      `<code>${esc(loaded.shareCode)}</code>`,
+      `${loaded.picks.length} games`,
       "",
       listPicks(loaded.picks),
-      "",
-      "Trim am, study am, split, or change market. Talk to me like person.",
-      "e.g. comot game 3 and 8 · split 2 · change to over 2.5 · study",
     ]
       .join("\n")
       .slice(0, 3900),
@@ -887,46 +844,22 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   if (raw === "/start") {
     await tg("setMyCommands", {
       commands: [
-        { command: "start", description: "How this thing dey work" },
-        { command: "help", description: "All the commands" },
-        { command: "book", description: "Your booked codes and hit rate" },
-        { command: "slang", description: "Pidgin wey I sabi" },
+        { command: "start", description: "Welcome" },
+        { command: "help", description: "How to talk to me" },
+        { command: "book", description: "Your slips" },
       ],
     });
     await tg("setMyDescription", {
-      description:
-        "Convert SportyBet codes, change markets, edit tickets, and yarn pidgin with your padé.",
+      description: "SportyBet desk. Send a code, or say what to cook.",
     });
     await tg("setMyShortDescription", {
-      short_description: "Your SportyBet padé. Trim, study, book. We go yarn pidgin.",
+      short_description: "Quiet SportyBet desk.",
     });
     await tg("sendPhoto", {
       chat_id: msg.chat.id,
       photo: BANNER_URL,
-      caption: [
-        "<b>WELCOME TO SLIPCUT</b>",
-        "Omo! I dey here. Cut the slip, keep the sure games.",
-      ].join("\n"),
+      caption: "<b>SlipCut</b>\n\nSend a booking code.\nOr say what to cook.",
       parse_mode: "HTML",
-    });
-    await tg("sendMessage", {
-      chat_id: msg.chat.id,
-      parse_mode: "HTML",
-      text: [
-        "<b>How e work</b>",
-        "",
-        "Send your SportyBet code.",
-        "Or yarn me like person:",
-        "",
-        "<code>cook 10 odds football</code>",
-        "<code>12 games tennis</code>",
-        "<code>how far help me cook like 30odds</code>",
-        "",
-        "<b>odds</b> = combined ×   ·   <b>games</b> = number of matches",
-        "Football, basketball and tennis. Max 35 games.",
-        "",
-        "Tap below or send /help for the full list.",
-      ].join("\n"),
       reply_markup: startKeyboard(),
     });
     return;
@@ -936,30 +869,16 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       chat_id: msg.chat.id,
       parse_mode: "HTML",
       text: [
-        "<b>After you send a code</b>",
+        "<b>SlipCut</b>",
         "",
-        "<code>comot game 3 and 8</code> — remove those matches",
-        "<code>split 2</code> — share into 2 slips",
-        "<code>change to over 2.5</code>",
-        "<code>change to GG</code>",
-        "<code>trim to 50x</code>",
-        "<code>add another booking code</code> — join two tickets",
-        "<code>stake 2000</code> — return for this code",
-        "<code>my book</code> — hit / cut history",
-        "<code>study</code> — after the games finish",
+        "Send a code, then say trim / study / stake 2000.",
         "",
-        "<b>Cook new slip</b>",
-        "",
-        "<code>cook 20 odds mix</code> — football + basketball",
-        "<code>no game above 1.70</code> — cap each selection",
-        "<code>no Palace</code> / <code>no FA Cup</code> — blacklist",
-        "<code>score</code> — live scores on a code",
-        "<code>12 games tennis</code> — ATP/WTA",
-        "<code>longshot 12 games football</code> — across 1 week",
-        "<code>weekend 10 odds bola</code> — Saturday and Sunday only",
-        "<code>2 weeks 12 games basketball</code>",
-        "",
-        "Yarn pidgin. Send /slang if you want the dictionary.",
+        "<code>10 odds football</code>",
+        "<code>12 games tennis</code>",
+        "<code>cook 20 odds mix</code>",
+        "<code>weekend</code>",
+        "<code>no Palace</code>",
+        "<code>score</code>",
       ].join("\n"),
     });
     return;
@@ -997,14 +916,10 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     return;
   }
   const text = normalizePidgin(chat.rest || raw);
-  if (chat.greet && chat.rest) {
-    await tg("sendMessage", { chat_id: msg.chat.id, text: chat.greet });
-  } else {
-    const talk = pidginSmallTalk(raw) || pidginSmallTalk(text);
-    if (talk && !codeFromText(text) && !parseLegCount(text) && !parseSport(text) && !wantsCreate(text) && !parseOddsTarget(text) && !parseOddsTarget(raw) && parseCookWindow(`${text} ${raw}`) === "soon" && !wantsMix(text) && !wantsLive(text)) {
-      await tg("sendMessage", { chat_id: msg.chat.id, text: talk });
-      return;
-    }
+  const talk = pidginSmallTalk(raw) || pidginSmallTalk(text);
+  if (talk && !codeFromText(text) && !parseLegCount(text) && !parseSport(text) && !wantsCreate(text) && !parseOddsTarget(text) && !parseOddsTarget(raw) && parseCookWindow(`${text} ${raw}`) === "soon" && !wantsMix(text) && !wantsLive(text)) {
+    await tg("sendMessage", { chat_id: msg.chat.id, text: talk });
+    return;
   }
   const oddsTarget = parseOddsTarget(text) ?? parseOddsTarget(raw) ?? parseOddsTarget(chat.rest || "");
   const sportGuess = parseSport(text) ?? parseSport(raw);

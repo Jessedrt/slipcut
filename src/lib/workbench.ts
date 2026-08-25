@@ -156,11 +156,10 @@ export function copyRebuild(picks: Array<{
     .map((p, i) => {
       const when = formatKickoff(p.kickoff);
       const price = p.odds ? formatOdds(p.odds) : "";
-      const meta = [when, price, p.league].filter(Boolean).join(" · ");
-      const line = `${i + 1}. ${p.home} vs ${p.away}\n   ${p.market} — ${p.selection}`;
-      return meta ? `${line}\n   ${meta}` : line;
+      const bits = [`${p.home} vs ${p.away}`, p.selection, price, when].filter(Boolean);
+      return `${i + 1}  ${bits.join("  ·  ")}`;
     })
-    .join("\n\n");
+    .join("\n");
 }
 
 export function copySplitBook(slips: AnalyzedPick[][]) {
