@@ -13,6 +13,7 @@ const MENU = [
   { command: "today", description: "Today football" },
   { command: "weekend", description: "Weekend slip" },
   { command: "mix", description: "Mix all sports" },
+  { command: "stake", description: "Stake.com daily 2 odds" },
   { command: "book", description: "Slips and bankroll" },
   { command: "recap", description: "This week" },
   { command: "filter", description: "only EPL NBA ATP" },
@@ -342,7 +343,7 @@ function deskKeyboard() {
   return {
     keyboard: [
       [{ text: "Today" }, { text: "Weekend" }, { text: "Mix" }],
-      [{ text: "Book" }, { text: "Recap" }, { text: "Help" }],
+      [{ text: "Stake 2" }, { text: "Book" }, { text: "Help" }],
     ],
     resize_keyboard: true,
     is_persistent: true,
@@ -540,6 +541,57 @@ async function createOddsSlip(
       ? `${take.length} games ${sport}${span ? ` · ${span}` : ""} · ${formatOdds(actual)} — pool no reach ${formatOdds(target)}`
       : `${take.length} games ${sport}${span ? ` · longshot ${span}` : ""} · ${actual ? formatOdds(actual) : "—"} (you ask ${formatOdds(target)})`;
   await mintAndReply(chatId, take, "ng", title);
+}
+
+async function createStakeDaily(chatId: number) {
+  await tg("sendMessage", { chat_id: chatId, text: "Cooking Stake 2…" });
+  const listed = await listUpcomingPicks("football", 28, "today");
+  if ("error" in listed) {
+    await tg("sendMessage", { chat_id: chatId, text: listed.error });
+    return;
+  }
+  const short = listed.filter((p) => p.odds && p.odds >= 1.12 && p.odds <= 1.55);
+  const pool = await improvePicks(await cookPool(uniqueEvents(short).picks, null));
+  const take = buildToOdds(pool, 2).slice(0, 5);
+  if (!take.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "No 2-odds football for Stake today. Try later." });
+    return;
+  }
+  const combo = combinedOdds(take);
+  const lines = take.map((p, i) => {
+    const when = formatKickoff(p.kickoff);
+    const price = p.odds ? formatOdds(p.odds) : "";
+    return `${i + 1}  ${p.home} vs ${p.away}  ·  ${p.selection}  ·  ${price}${when ? `  ·  ${when}` : ""}`;
+  });
+  const copy = [
+    `Stake.com  ${combo ? formatOdds(combo) : "2.00"}`,
+    ...take.map(
+      (p) => `${p.home} vs ${p.away} — ${p.selection}${p.odds ? ` ${formatOdds(p.odds)}` : ""}`,
+    ),
+  ]
+    .join("\n")
+    .slice(0, 256);
+  await tg("sendMessage", {
+    chat_id: chatId,
+    parse_mode: "HTML",
+    text: [
+      "<b>Stake.com</b> · daily 2",
+      combo ? formatOdds(combo) : "2.00×",
+      `${take.length} games`,
+      "",
+      ...lines,
+      "",
+      "No SportyBet code. Place this on Stake.",
+    ].join("\n"),
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: "Copy", copy_text: { text: copy } },
+          { text: "Open Stake", url: "https://stake.com/sports/soccer" },
+        ],
+      ],
+    },
+  });
 }
 
 function interleave<T>(a: T[], b: T[]): T[] {
@@ -772,6 +824,7 @@ const NOT_A_CODE = new Set([
   "SCORE",
   "LIVE",
   "BLOCK",
+  "STAKE",
 ]);
 
 function looksLikeShareCode(token: string): boolean {
@@ -1107,6 +1160,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "<code>10 odds football</code>",
         "<code>12 games tennis</code>",
         "<code>weekend mix</code>",
+        "<code>stake 2</code>",
         "",
         "<b>On a slip</b>",
         "trim  ·  study  ·  stake 2000",
@@ -1195,6 +1249,13 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   }
   if (isCmd(raw, "today")) {
     await createSportSlip(msg.chat.id, parseSport(cmdArg(raw)) ?? "football", 10, "today");
+    return;
+  }
+  if (
+    isCmd(raw, "stake") ||
+    /^(stake 2|2 odds stake|stake daily|daily 2)\s*$/i.test(raw)
+  ) {
+    await createStakeDaily(msg.chat.id);
     return;
   }
   if (isCmd(raw, "weekend")) {
@@ -1318,6 +1379,14 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       chat_id: msg.chat.id,
       text: `I go keep each game between ${formatOdds(band?.min ?? 1.05)} and ${formatOdds(band?.max ?? 6)}.`,
     });
+    return;
+  }
+  if (
+    /\bstake(?:\.com)?\b/i.test(`${text} ${raw}`) &&
+    !parseStake(raw) &&
+    (oddsTarget || parseLegCount(text) || /daily|today|2\b/i.test(`${text} ${raw}`))
+  ) {
+    await createStakeDaily(msg.chat.id);
     return;
   }
   if (oddsTarget && !looksLikeShareCode(raw)) {
