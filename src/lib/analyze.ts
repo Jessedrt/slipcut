@@ -24,7 +24,7 @@ export type CutInput = {
 };
 
 function clampThreshold(n: number) {
-  if (!Number.isFinite(n)) return 48;
+  if (!Number.isFinite(n)) return 45;
   return Math.min(80, Math.max(40, Math.round(n)));
 }
 
@@ -253,7 +253,7 @@ async function scorePicks(picks: TicketPick[]): Promise<unknown> {
   };
 }
 
-export async function analyzePicks(picks: TicketPick[], threshold = 48) {
+export async function analyzePicks(picks: TicketPick[], threshold = 45) {
   const analyzedRaw = await scorePicks(picks);
   return mergeAnalysis(picks, analyzedRaw, clampThreshold(threshold));
 }

@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 
 const PRESETS = [
   { label: "Lenient", value: 40 },
-  { label: "Standard", value: 48 },
+  { label: "Standard", value: 45 },
   { label: "Strict", value: 62 },
 ];
 

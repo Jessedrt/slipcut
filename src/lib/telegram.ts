@@ -6,7 +6,7 @@ import type { AnalyzedPick, TicketPick } from "./types";
 
 const MAX_LEGS = 35;
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
-const KEEP_LINE = 48;
+const KEEP_LINE = 45;
 
 function clampLegs(n: number, fallback: number) {
   if (!Number.isFinite(n)) return fallback;
@@ -162,7 +162,7 @@ function formatAnalysis(picks: AnalyzedPick[], desk: string) {
     .slice()
     .sort((a, b) => b.probability - a.probability);
   const lines = ranked.slice(0, 20).map((p, i) => {
-    const heat = p.probability >= 70 ? "🔥" : p.probability >= 55 ? "✨" : "❄️";
+    const heat = p.probability >= 70 ? "🔥" : p.probability >= 45 ? "✨" : "❄️";
     const why = p.reasons[0] || p.summary;
     const risk = p.risks[0] ? `\n   ⚠️ ${p.risks[0]}` : "";
     return `${i + 1}. ${heat} ${p.probability}%  ${sportIcon(p.sport)} ${p.home} vs ${p.away}\n   ${p.market} — ${p.selection}\n   ${why}${risk}`;
