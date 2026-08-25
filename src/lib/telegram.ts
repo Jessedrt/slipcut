@@ -9,13 +9,14 @@ import type { BookSport, TicketPick } from "./types";
 
 const MAX_LEGS = 35;
 const MENU = [
-  { command: "today", description: "Today's football" },
+  { command: "start", description: "Welcome" },
+  { command: "today", description: "Today football" },
   { command: "weekend", description: "Weekend slip" },
   { command: "mix", description: "Mix all sports" },
   { command: "book", description: "Slips and bankroll" },
-  { command: "ping", description: "Kickoff alerts on/off" },
-  { command: "recap", description: "This week's results" },
-  { command: "filter", description: "only EPL / NBA / ATP" },
+  { command: "ping", description: "Kickoff alerts" },
+  { command: "recap", description: "This week" },
+  { command: "filter", description: "only EPL NBA ATP" },
   { command: "help", description: "How to talk to me" },
 ];
 
@@ -25,6 +26,7 @@ async function ensureMenu(force = false) {
   if (menuReady && !force) return;
   const scopes = [{ type: "default" }, { type: "all_private_chats" }, { type: "all_group_chats" }];
   for (const scope of scopes) {
+    await tg("deleteMyCommands", { scope });
     await tg("setMyCommands", { commands: MENU, scope });
   }
   menuReady = true;
