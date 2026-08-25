@@ -372,9 +372,58 @@ function pickFromEvent(cands: TicketPick[], used: Record<string, number>): Ticke
   return pick ?? null;
 }
 
+export type CookWindow = "soon" | "week" | "fortnight" | "weekend";
+
+function watDay(ms: number) {
+  const d = new Date(ms + 3_600_000);
+  return { key: d.toISOString().slice(0, 10), dow: d.getUTCDay() };
+}
+
+function inCookWindow(ts: number, window: CookWindow, now: number) {
+  if (ts < now - 60_000) return false;
+  if (window === "soon") return true;
+  if (window === "week") return ts <= now + 7 * 86_400_000;
+  if (window === "fortnight") return ts <= now + 14 * 86_400_000;
+  const { dow } = watDay(ts);
+  return (dow === 0 || dow === 6) && ts <= now + 21 * 86_400_000;
+}
+
+function spreadByDay<T extends { estimateStartTime?: number }>(events: T[], window: CookWindow): T[] {
+  if (window === "soon" || events.length < 3) return events;
+  const buckets = new Map<string, T[]>();
+  for (const e of events) {
+    const key = watDay(e.estimateStartTime ?? 0).key;
+    const arr = buckets.get(key) ?? [];
+    arr.push(e);
+    buckets.set(key, arr);
+  }
+  const days = [...buckets.keys()].sort();
+  const out: T[] = [];
+  let added = true;
+  while (added) {
+    added = false;
+    for (const day of days) {
+      const arr = buckets.get(day);
+      if (arr?.length) {
+        out.push(arr.shift() as T);
+        added = true;
+      }
+    }
+  }
+  return out;
+}
+
+export function windowLabel(window: CookWindow) {
+  if (window === "week") return "1 week";
+  if (window === "fortnight") return "2 weeks";
+  if (window === "weekend") return "weekends";
+  return "";
+}
+
 export async function listUpcomingPicks(
   sport: "football" | "basketball",
   limit = 14,
+  window: CookWindow = "soon",
 ): Promise<TicketPick[] | { error: string }> {
   const sportId = sport === "basketball" ? "sr:sport:2" : "sr:sport:1";
   const payload = (await sportyGet(
@@ -385,21 +434,30 @@ export async function listUpcomingPicks(
 
   const prefer = sport === "basketball" ? BASKETBALL_LEAGUES : FOOTBALL_LEAGUES;
   const now = Date.now();
-  const upcoming = tours
-    .flatMap((t) => (t.events ?? []).map((e) => ({ ...e, leagueHint: t.name ?? leagueName(e.sport) })))
-    .filter((e) => e.status === 0 && !e.banned && e.eventId && (e.estimateStartTime ?? 0) > now - 60_000)
-    .sort((a, b) => {
-      const ap = prefer.test(a.leagueHint ?? "") ? 0 : 1;
-      const bp = prefer.test(b.leagueHint ?? "") ? 0 : 1;
-      if (ap !== bp) return ap - bp;
-      return (a.estimateStartTime ?? 0) - (b.estimateStartTime ?? 0);
-    });
+  const upcoming = spreadByDay(
+    tours
+      .flatMap((t) => (t.events ?? []).map((e) => ({ ...e, leagueHint: t.name ?? leagueName(e.sport) })))
+      .filter(
+        (e) =>
+          e.status === 0 &&
+          !e.banned &&
+          e.eventId &&
+          inCookWindow(e.estimateStartTime ?? 0, window, now),
+      )
+      .sort((a, b) => {
+        const ap = prefer.test(a.leagueHint ?? "") ? 0 : 1;
+        const bp = prefer.test(b.leagueHint ?? "") ? 0 : 1;
+        if (ap !== bp) return ap - bp;
+        return (a.estimateStartTime ?? 0) - (b.estimateStartTime ?? 0);
+      }),
+    window,
+  );
 
   const want = Math.max(1, Math.min(35, limit));
   const deadline = Date.now() + 45_000;
   const used: Record<string, number> = {};
   const picks: TicketPick[] = [];
-  const batchSize = want > 80 ? 10 : 8;
+  const batchSize = want > 20 ? 10 : 8;
 
   for (let i = 0; i < upcoming.length && picks.length < want; i += batchSize) {
     if (Date.now() > deadline) break;
