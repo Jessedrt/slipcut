@@ -230,7 +230,7 @@ function deskKeyboard() {
     ],
     resize_keyboard: true,
     is_persistent: true,
-    input_field_placeholder: "Code, or say what to cook",
+    input_field_placeholder: "Paste a code",
   };
 }
 
@@ -949,15 +949,15 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   if (raw === "/start" || isCmd(raw, "start")) {
     await ensureMenu(true);
     await tg("setMyDescription", {
-      description: "SportyBet desk. Send a code, or say what to cook.",
+      description: "Paste a SportyBet code, or cook a new slip.",
     });
     await tg("setMyShortDescription", {
-      short_description: "Quiet SportyBet desk.",
+      short_description: "SportyBet desk.",
     });
     await tg("sendPhoto", {
       chat_id: msg.chat.id,
       photo: BANNER_URL,
-      caption: "<b>SlipCut</b>\n\nSend a booking code.\nOr use the menu below.",
+      caption: "<b>SlipCut</b>\n\nPaste a booking code.\nOr tap the menu.",
       parse_mode: "HTML",
       reply_markup: deskKeyboard(),
     });
@@ -968,16 +968,17 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       chat_id: msg.chat.id,
       parse_mode: "HTML",
       text: [
-        "Menu:",
-        "/today  ·  /weekend  ·  /mix",
-        "/book  ·  /ping  ·  /recap  ·  /filter",
+        "<b>SlipCut</b>",
         "",
-        "Or send a code, then trim / study / stake 2000.",
+        "Paste a booking code.",
         "",
+        "<b>Cook</b>",
         "<code>10 odds football</code>",
         "<code>12 games tennis</code>",
-        "<code>only EPL</code>",
-        "<code>today 8 games basketball</code>",
+        "<code>weekend mix</code>",
+        "",
+        "<b>On a slip</b>",
+        "trim  ·  study  ·  stake 2000",
       ].join("\n"),
       reply_markup: deskKeyboard(),
     });
@@ -1094,7 +1095,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     if (!stakeCode) {
       await tg("sendMessage", {
         chat_id: msg.chat.id,
-        text: "Send booking code first, then yarn: stake 2000",
+        text: "Paste a code first, then: stake 2000",
       });
       return;
     }
@@ -1105,7 +1106,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     const liveCode =
       codeFromText(text) || codeFromText(msg.reply_to_message?.text) || (await latestCode());
     if (!liveCode) {
-      await tg("sendMessage", { chat_id: msg.chat.id, text: "Send booking code first, then yarn: score" });
+      await tg("sendMessage", { chat_id: msg.chat.id, text: "Paste a code first, then: score" });
       return;
     }
     const loaded = await loadBookingCode(liveCode, "ng");
@@ -1260,7 +1261,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   if (!code) {
     await tg("sendMessage", {
       chat_id: msg.chat.id,
-      text: "I no too catch that. Yarn me like: how far help me cook like 30odds — or send SportyBet code.",
+      text: "Paste a code, or say 10 odds football.",
     });
     return;
   }
