@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { analyzePicks } from "./analyze";
 import { extractShareCode } from "./parse-ticket";
 import { normalizePidgin, pidginSmallTalk, slangHelp, splitChat, wantsCreate } from "./pidgin";
@@ -36,7 +37,18 @@ type TgUpdate = {
   callback_query?: TgCallback;
 };
 
+export type ChatBridge = {
+  send: (method: string, payload: Record<string, unknown>) => Promise<void>;
+};
+
+export const chatBridge = new AsyncLocalStorage<ChatBridge>();
+
 async function tg(method: string, payload: Record<string, unknown>) {
+  const bridged = chatBridge.getStore();
+  if (bridged) {
+    await bridged.send(method, payload);
+    return;
+  }
   const token = TOKEN();
   if (!token) return;
   await fetch(`https://api.telegram.org/bot${token}/${method}`, {
