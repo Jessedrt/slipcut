@@ -13,6 +13,7 @@ const MENU = [
   { command: "today", description: "Today football" },
   { command: "weekend", description: "Weekend slip" },
   { command: "mix", description: "Mix all sports" },
+  { command: "draw", description: "Draw-only football" },
   { command: "stake", description: "Stake.com daily 2 odds" },
   { command: "daily2", description: "SportyBet daily 2 odds" },
   { command: "book", description: "Slips and bankroll" },
@@ -343,7 +344,7 @@ function sportFromFlag(code: string): BookSport {
 function deskKeyboard() {
   return {
     keyboard: [
-      [{ text: "Today" }, { text: "Weekend" }, { text: "Mix" }],
+      [{ text: "Today" }, { text: "Weekend" }, { text: "Draw" }],
       [{ text: "2 odds" }, { text: "Stake 2" }, { text: "Help" }],
     ],
     resize_keyboard: true,
@@ -618,6 +619,30 @@ async function createSportyDaily2(chatId: number) {
   );
 }
 
+async function createDrawSlip(chatId: number, count: number, window: CookWindow = "today") {
+  const n = clampLegs(count, 12);
+  const span = windowLabel(window) || "today";
+  await tg("sendMessage", { chat_id: chatId, text: `Cooking ${n} draws · ${span}…` });
+  const listed = await listUpcomingPicks("football", Math.min(n + 10, 35), window, "draw");
+  if ("error" in listed) {
+    await tg("sendMessage", { chat_id: chatId, text: listed.error });
+    return;
+  }
+  const pool = await improvePicks(await cookPool(uniqueEvents(listed).picks, null));
+  const take = pool.slice(0, n);
+  if (!take.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "No draw markets open now. Try later." });
+    return;
+  }
+  const combo = combinedOdds(take);
+  await mintAndReply(
+    chatId,
+    take,
+    "ng",
+    `Draw only · ${take.length} football${combo ? ` · ${formatOdds(combo)}` : ""}`,
+  );
+}
+
 function interleave<T>(a: T[], b: T[]): T[] {
   const out: T[] = [];
   const n = Math.max(a.length, b.length);
@@ -736,6 +761,11 @@ function parseCookWindow(text: string): CookWindow {
   return "soon";
 }
 
+function wantsDraw(text: string) {
+  if (/draw no bet|\bdnb\b/i.test(text)) return false;
+  return /\bdraws?\b/i.test(text);
+}
+
 function parseSport(text: string): BookSport | null {
   if (/tennis|atp|wta/i.test(text)) return "tennis";
   if (/basket|hoop/i.test(text)) return "basketball";
@@ -849,6 +879,7 @@ const NOT_A_CODE = new Set([
   "LIVE",
   "BLOCK",
   "STAKE",
+  "DRAW",
 ]);
 
 function looksLikeShareCode(token: string): boolean {
@@ -1003,7 +1034,8 @@ function parseLegCount(text: string): number | null {
   const m =
     text.match(/(?:sure\s*)?(\d{1,4})\s*(?:legs?|games?|matches)\b/i) ||
     text.match(/^\/(?:legs?|games?)(?:@\w+)?\s+(\d{1,4})\b/i) ||
-    (parseSport(text) && !/\bodds?\b/i.test(text) ? text.match(/\b(\d{1,4})\b/) : null);
+    (parseSport(text) && !/\bodds?\b/i.test(text) ? text.match(/\b(\d{1,4})\b/) : null) ||
+    (wantsDraw(text) && !/\bodds?\b/i.test(text) ? text.match(/\b(\d{1,4})\b/) : null);
   if (!m) return null;
   const n = Number(m[1]);
   if (!Number.isFinite(n) || n < 1) return null;
@@ -1186,6 +1218,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "<code>weekend mix</code>",
         "<code>stake 2</code>",
         "<code>2 odds</code>",
+        "<code>20 draw football</code>",
         "",
         "<b>On a slip</b>",
         "trim  ·  study  ·  stake 2000",
@@ -1285,6 +1318,12 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   }
   if (isCmd(raw, "daily2") || /^(2 odds|daily 2)\s*$/i.test(raw)) {
     await createSportyDaily2(msg.chat.id);
+    return;
+  }
+  if (isCmd(raw, "draw") || /^(draw|draws)\s*$/i.test(raw)) {
+    const n = parseLegCount(cmdArg(raw)) ?? 12;
+    const w = parseCookWindow(raw);
+    await createDrawSlip(msg.chat.id, n, w === "soon" ? "today" : w);
     return;
   }
   if (isCmd(raw, "weekend")) {
@@ -1501,6 +1540,11 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   }
   if (legCount && mix && !code) {
     await createMixSlip(msg.chat.id, { games: legCount }, cookWindow, band);
+    return;
+  }
+  if (wantsDraw(`${text} ${raw}`) && !code) {
+    const w = cookWindow === "soon" ? "today" : cookWindow;
+    await createDrawSlip(msg.chat.id, legCount ?? 12, w);
     return;
   }
   if (legCount && sport && !code) {

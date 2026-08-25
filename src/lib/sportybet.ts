@@ -448,6 +448,17 @@ function pickFromEvent(cands: TicketPick[], used: Record<string, number>): Ticke
   return pick ?? null;
 }
 
+function drawFromEvent(ev: EventDetail): TicketPick | null {
+  const markets = (ev.markets ?? []).filter((m) => m.status === 0);
+  const mkt = markets.find((m) => m.id === "1");
+  if (!mkt) return null;
+  const draw = openOutcomes(mkt).find((o) => selectionBias(o.desc ?? "") === "draw");
+  if (!draw) return null;
+  const pick = toPick(ev, "football", mkt, draw);
+  if (!pick?.odds || pick.odds < 2.2 || pick.odds > 6.5) return null;
+  return pick;
+}
+
 export type CookWindow = "soon" | "today" | "week" | "fortnight" | "weekend";
 
 function watDay(ms: number) {
@@ -502,6 +513,7 @@ export async function listUpcomingPicks(
   sport: BookSport,
   limit = 14,
   window: CookWindow = "soon",
+  mode: "any" | "draw" = "any",
 ): Promise<TicketPick[] | { error: string }> {
   const sportId = sport === "basketball" ? "sr:sport:2" : sport === "tennis" ? "sr:sport:5" : "sr:sport:1";
   const payload = (await sportyGet(
@@ -549,14 +561,20 @@ export async function listUpcomingPicks(
     });
     for (const ev of details) {
       if (!ev || ev.status !== 0 || ev.banned) continue;
-      const cands =
-        sport === "basketball"
-          ? basketballCandidates(ev)
-          : sport === "tennis"
-            ? tennisCandidates(ev)
-            : footballCandidates(ev);
-      const pick = pickFromEvent(cands, used);
-      if (pick) picks.push(pick);
+      if (mode === "draw") {
+        if (sport !== "football") continue;
+        const draw = drawFromEvent(ev);
+        if (draw) picks.push(draw);
+      } else {
+        const cands =
+          sport === "basketball"
+            ? basketballCandidates(ev)
+            : sport === "tennis"
+              ? tennisCandidates(ev)
+              : footballCandidates(ev);
+        const pick = pickFromEvent(cands, used);
+        if (pick) picks.push(pick);
+      }
       if (picks.length >= want) break;
     }
   }
