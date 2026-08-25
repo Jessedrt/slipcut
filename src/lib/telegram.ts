@@ -1,5 +1,6 @@
 import { analyzePicks } from "./analyze";
 import { extractShareCode } from "./parse-ticket";
+import { normalizePidgin, pidginSmallTalk, slangHelp } from "./pidgin";
 import { loadBookingCode, listUpcomingPicks, mintShare, parseMarketTarget, retargetPicks, sportyOf } from "./sportybet";
 import { applyLessonScores, formatStudy, improvePicks, latestUnstudiedCode, recordSlip, studyCode } from "./study";
 import { buildToOdds, combinedOdds, copyRebuild, formatOdds, keepTop, parseCommand, splitEven, trimToOdds } from "./workbench";
@@ -512,13 +513,13 @@ export async function handleTelegramUpdate(update: TgUpdate) {
 
   const msg = update.message;
   if (!msg?.text || !msg.chat) return;
-  const text = msg.text.trim();
-  if (text === "/start" || text === "/help") {
+  const raw = msg.text.trim();
+  if (raw === "/start" || raw === "/help") {
     await tg("setMyCommands", {
       commands: [
         { command: "start", description: "How this thing dey work" },
         { command: "study", description: "Check if the last slip cut" },
-        { command: "help", description: "Trim, split, change market" },
+        { command: "slang", description: "Pidgin wey I sabi" },
       ],
     });
     await tg("setMyDescription", {
@@ -548,11 +549,22 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "",
         "Football and basketball only. Max 35 new legs.",
         "Yarn me like person — I go reply pidgin.",
+        "Send /slang see the dictionary.",
       ].join("\n"),
     });
     return;
   }
-  if (text === "/study" || /^(study|results|cut|lost|it cut|this cut)\b/i.test(text)) {
+  if (raw === "/slang") {
+    await tg("sendMessage", { chat_id: msg.chat.id, text: slangHelp() });
+    return;
+  }
+  const text = normalizePidgin(raw);
+  const talk = pidginSmallTalk(raw) || pidginSmallTalk(text);
+  if (talk && !codeFromText(raw) && !codeFromText(text) && !parseLegCount(text) && !parseSport(text)) {
+    await tg("sendMessage", { chat_id: msg.chat.id, text: talk });
+    return;
+  }
+  if (raw === "/study" || /^(study|results|cut|lost|it cut|this cut)\b/i.test(text)) {
     const studyCodeToken =
       codeFromText(text) ||
       codeFromText(msg.reply_to_message?.text) ||
@@ -590,6 +602,16 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       return;
     }
     await mintKeepersAndReply(msg.chat.id, playable(loaded.picks));
+    return;
+  }
+  if (code && /\bmint all\b/i.test(text)) {
+    const loaded = await loadBookingCode(code, "ng");
+    if ("error" in loaded) {
+      await tg("sendMessage", { chat_id: msg.chat.id, text: loaded.error });
+      return;
+    }
+    const base = playable(loaded.picks);
+    await mintAndReply(msg.chat.id, base, "ng", `🎫 SportyBet code · ${base.length} legs`);
     return;
   }
   if (legCount && sport && !code) {
