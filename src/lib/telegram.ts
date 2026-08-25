@@ -1,6 +1,6 @@
 import { analyzePicks } from "./analyze";
 import { extractShareCode } from "./parse-ticket";
-import { normalizePidgin, pidginSmallTalk, slangHelp } from "./pidgin";
+import { normalizePidgin, pidginSmallTalk, slangHelp, splitChat, wantsCreate } from "./pidgin";
 import { loadBookingCode, listUpcomingPicks, mintShare, parseMarketTarget, retargetPicks, sportyOf } from "./sportybet";
 import { applyLessonScores, formatStudy, improvePicks, latestUnstudiedCode, recordSlip, studyCode } from "./study";
 import { buildToOdds, combinedOdds, copyRebuild, formatOdds, keepTop, parseCommand, splitEven, trimToOdds } from "./workbench";
@@ -433,8 +433,9 @@ async function runTicketCommand(chatId: number, code: string, text: string): Pro
 function parseLegCount(text: string): number | null {
   const m =
     text.match(/(?:sure\s*)?(\d{1,4})\s*(?:legs?|odds?)\b/i) ||
+    text.match(/\blike\s+(\d{1,4})\b/i) ||
     text.match(/^\/(?:legs?|odds)(?:@\w+)?\s+(\d{1,4})\b/i) ||
-    (parseSport(text) ? text.match(/\b(\d{1,4})\b/) : null);
+    (parseSport(text) || wantsCreate(text) ? text.match(/\b(\d{1,4})\b/) : null);
   if (!m) return null;
   const n = Number(m[1]);
   if (!Number.isFinite(n) || n < 1) return null;
@@ -544,7 +545,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "🔻  12 legs",
         "📓  study — after the games finish",
         "",
-        "Or tell me: 12 legs football",
+        "Or yarn me like person: how far help me cook like 30odds",
         "Basketball na: 12 legs basketball",
         "",
         "Football and basketball only. Max 35 new legs.",
@@ -558,11 +559,20 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     await tg("sendMessage", { chat_id: msg.chat.id, text: slangHelp() });
     return;
   }
-  const text = normalizePidgin(raw);
-  const talk = pidginSmallTalk(raw) || pidginSmallTalk(text);
-  if (talk && !codeFromText(raw) && !codeFromText(text) && !parseLegCount(text) && !parseSport(text)) {
-    await tg("sendMessage", { chat_id: msg.chat.id, text: talk });
+  const chat = splitChat(raw);
+  if (chat.greet && !chat.rest) {
+    await tg("sendMessage", { chat_id: msg.chat.id, text: chat.greet });
     return;
+  }
+  const text = normalizePidgin(chat.rest || raw);
+  if (chat.greet && chat.rest) {
+    await tg("sendMessage", { chat_id: msg.chat.id, text: chat.greet });
+  } else {
+    const talk = pidginSmallTalk(raw) || pidginSmallTalk(text);
+    if (talk && !codeFromText(text) && !parseLegCount(text) && !parseSport(text) && !wantsCreate(text)) {
+      await tg("sendMessage", { chat_id: msg.chat.id, text: talk });
+      return;
+    }
   }
   if (raw === "/study" || /^(study|results|cut|lost|it cut|this cut)\b/i.test(text)) {
     const studyCodeToken =
@@ -618,6 +628,10 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     await createSportSlip(msg.chat.id, sport, legCount);
     return;
   }
+  if (legCount && !code && wantsCreate(text + " " + raw)) {
+    await createSportSlip(msg.chat.id, sport ?? "football", legCount);
+    return;
+  }
   if (legCount && code) {
     const loaded = await loadBookingCode(code, "ng");
     if ("error" in loaded) {
@@ -654,7 +668,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   if (!code) {
     await tg("sendMessage", {
       chat_id: msg.chat.id,
-      text: "Send SportyBet code, or tell me: 12 legs football ⚽",
+      text: "I no too catch that. Yarn me like: how far help me cook like 30odds — or send SportyBet code.",
     });
     return;
   }

@@ -45,6 +45,8 @@ const PHRASES: Array<[RegExp, string]> = [
   [/\bover one five\b/gi, "over 1.5"],
   [/\bchange am to\b/gi, "change to"],
   [/\bturn am to\b/gi, "change to"],
+  [/\bhelp me cook\b/gi, "create"],
+  [/\bhelp me\b/gi, ""],
   [/\bcook me\b/gi, "create"],
   [/\barrange me\b/gi, "create"],
   [/\bpack me\b/gi, "create"],
@@ -74,6 +76,8 @@ const PHRASES: Array<[RegExp, string]> = [
   [/\bcomot\b/gi, "drop"],
   [/\bkolo out\b/gi, "drop"],
   [/\bsure\s+(\d{1,2})\b/gi, "$1 legs"],
+  [/\blike\s+(\d{1,4})\s*odds?\b/gi, "$1 legs"],
+  [/\b(\d{1,4})odds?\b/gi, "$1 odds"],
   [/\bbola\b/gi, "football"],
   [/\bhoops?\b/gi, "basketball"],
   [/\bbasket\b/gi, "basketball"],
@@ -96,6 +100,23 @@ const THANKS_REPLIES = [
 
 function pick(list: string[]) {
   return list[Math.floor(Math.random() * list.length)] ?? list[0] ?? "";
+}
+
+const GREET_SHORT = ["How far.", "I dey.", "Omo I hear you.", "Sharp."];
+
+export function splitChat(raw: string): { greet: string | null; rest: string } {
+  const t = raw.trim();
+  const m = t.match(
+    /^(how far|wetin dey(?: sup)?|wetin you dey|you dey(?: there)?|hello|hi|hey|yo+|boss|omo|my guy|paddy|pad[eé]|good (?:morning|afternoon|evening)|sup)\b\s*[,.!]?\s*(.*)$/i,
+  );
+  if (!m) return { greet: null, rest: t };
+  const rest = (m[2] ?? "").trim();
+  if (!rest) return { greet: pick(GREET_REPLIES), rest: "" };
+  return { greet: pick(GREET_SHORT), rest };
+}
+
+export function wantsCreate(text: string): boolean {
+  return /\b(create|cook|pack|arrange|build|make me|help me|slip|i want|give me)\b/i.test(text);
 }
 
 /** Rewrite pidgin so the rest of the bot can parse it. */
@@ -127,6 +148,7 @@ export function slangHelp(): string {
     "Pidgin wey I sabi:",
     "",
     "how far — I go yarn you back",
+    "how far help me cook like 30odds — I go cook 30 legs football",
     "cook 12 legs bola — new football slip",
     "trim am — keep strong half",
     "comot 3 8 — drop those legs",
