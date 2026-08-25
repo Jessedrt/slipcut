@@ -205,6 +205,10 @@ type EventDetail = {
   banned?: boolean;
   homeTeamName?: string;
   awayTeamName?: string;
+  setScore?: string;
+  gameScore?: string[];
+  matchStatus?: string;
+  period?: number;
   sport?: ShareOutcome["sport"];
   markets?: EventMarket[];
 };
@@ -251,7 +255,7 @@ function inBookWindow(odds?: number) {
   return Number.isFinite(odds) && (odds as number) >= 1.18 && (odds as number) <= 2.35;
 }
 
-function marketFamily(id?: string, desc?: string): "win" | "dc" | "ou" | "gg" | "dnb" {
+export function marketFamily(id?: string, desc?: string): "win" | "dc" | "ou" | "gg" | "dnb" {
   const d = (desc ?? "").toLowerCase();
   if (id === "10" || d.includes("double chance")) return "dc";
   if (id === "18" || id === "225" || d.includes("over/under")) return "ou";
@@ -432,11 +436,44 @@ export function parseMarketTarget(text: string): MarketTarget | null {
   return null;
 }
 
-async function fetchEvent(eventId: string): Promise<EventDetail | null> {
+export async function getEventDetail(eventId: string): Promise<EventDetail | null> {
   const body = (await sportyGet(
     `/factsCenter/event?eventId=${encodeURIComponent(eventId)}&productId=3`,
   )) as { data?: EventDetail } | null;
   return body?.data ?? null;
+}
+
+async function fetchEvent(eventId: string): Promise<EventDetail | null> {
+  return getEventDetail(eventId);
+}
+
+export type EventScore = {
+  home: number;
+  away: number;
+  finished: boolean;
+  live: boolean;
+  label: string;
+};
+
+export function eventScore(ev: {
+  status?: number;
+  setScore?: string;
+  gameScore?: string[];
+  matchStatus?: string;
+} | null): EventScore | null {
+  if (!ev) return null;
+  const raw = ev.setScore || ev.gameScore?.[0] || "";
+  const m = String(raw).match(/(\d+)\s*[:\-]\s*(\d+)/);
+  if (!m) return null;
+  const home = Number(m[1]);
+  const away = Number(m[2]);
+  const ms = String(ev.matchStatus ?? "").toUpperCase();
+  const finished =
+    ev.status === 2 ||
+    ev.status === 3 ||
+    ["FT", "ENDED", "END", "AET", "AP", "FINISHED", "FINAL", "AOT"].includes(ms);
+  const live = ev.status === 1 && !finished;
+  return { home, away, finished, live, label: `${home}-${away}${finished ? " FT" : live ? " live" : ""}` };
 }
 
 function selectionBias(selection: string): string {
