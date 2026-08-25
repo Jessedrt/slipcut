@@ -281,12 +281,47 @@ async function handleCode(chatId: number, code: string) {
   });
 }
 
+const NOT_A_CODE = new Set([
+  "CREATE",
+  "START",
+  "HELP",
+  "LEGS",
+  "ODDS",
+  "TRIM",
+  "MINT",
+  "ANALYZE",
+  "FOOTBALL",
+  "BASKETBALL",
+  "SOCCER",
+  "SLIPCUT",
+  "SPORT",
+  "SHARE",
+  "CODE",
+  "KEEP",
+  "DROP",
+  "HOME",
+  "AWAY",
+  "OVER",
+  "UNDER",
+  "SPLIT",
+  "REDUCE",
+]);
+
+function looksLikeShareCode(token: string): boolean {
+  const t = token.trim().toUpperCase();
+  if (!/^[A-Z0-9]{4,16}$/.test(t)) return false;
+  if (NOT_A_CODE.has(t)) return false;
+  return true;
+}
+
 function codeFromText(raw?: string): string | null {
   if (!raw) return null;
-  const labeled = extractShareCode(raw);
-  if (labeled && /\d/.test(labeled)) return labeled;
-  const head = raw.match(/^([A-Z0-9]{4,16})(?:\s|$|·)/i)?.[1];
-  if (head && /\d/.test(head) && /^[A-Z0-9]{4,16}$/i.test(head)) return head.toUpperCase();
+  const trimmed = raw.trim();
+  if (looksLikeShareCode(trimmed)) return trimmed.toUpperCase();
+  const labeled = extractShareCode(trimmed);
+  if (labeled && looksLikeShareCode(labeled)) return labeled;
+  const head = trimmed.match(/^([A-Z0-9]{4,16})(?:\s|$|·)/i)?.[1];
+  if (head && looksLikeShareCode(head)) return head.toUpperCase();
   return null;
 }
 
