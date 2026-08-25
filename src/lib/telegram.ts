@@ -52,6 +52,22 @@ function sportIcon(sport: string) {
   return "🎟️";
 }
 
+function startKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "⚽ Cook 10× football", callback_data: "o:f:10" },
+        { text: "🏀 Cook 10× basketball", callback_data: "o:b:10" },
+      ],
+      [
+        { text: "⚽ 12 games football", callback_data: "c:f:12" },
+        { text: "🏀 12 games basketball", callback_data: "c:b:12" },
+      ],
+      [{ text: "📓 Study last slip", callback_data: "y:LAST" }],
+    ],
+  };
+}
+
 function keyboard(code: string) {
   return {
     inline_keyboard: [
@@ -508,6 +524,20 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       await createSportSlip(chatId, sport, Number(arg || 10));
       return;
     }
+    if (kind === "o") {
+      const sport = code === "b" ? "basketball" : "football";
+      await createOddsSlip(chatId, sport, Number(arg || 10));
+      return;
+    }
+    if (kind === "y" && code === "LAST") {
+      const last = await latestUnstudiedCode();
+      if (!last) {
+        await tg("sendMessage", { chat_id: chatId, text: "No slip to study yet. Book one first." });
+        return;
+      }
+      await studyAndReply(chatId, last);
+      return;
+    }
     const loaded = await loadBookingCode(code, "ng");
     if ("error" in loaded) {
       await tg("sendMessage", { chat_id: chatId, text: loaded.error });
@@ -565,10 +595,11 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   const msg = update.message;
   if (!msg?.text || !msg.chat) return;
   const raw = msg.text.trim();
-  if (raw === "/start" || raw === "/help") {
+  if (raw === "/start") {
     await tg("setMyCommands", {
       commands: [
         { command: "start", description: "How this thing dey work" },
+        { command: "help", description: "All the commands" },
         { command: "study", description: "Check if the last slip cut" },
         { command: "slang", description: "Pidgin wey I sabi" },
       ],
@@ -591,24 +622,47 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     });
     await tg("sendMessage", {
       chat_id: msg.chat.id,
+      parse_mode: "HTML",
       text: [
-        "Send your SportyBet code, then you fit:",
-        "🗑  drop 3 8",
-        "➗  split 2",
-        "⚡  change to over 2.5",
-        "🤝  change to GG",
-        "🎯  trim to 50x",
-        "🔗  combine NXPSTB",
-        "🔻  12 games",
-        "📓  study — after the games finish",
+        "<b>How e work</b>",
         "",
-        "Or yarn me like person: how far help me cook like 30odds",
-        "(30odds = about 30× combined. 12 games = 12 matches.)",
-        "Basketball na: 12 games basketball",
+        "Send your SportyBet code.",
+        "Or yarn me like person:",
         "",
-        "Football and basketball only. Max 35 new games.",
-        "Yarn me like person — I go reply pidgin.",
-        "Send /slang see the dictionary.",
+        "<code>cook 10 odds football</code>",
+        "<code>12 games basketball</code>",
+        "<code>how far help me cook like 30odds</code>",
+        "",
+        "<b>odds</b> = combined ×   ·   <b>games</b> = number of matches",
+        "Football & basketball only · max 35 games",
+        "",
+        "Tap below or send /help for the full list.",
+      ].join("\n"),
+      reply_markup: startKeyboard(),
+    });
+    return;
+  }
+  if (raw === "/help") {
+    await tg("sendMessage", {
+      chat_id: msg.chat.id,
+      parse_mode: "HTML",
+      text: [
+        "<b>After you send a code</b>",
+        "",
+        "<code>drop 3 8</code> — comot those games",
+        "<code>split 2</code> — share into 2 slips",
+        "<code>change to over 2.5</code>",
+        "<code>change to GG</code>",
+        "<code>trim to 50x</code>",
+        "<code>combine NXPSTB</code>",
+        "<code>study</code> — after the games finish",
+        "",
+        "<b>Cook new slip</b>",
+        "",
+        "<code>cook 10 odds football</code> — about 10×",
+        "<code>12 games basketball</code> — 12 matches",
+        "",
+        "Yarn pidgin. Send /slang if you want the dictionary.",
       ].join("\n"),
     });
     return;
