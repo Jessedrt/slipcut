@@ -201,7 +201,10 @@ async function saveLessons(code: string, legs: StudiedLeg[]) {
         values (${code}, ${leg.family}, ${leg.league}, ${leg.selection}, ${leg.sport}, ${leg.result}, ${leg.note})
       `;
     }
-    await sql`update study_slips set studied = 1 where code = ${code}`;
+    const won = legs.filter((l) => l.result === "won").length;
+    const lost = legs.filter((l) => l.result === "lost").length;
+    const hit = lost === 0 && won > 0 ? 1 : 0;
+    await sql`update study_slips set studied = 1, hit = ${hit}, lost = ${lost}, won = ${won} where code = ${code}`;
   } catch {
     /* ignore */
   }
@@ -280,6 +283,29 @@ export async function studyCode(code: string, picks?: TicketPick[]): Promise<Stu
   };
 }
 
+export async function rememberChat(chatId: number | string) {
+  try {
+    const sql = await getSql();
+    const id = String(chatId);
+    await sql`
+      insert into tg_chats (chat_id) values (${id})
+      on conflict (chat_id) do nothing
+    `;
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function listChats(): Promise<string[]> {
+  try {
+    const sql = await getSql();
+    const rows = await sql<{ chat_id: string }>`select chat_id from tg_chats`;
+    return rows.map((r) => r.chat_id);
+  } catch {
+    return [];
+  }
+}
+
 export async function latestUnstudiedCode(): Promise<string | null> {
   try {
     const sql = await getSql();
@@ -289,6 +315,78 @@ export async function latestUnstudiedCode(): Promise<string | null> {
     return rows[0]?.code ?? null;
   } catch {
     return null;
+  }
+}
+
+export async function latestCode(): Promise<string | null> {
+  try {
+    const sql = await getSql();
+    const rows = await sql<{ code: string }>`
+      select code from study_slips order by created_at desc limit 1
+    `;
+    return rows[0]?.code ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function formatBook(): Promise<string> {
+  try {
+    const sql = await getSql();
+    const rows = await sql<{
+      code: string;
+      studied: number;
+      hit: number | null;
+      lost: number | null;
+      won: number | null;
+    }>`
+      select code, studied, hit, lost, won
+      from study_slips
+      order by created_at desc
+      limit 12
+    `;
+    if (!rows.length) return "Your book empty. Cook or load a code first.";
+    const finished = rows.filter((r) => r.studied);
+    const hits = finished.filter((r) => r.hit === 1).length;
+    const cuts = finished.filter((r) => r.hit === 0).length;
+    const pending = rows.length - finished.length;
+    const worst = await sql<{ family: string; n: number }>`
+      select family, count(*)::int as n from study_lessons
+      where result = 'lost'
+      group by family
+      order by n desc
+      limit 3
+    `;
+    const famLabel: Record<string, string> = {
+      hcp: "handicap",
+      ou1h: "1st half O/U",
+      ou: "over/under",
+      gg: "GG",
+      dc: "double chance",
+      dnb: "DNB",
+      win: "winner",
+    };
+    const lines = rows.map((r, i) => {
+      const tag =
+        !r.studied ? "⏳ still dey" : r.hit === 1 ? "✅ HIT" : "📉 CUT";
+      const score =
+        r.studied && r.won != null && r.lost != null ? ` · ${r.won}-${r.lost}` : "";
+      return `${i + 1}. ${r.code} · ${tag}${score}`;
+    });
+    const cutNote = worst.length
+      ? `Markets wey dey cut you: ${worst.map((w) => `${famLabel[w.family] ?? w.family} (${w.n})`).join(", ")}`
+      : "";
+    return [
+      "📓 Your book",
+      `HIT ${hits} · CUT ${cuts} · still dey ${pending}  (last ${rows.length})`,
+      "",
+      ...lines,
+      cutNote ? `\n${cutNote}` : "",
+    ]
+      .filter((l, i, arr) => l !== "" || arr[i - 1] !== "")
+      .join("\n");
+  } catch {
+    return "I no fit open the book now. Try study a code first.";
   }
 }
 

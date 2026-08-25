@@ -11,6 +11,29 @@ export function expectedValue(probability: number, odds?: number): number | null
   return (probability / 100) * odds - 1;
 }
 
+export function formatKickoff(ms?: number) {
+  if (!ms) return "";
+  const d = new Date(ms + 3_600_000);
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${days[d.getUTCDay()]} ${hh}:${mm} WAT`;
+}
+
+export function uniqueEvents<T extends { sporty?: { eventId?: string }; home?: string; away?: string; kickoff?: number }>(
+  picks: T[],
+): { picks: T[]; dropped: number } {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const p of picks) {
+    const id = p.sporty?.eventId || `${p.home ?? ""}|${p.away ?? ""}|${p.kickoff ?? ""}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(p);
+  }
+  return { picks: out, dropped: picks.length - out.length };
+}
+
 export function formatOdds(n: number) {
   if (!Number.isFinite(n)) return "—";
   if (n >= 100) return `${Math.round(n)}×`;
@@ -125,13 +148,17 @@ export function copyRebuild(picks: Array<{
   market: string;
   selection: string;
   league?: string;
+  odds?: number;
+  kickoff?: number;
 }>) {
   if (!picks.length) return "Empty slip.";
   return picks
     .map((p, i) => {
+      const when = formatKickoff(p.kickoff);
+      const price = p.odds ? formatOdds(p.odds) : "";
+      const meta = [when, price, p.league].filter(Boolean).join(" · ");
       const line = `${i + 1}. ${p.home} vs ${p.away}\n   ${p.market} — ${p.selection}`;
-      const extra = p.league ? `\n   ${p.league}` : "";
-      return line + extra;
+      return meta ? `${line}\n   ${meta}` : line;
     })
     .join("\n\n");
 }
