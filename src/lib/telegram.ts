@@ -43,26 +43,32 @@ async function tg(method: string, payload: Record<string, unknown>) {
   });
 }
 
+function sportIcon(sport: string) {
+  if (sport === "basketball") return "🏀";
+  if (sport === "football") return "⚽";
+  return "🎟️";
+}
+
 function keyboard(code: string) {
   return {
     inline_keyboard: [
       [
-        { text: "Analyze", callback_data: `a:${code}` },
-        { text: "Trim", callback_data: `g:${code}` },
+        { text: "🔍 Analyze", callback_data: `a:${code}` },
+        { text: "✂️ Trim", callback_data: `g:${code}` },
       ],
       [
-        { text: "Split 2", callback_data: `s:${code}:2` },
-        { text: "Optimize 50×", callback_data: `t:${code}:50` },
+        { text: "➗ Split 2", callback_data: `s:${code}:2` },
+        { text: "🎯 Optimize 50×", callback_data: `t:${code}:50` },
       ],
       [
-        { text: "8 legs", callback_data: `k:${code}:8` },
-        { text: "12 legs", callback_data: `k:${code}:12` },
-        { text: "20 legs", callback_data: `k:${code}:20` },
+        { text: "🔻 8 legs", callback_data: `k:${code}:8` },
+        { text: "🔻 12 legs", callback_data: `k:${code}:12` },
+        { text: "🔻 20 legs", callback_data: `k:${code}:20` },
       ],
       [
-        { text: "Over 2.5", callback_data: `ch:${code}:ou25` },
-        { text: "GG", callback_data: `ch:${code}:gg` },
-        { text: "Mint all", callback_data: `m:${code}` },
+        { text: "⚡ Over 2.5", callback_data: `ch:${code}:ou25` },
+        { text: "🤝 GG", callback_data: `ch:${code}:gg` },
+        { text: "🎫 Mint all", callback_data: `m:${code}` },
       ],
     ],
   };
@@ -76,7 +82,7 @@ function listPicks(picks: TicketPick[]) {
   const shown = picks.slice(0, 35);
   const lines = shown.map((p, i) => {
     const mark = p.sport === "other" ? "· skip" : "";
-    return `${i + 1}. ${p.home} vs ${p.away}\n   ${p.market} — ${p.selection} ${mark}`.trim();
+    return `${i + 1}. ${sportIcon(p.sport)} ${p.home} vs ${p.away}\n   ${p.market} — ${p.selection} ${mark}`.trim();
   });
   if (picks.length > shown.length) lines.push(`… +${picks.length - shown.length} more`);
   return lines.join("\n");
@@ -119,15 +125,15 @@ async function mintAndReply(chatId: number, picks: TicketPick[], country: string
   const code = minted.shareCode;
   await tg("sendMessage", {
     chat_id: chatId,
-    text: `<code>${esc(code)}</code>`,
+    text: `✅ <code>${esc(code)}</code>`,
     parse_mode: "HTML",
     reply_markup: {
       inline_keyboard: [
-        [{ text: "Copy code", copy_text: { text: code } }],
-        [{ text: "Open on SportyBet", url: minted.shareURL }],
+        [{ text: "📋 Copy code", copy_text: { text: code } }],
+        [{ text: "🌐 Open on SportyBet", url: minted.shareURL }],
         [
           {
-            text: "Share",
+            text: "📤 Share",
             url: `https://t.me/share/url?url=${encodeURIComponent(minted.shareURL)}&text=${encodeURIComponent(code)}`,
           },
         ],
@@ -156,16 +162,17 @@ function formatAnalysis(picks: AnalyzedPick[], desk: string) {
     .slice()
     .sort((a, b) => b.probability - a.probability);
   const lines = ranked.slice(0, 18).map((p, i) => {
+    const heat = p.probability >= 70 ? "🔥" : p.probability >= 55 ? "✨" : "❄️";
     const summary = p.summary ? `\n   ${p.summary}` : "";
-    return `${i + 1}. ${p.probability}%  ${p.home} vs ${p.away}\n   ${p.market} — ${p.selection}${summary}`;
+    return `${i + 1}. ${heat} ${p.probability}%  ${sportIcon(p.sport)} ${p.home} vs ${p.away}\n   ${p.market} — ${p.selection}${summary}`;
   });
   return [
-    "Analyze · live form",
+    "🔍 Analyze · live form",
     desk,
     "",
     ...lines,
     "",
-    `Scored ${ranked.length} legs. Strongest first.`,
+    `📊 Scored ${ranked.length} legs. Strongest first.`,
   ]
     .join("\n")
     .slice(0, 3900);
@@ -180,7 +187,7 @@ async function analyzeAndReply(chatId: number, picks: TicketPick[], code: string
     await tg("sendMessage", { chat_id: chatId, text: "No football or basketball legs to score." });
     return;
   }
-  await tg("sendMessage", { chat_id: chatId, text: "Reading live form. Odds ignored." });
+  await tg("sendMessage", { chat_id: chatId, text: "📡 Reading live form. Odds ignored." });
   const result = await scorePlayable(picks);
   await tg("sendMessage", {
     chat_id: chatId,
@@ -202,7 +209,7 @@ async function sureNAndReply(
   }
   await tg("sendMessage", {
     chat_id: chatId,
-    text: `Picking the ${n} strongest legs from live form.`,
+    text: `🧠 Picking the ${n} strongest legs from live form.`,
   });
   const result = await scorePlayable(picks);
   const top = keepTop(result.picks, n);
@@ -221,7 +228,7 @@ async function createSportSlip(chatId: number, sport: "football" | "basketball",
   const capNote = count > MAX_LEGS ? ` Max is ${MAX_LEGS} legs.` : "";
   await tg("sendMessage", {
     chat_id: chatId,
-    text: `Building a ${n}-leg ${sport} slip — not only 1X2. Mixing double chance, over/under, GG, and winners.${capNote}`,
+    text: `${sportIcon(sport)} Building a ${n}-leg ${sport} slip — not only 1X2. Mixing double chance, over/under, GG, and winners.${capNote}`,
   });
   const listed = await listUpcomingPicks(sport, n);
   if ("error" in listed) {
@@ -251,7 +258,7 @@ function parseSport(text: string): "football" | "basketball" | null {
 }
 
 async function mintKeepersAndReply(chatId: number, picks: TicketPick[]) {
-  await tg("sendMessage", { chat_id: chatId, text: "Trimming to the strongest half." });
+  await tg("sendMessage", { chat_id: chatId, text: "✂️ Trimming to the strongest half." });
   const result = await scorePlayable(picks);
   const count = Math.max(2, Math.ceil(result.picks.filter((p) => p.sport !== "other").length / 2));
   const strongest = keepTop(result.picks, count).filter((p) => p.sporty);
@@ -275,12 +282,12 @@ async function handleCode(chatId: number, code: string) {
   await tg("sendMessage", {
     chat_id: chatId,
     text: [
-      `${loaded.shareCode} · ${loaded.picks.length} legs · ${play.length} can be booked`,
+      `🎫 ${loaded.shareCode} · ${loaded.picks.length} legs · ${play.length} can be booked`,
       "",
       listPicks(loaded.picks),
       "",
-      "Trim · Split · Optimize · change markets in chat.",
-      "Examples: drop 3 8 · split 2 · change to over 2.5 · trim to 50x · combine NXPSTB",
+      "✂️ Trim  ·  ➗ Split  ·  🎯 Optimize  ·  ⚡ change markets in chat.",
+      "💬 drop 3 8 · split 2 · change to over 2.5 · trim to 50x · combine NXPSTB",
     ]
       .join("\n")
       .slice(0, 3900),
@@ -368,7 +375,7 @@ async function runTicketCommand(chatId: number, code: string, text: string): Pro
       await tg("sendMessage", { chat_id: chatId, text: "Nothing left to book after that drop." });
       return true;
     }
-    await mintAndReply(chatId, play, "ng", `Dropped ${drop.join(", ")} · ${play.length} legs`);
+    await mintAndReply(chatId, play, "ng", `🗑 Dropped ${drop.join(", ")} · ${play.length} legs`);
     return true;
   }
   const other = parseCombineCode(text);
@@ -385,18 +392,18 @@ async function runTicketCommand(chatId: number, code: string, text: string): Pro
       seen.add(id);
       return true;
     });
-    await mintAndReply(chatId, merged, "ng", `Combined ${loaded.shareCode} + ${extra.shareCode} · ${merged.length} legs`);
+    await mintAndReply(chatId, merged, "ng", `🔗 Combined ${loaded.shareCode} + ${extra.shareCode} · ${merged.length} legs`);
     return true;
   }
   const market = wantsMarketChange(text);
   if (market) {
-    await tg("sendMessage", { chat_id: chatId, text: `Changing markets on ${loaded.shareCode}.` });
+    await tg("sendMessage", { chat_id: chatId, text: `⚡ Changing markets on ${loaded.shareCode}.` });
     const next = playable(await retargetPicks(base, market));
     if (!next.length) {
       await tg("sendMessage", { chat_id: chatId, text: "Could not change those markets." });
       return true;
     }
-    await mintAndReply(chatId, next, "ng", `Changed markets · ${next.length} legs`);
+    await mintAndReply(chatId, next, "ng", `⚡ Changed markets · ${next.length} legs`);
     return true;
   }
   const cmd = parseCommand(text);
@@ -484,13 +491,13 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     }
     if (kind === "ch") {
       const target = parseMarketTarget(arg || "ou25") ?? "ou25";
-      await tg("sendMessage", { chat_id: chatId, text: `Changing markets on ${loaded.shareCode}.` });
+      await tg("sendMessage", { chat_id: chatId, text: `⚡ Changing markets on ${loaded.shareCode}.` });
       const next = playable(await retargetPicks(base, target));
-      await mintAndReply(chatId, next, "ng", `Changed markets · ${next.length} legs`);
+      await mintAndReply(chatId, next, "ng", `⚡ Changed markets · ${next.length} legs`);
       return;
     }
     if (kind === "m") {
-      await mintAndReply(chatId, base, "ng", `SportyBet code · ${base.length} legs`);
+      await mintAndReply(chatId, base, "ng", `🎫 SportyBet code · ${base.length} legs`);
       return;
     }
     if (kind === "s") {
@@ -524,8 +531,8 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   if (text === "/start" || text === "/help") {
     await tg("setMyCommands", {
       commands: [
-        { command: "start", description: "How to use SlipCut" },
-        { command: "help", description: "Edit, split, change markets" },
+        { command: "start", description: "👋 How to use SlipCut" },
+        { command: "help", description: "✂️ Edit, split, change markets" },
       ],
     });
     await tg("setMyDescription", {
@@ -538,18 +545,20 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     await tg("sendMessage", {
       chat_id: msg.chat.id,
       text: [
-        "SlipCut on Telegram.",
+        "✂️ SlipCut on Telegram",
         "",
-        "Send a SportyBet booking code, then:",
-        "drop 3 8",
-        "split 2",
-        "change to over 2.5",
-        "change to GG",
-        "trim to 50x",
-        "combine NXPSTB",
-        "12 legs",
+        "🎫 Send a SportyBet booking code, then:",
+        "🗑  drop 3 8",
+        "➗  split 2",
+        "⚡  change to over 2.5",
+        "🤝  change to GG",
+        "🎯  trim to 50x",
+        "🔗  combine NXPSTB",
+        "🔻  12 legs",
         "",
-        "Or build one: 12 legs football",
+        "⚽ Or build one: 12 legs football",
+        "🏀 Or: 12 legs basketball",
+        "",
         "Football and basketball only. Max 35 new legs.",
       ].join("\n"),
     });
@@ -612,7 +621,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   if (!code) {
     await tg("sendMessage", {
       chat_id: msg.chat.id,
-      text: "Send a SportyBet booking code, or ask: 12 legs football.",
+      text: "Send a SportyBet booking code, or ask: 12 legs football ⚽",
     });
     return;
   }
