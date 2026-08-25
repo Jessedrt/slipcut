@@ -8,7 +8,7 @@ import type { TicketPick } from "./types";
 
 const MAX_LEGS = 35;
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
-const KEEP_LINE = 45;
+const BANNER_URL = "https://slipcut.vercel.app/banner.jpg";
 
 function clampLegs(n: number, fallback: number) {
   if (!Number.isFinite(n)) return fallback;
@@ -579,11 +579,18 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     await tg("setMyShortDescription", {
       short_description: "Your SportyBet padé. Trim, study, book. We go yarn pidgin.",
     });
+    await tg("sendPhoto", {
+      chat_id: msg.chat.id,
+      photo: BANNER_URL,
+      caption: [
+        "<b>WELCOME TO SLIPCUT</b>",
+        "Omo! I dey here. Cut the slip, keep the sure games.",
+      ].join("\n"),
+      parse_mode: "HTML",
+    });
     await tg("sendMessage", {
       chat_id: msg.chat.id,
       text: [
-        "Omo! SlipCut dey here.",
-        "",
         "Send your SportyBet code, then you fit:",
         "🗑  drop 3 8",
         "➗  split 2",
