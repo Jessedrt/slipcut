@@ -19,7 +19,7 @@ export const PIDGIN_SLANG: Array<{ slang: string; meaning: string; use: string }
   { slang: "soccer", meaning: "football", use: "sport" },
   { slang: "hoop / basket", meaning: "basketball", use: "sport" },
   { slang: "legs", meaning: "selections on a slip", use: "ticket" },
-  { slang: "odds", meaning: "legs / selections", use: "ticket" },
+  { slang: "odds", meaning: "combined multiplier, e.g. 30odds ≈ 30×", use: "ticket" },
   { slang: "code", meaning: "SportyBet booking code", use: "ticket" },
   { slang: "slip / ticket", meaning: "accumulator", use: "ticket" },
   { slang: "cook / arrange / pack", meaning: "build a new slip", use: "create" },

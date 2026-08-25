@@ -330,7 +330,12 @@ const NOT_A_CODE = new Set([
   "STUDY",
   "CUT",
   "LOST",
-  "RESULTS",
+  "COOK",
+  "LIKE",
+  "BOLA",
+  "BOOK",
+  "COMBINE",
+  "WANT",
 ]);
 
 function looksLikeShareCode(token: string): boolean {
@@ -613,10 +618,16 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     await tg("sendMessage", { chat_id: msg.chat.id, text: chat.greet });
   } else {
     const talk = pidginSmallTalk(raw) || pidginSmallTalk(text);
-    if (talk && !codeFromText(text) && !parseLegCount(text) && !parseSport(text) && !wantsCreate(text)) {
+    if (talk && !codeFromText(text) && !parseLegCount(text) && !parseSport(text) && !wantsCreate(text) && !parseOddsTarget(text) && !parseOddsTarget(raw)) {
       await tg("sendMessage", { chat_id: msg.chat.id, text: talk });
       return;
     }
+  }
+  const oddsTarget = parseOddsTarget(text) ?? parseOddsTarget(raw) ?? parseOddsTarget(chat.rest || "");
+  const sportGuess = parseSport(text) ?? parseSport(raw);
+  if (oddsTarget && !looksLikeShareCode(raw)) {
+    await createOddsSlip(msg.chat.id, sportGuess ?? "football", oddsTarget);
+    return;
   }
   if (raw === "/study" || /^(study|results|cut|lost|it cut|this cut)\b/i.test(text)) {
     const studyCodeToken =
@@ -635,16 +646,12 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     await studyAndReply(msg.chat.id, studyCodeToken, picks);
     return;
   }
-  const oddsTarget = parseOddsTarget(text);
+  const oddsOnTicket = parseOddsTarget(text) ?? parseOddsTarget(raw);
   const legCount = parseLegCount(text);
-  const sport = parseSport(text);
+  const sport = parseSport(text) ?? parseSport(raw);
   const code = codeFromText(text) || codeFromText(msg.reply_to_message?.text);
   const isBareCode = Boolean(code && looksLikeShareCode(text));
-  if (oddsTarget && !code) {
-    await createOddsSlip(msg.chat.id, sport ?? "football", oddsTarget);
-    return;
-  }
-  if (oddsTarget && code) {
+  if (oddsOnTicket && code) {
     const loaded = await loadBookingCode(code, "ng");
     if ("error" in loaded) {
       await tg("sendMessage", { chat_id: msg.chat.id, text: loaded.error });
@@ -660,12 +667,12 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       risks: [] as string[],
       verdict: "keep" as const,
     }));
-    const trimmed = trimToOdds(scored, clampOddsTarget(oddsTarget));
+    const trimmed = trimToOdds(scored, clampOddsTarget(oddsOnTicket));
     await mintAndReply(
       msg.chat.id,
       trimmed,
       "ng",
-      `Trimmed to about ${formatOdds(clampOddsTarget(oddsTarget))} · ${trimmed.length} legs`,
+      `Trimmed to about ${formatOdds(clampOddsTarget(oddsOnTicket))} · ${trimmed.length} legs`,
     );
     return;
   }
