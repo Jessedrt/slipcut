@@ -220,7 +220,8 @@ function buildLesson(legs: StudiedLeg[]): string {
   const worstFam = Object.entries(famCount).sort((a, b) => b[1] - a[1])[0];
   const worstLg = Object.entries(leagueCount).sort((a, b) => b[1] - a[1])[0];
   const famLabel: Record<string, string> = {
-    ou: "over/under",
+    hcp: "handicap",
+    ou1h: "1st half over/under",
     gg: "GG",
     dc: "double chance",
     dnb: "draw no bet",
