@@ -1,5 +1,5 @@
 import { defineHandler } from "nitro";
-import { sendScheduledLongshot } from "../../../../src/lib/telegram";
+import { runDeskCron } from "../../../../src/lib/telegram";
 
 export default defineHandler(async (event) => {
   const auth = event.req.headers.get("authorization") ?? "";
@@ -7,6 +7,5 @@ export default defineHandler(async (event) => {
   const secret = process.env.CRON_SECRET;
   const ok = Boolean(cron) || (secret && auth === `Bearer ${secret}`);
   if (!ok) return new Response("forbidden", { status: 403 });
-  const result = await sendScheduledLongshot();
-  return result;
+  return runDeskCron();
 });

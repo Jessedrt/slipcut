@@ -448,7 +448,7 @@ function pickFromEvent(cands: TicketPick[], used: Record<string, number>): Ticke
   return pick ?? null;
 }
 
-export type CookWindow = "soon" | "week" | "fortnight" | "weekend";
+export type CookWindow = "soon" | "today" | "week" | "fortnight" | "weekend";
 
 function watDay(ms: number) {
   const d = new Date(ms + 3_600_000);
@@ -458,6 +458,7 @@ function watDay(ms: number) {
 function inCookWindow(ts: number, window: CookWindow, now: number) {
   if (ts < now - 60_000) return false;
   if (window === "soon") return true;
+  if (window === "today") return watDay(ts).key === watDay(now).key;
   if (window === "week") return ts <= now + 7 * 86_400_000;
   if (window === "fortnight") return ts <= now + 14 * 86_400_000;
   const { dow } = watDay(ts);
@@ -465,7 +466,7 @@ function inCookWindow(ts: number, window: CookWindow, now: number) {
 }
 
 function spreadByDay<T extends { estimateStartTime?: number }>(events: T[], window: CookWindow): T[] {
-  if (window === "soon" || events.length < 3) return events;
+  if (window === "soon" || window === "today" || events.length < 3) return events;
   const buckets = new Map<string, T[]>();
   for (const e of events) {
     const key = watDay(e.estimateStartTime ?? 0).key;
@@ -490,6 +491,7 @@ function spreadByDay<T extends { estimateStartTime?: number }>(events: T[], wind
 }
 
 export function windowLabel(window: CookWindow) {
+  if (window === "today") return "today";
   if (window === "week") return "1 week";
   if (window === "fortnight") return "2 weeks";
   if (window === "weekend") return "weekends";

@@ -3,11 +3,51 @@ import { analyzePicks } from "./analyze";
 import { extractShareCode } from "./parse-ticket";
 import { normalizePidgin, pidginSmallTalk, slangHelp, splitChat, wantsCreate } from "./pidgin";
 import { getEventDetail, eventScore, loadBookingCode, listUpcomingPicks, mintShare, parseMarketTarget, retargetPicks, sportyOf, windowLabel, type CookWindow } from "./sportybet";
-import { addBlock, applyLessonScores, blockedBy, formatBook, formatStudy, improvePicks, latestCode, latestUnstudiedCode, listBlocks, listChats, loadOddsBand, recordSlip, rememberChat, removeBlock, saveOddsBand, studyCode } from "./study";
+import { addAllow, addBlock, allowedBy, applyLessonScores, blockedBy, clearAllows, formatBankroll, formatBook, formatRecap, formatStudy, getSetting, improvePicks, latestCode, latestUnstudiedCode, listAllows, listBlocks, listChats, loadOddsBand, loadOpenSlips, pingSent, recordSlip, recordStake, rememberChat, removeBlock, saveOddsBand, setSetting, studyCode } from "./study";
 import { buildToOdds, combinedOdds, copyRebuild, formatKickoff, formatOdds, keepTop, parseCommand, splitEven, trimToOdds, uniqueEvents } from "./workbench";
 import type { BookSport, TicketPick } from "./types";
 
 const MAX_LEGS = 35;
+const MENU = [
+  { command: "today", description: "Today's football" },
+  { command: "weekend", description: "Weekend slip" },
+  { command: "mix", description: "Mix all sports" },
+  { command: "book", description: "Slips and bankroll" },
+  { command: "ping", description: "Kickoff alerts on/off" },
+  { command: "recap", description: "This week's results" },
+  { command: "filter", description: "only EPL / NBA / ATP" },
+  { command: "help", description: "How to talk to me" },
+];
+
+let menuReady = false;
+
+async function ensureMenu() {
+  if (menuReady) return;
+  menuReady = true;
+  await tg("setMyCommands", { commands: MENU });
+}
+
+function isCmd(raw: string, name: string) {
+  return new RegExp(`^/${name}(?:@\\w+)?(?:\\s|$)`, "i").test(raw.trim());
+}
+
+function cmdArg(raw: string) {
+  return raw.trim().replace(/^\/\w+(?:@\w+)?\s*/i, "").trim();
+}
+
+function normalizeFilter(raw: string): string | "clear" | null {
+  const t = raw.trim().toLowerCase();
+  if (!t) return null;
+  if (/^(clear|off|any|all)$/.test(t)) return "clear";
+  if (/epl|premier/.test(t)) return "premier league";
+  if (/la ?liga/.test(t)) return "laliga";
+  if (/serie/.test(t)) return "serie a";
+  if (/\bnba\b/.test(t)) return "nba";
+  if (/\bwta\b/.test(t)) return "wta";
+  if (/atp|us open|grand slam/.test(t)) return "atp";
+  if (t.length >= 3) return t;
+  return null;
+}
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
 const BANNER_URL = "https://slipcut.vercel.app/banner.jpg";
 const KEEP_LINE = 45;
@@ -79,8 +119,8 @@ function applyBand<T extends { odds?: number }>(picks: T[], band: OddsBand | nul
 }
 
 async function cookPool<T extends TicketPick>(picks: T[], band: OddsBand | null): Promise<T[]> {
-  const blocks = await listBlocks();
-  return applyBand(blockedBy(picks, blocks), band);
+  const [blocks, allows] = await Promise.all([listBlocks(), listAllows()]);
+  return applyBand(allowedBy(blockedBy(picks, blocks), allows), band);
 }
 
 async function resolveBand(text: string): Promise<OddsBand | null> {
@@ -108,6 +148,7 @@ async function stakeAndReply(chatId: number, code: string, stake: number) {
     return;
   }
   const ret = stake * combo;
+  await recordStake(code, stake, combo);
   await tg("sendMessage", {
     chat_id: chatId,
     text: [
@@ -454,9 +495,10 @@ export async function sendScheduledLongshot() {
   if (!chats.length) return { sent: 0 };
   const wat = new Date(Date.now() + 3_600_000);
   const dow = wat.getUTCDay();
-  if (dow !== 1 && dow !== 5) return { sent: 0, skip: true as const };
+  const utcHour = new Date().getUTCHours();
+  if ((dow !== 1 && dow !== 5) || utcHour !== 7) return { sent: 0, skip: true as const };
   const window: CookWindow = dow === 5 ? "weekend" : "week";
-  const label = dow === 5 ? "Friday longshot — weekend games." : "Monday longshot — the week.";
+  const label = dow === 5 ? "Weekend slip." : "Week slip.";
   for (const id of chats) {
     const chatId = Number(id);
     if (!Number.isFinite(chatId)) continue;
@@ -466,7 +508,55 @@ export async function sendScheduledLongshot() {
   return { sent: chats.length };
 }
 
+async function sendKickoffPings() {
+  if ((await getSetting("ping")) !== "1") return { sent: 0, off: true as const };
+  const chats = await listChats();
+  if (!chats.length) return { sent: 0 };
+  const now = Date.now();
+  const slips = await loadOpenSlips();
+  let sent = 0;
+  for (const slip of slips) {
+    const soon = slip.picks.filter(
+      (p) => p.kickoff && p.kickoff > now + 2 * 60_000 && p.kickoff < now + 50 * 60_000,
+    );
+    if (!soon.length) continue;
+    if (await pingSent(slip.code)) continue;
+    const lines = soon
+      .slice(0, 6)
+      .map((p) => `${p.home} vs ${p.away}  ·  ${formatKickoff(p.kickoff)}`);
+    const text = [`Kickoff soon`, slip.code, "", ...lines].join("\n");
+    for (const id of chats) {
+      const chatId = Number(id);
+      if (!Number.isFinite(chatId)) continue;
+      await tg("sendMessage", { chat_id: chatId, text });
+      sent += 1;
+    }
+  }
+  return { sent };
+}
+
+async function maybeSundayRecap() {
+  const wat = new Date(Date.now() + 3_600_000);
+  if (wat.getUTCDay() !== 0 || new Date().getUTCHours() !== 7) return { sent: 0, skip: true as const };
+  const chats = await listChats();
+  const text = await formatRecap();
+  for (const id of chats) {
+    const chatId = Number(id);
+    if (!Number.isFinite(chatId)) continue;
+    await tg("sendMessage", { chat_id: chatId, text });
+  }
+  return { sent: chats.length };
+}
+
+export async function runDeskCron() {
+  const ping = await sendKickoffPings();
+  const longshot = await sendScheduledLongshot();
+  const recap = await maybeSundayRecap();
+  return { ping, longshot, recap };
+}
+
 function parseCookWindow(text: string): CookWindow {
+  if (/\btoday\b/i.test(text)) return "today";
   if (/weekends?|\bsat(?:urday)?s?\b|\bsun(?:day)?s?\b/i.test(text)) return "weekend";
   if (/2\s*weeks?|two weeks|fortnight/i.test(text)) return "fortnight";
   if (/long\s*shots?|longshot|1\s*week|one week|this week/i.test(text)) return "week";
@@ -576,7 +666,12 @@ const NOT_A_CODE = new Set([
   "WEEK",
   "WEEKS",
   "STAKE",
+  "TODAY",
+  "WEEKEND",
   "MIX",
+  "FILTER",
+  "PING",
+  "RECAP",
   "SCORE",
   "LIVE",
   "BLOCK",
@@ -743,6 +838,7 @@ function parseLegCount(text: string): number | null {
 
 export async function handleTelegramUpdate(update: TgUpdate) {
   if (!TOKEN()) return;
+  await ensureMenu();
 
   if (update.callback_query) {
     const cq = update.callback_query;
@@ -841,14 +937,8 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   if (!msg?.text || !msg.chat) return;
   await rememberChat(msg.chat.id);
   const raw = msg.text.trim();
-  if (raw === "/start") {
-    await tg("setMyCommands", {
-      commands: [
-        { command: "start", description: "Welcome" },
-        { command: "help", description: "How to talk to me" },
-        { command: "book", description: "Your slips" },
-      ],
-    });
+  if (raw === "/start" || isCmd(raw, "start")) {
+    await ensureMenu();
     await tg("setMyDescription", {
       description: "SportyBet desk. Send a code, or say what to cook.",
     });
@@ -864,21 +954,21 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     });
     return;
   }
-  if (raw === "/help") {
+  if (isCmd(raw, "help")) {
     await tg("sendMessage", {
       chat_id: msg.chat.id,
       parse_mode: "HTML",
       text: [
-        "<b>SlipCut</b>",
+        "Menu:",
+        "/today  ·  /weekend  ·  /mix",
+        "/book  ·  /ping  ·  /recap  ·  /filter",
         "",
-        "Send a code, then say trim / study / stake 2000.",
+        "Or send a code, then trim / study / stake 2000.",
         "",
         "<code>10 odds football</code>",
         "<code>12 games tennis</code>",
-        "<code>cook 20 odds mix</code>",
-        "<code>weekend</code>",
-        "<code>no Palace</code>",
-        "<code>score</code>",
+        "<code>only EPL</code>",
+        "<code>today 8 games basketball</code>",
       ].join("\n"),
     });
     return;
@@ -887,8 +977,55 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     await tg("sendMessage", { chat_id: msg.chat.id, text: slangHelp() });
     return;
   }
-  if (raw === "/book" || /^(my book|my slips|book)\s*$/i.test(raw)) {
+  if (isCmd(raw, "today")) {
+    await createSportSlip(msg.chat.id, parseSport(cmdArg(raw)) ?? "football", 10, "today");
+    return;
+  }
+  if (isCmd(raw, "weekend")) {
+    await createSportSlip(msg.chat.id, parseSport(cmdArg(raw)) ?? "football", 12, "weekend");
+    return;
+  }
+  if (isCmd(raw, "mix")) {
+    await createMixSlip(msg.chat.id, { games: 12 });
+    return;
+  }
+  if (isCmd(raw, "book") || /^(my book|my slips|book|bankroll)\s*$/i.test(raw)) {
     await tg("sendMessage", { chat_id: msg.chat.id, text: await formatBook() });
+    return;
+  }
+  if (isCmd(raw, "ping")) {
+    const on = (await getSetting("ping")) === "1";
+    await setSetting("ping", on ? "0" : "1");
+    await tg("sendMessage", {
+      chat_id: msg.chat.id,
+      text: on ? "Kickoff alerts off." : "Kickoff alerts on. I go yarn you ~30 min before.",
+    });
+    return;
+  }
+  if (isCmd(raw, "recap")) {
+    await tg("sendMessage", { chat_id: msg.chat.id, text: await formatRecap() });
+    return;
+  }
+  if (isCmd(raw, "filter")) {
+    const arg = cmdArg(raw);
+    const hit = normalizeFilter(arg);
+    if (hit === "clear") {
+      await clearAllows();
+      await tg("sendMessage", { chat_id: msg.chat.id, text: "Filter off. All leagues." });
+      return;
+    }
+    if (hit) {
+      await addAllow(hit);
+      await tg("sendMessage", { chat_id: msg.chat.id, text: `Only “${hit}” from now.` });
+      return;
+    }
+    const rows = await listAllows();
+    await tg("sendMessage", {
+      chat_id: msg.chat.id,
+      text: rows.length
+        ? `Filter: ${rows.join(", ")}\nSay /filter EPL or /filter clear`
+        : "No filter. Try /filter EPL",
+    });
     return;
   }
   const block = parseBlock(normalizePidgin(raw));
@@ -909,6 +1046,20 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     await removeBlock(block.remove);
     await tg("sendMessage", { chat_id: msg.chat.id, text: `I don allow “${block.remove}” again.` });
     return;
+  }
+  const onlyM = raw.match(/^only\s+(.+)$/i);
+  if (onlyM?.[1]) {
+    const hit = normalizeFilter(onlyM[1]);
+    if (hit === "clear") {
+      await clearAllows();
+      await tg("sendMessage", { chat_id: msg.chat.id, text: "Filter off. All leagues." });
+      return;
+    }
+    if (hit) {
+      await addAllow(hit);
+      await tg("sendMessage", { chat_id: msg.chat.id, text: `Only “${hit}” from now.` });
+      return;
+    }
   }
   const chat = splitChat(raw);
   if (chat.greet && !chat.rest) {

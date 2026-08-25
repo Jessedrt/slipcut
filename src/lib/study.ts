@@ -37,6 +37,7 @@ type StoredPick = {
   sport: string;
   eventId?: string;
   family: string;
+  kickoff?: number;
 };
 
 function compactPicks(picks: TicketPick[]): StoredPick[] {
@@ -49,6 +50,7 @@ function compactPicks(picks: TicketPick[]): StoredPick[] {
     sport: p.sport,
     eventId: p.sporty?.eventId,
     family: marketFamily(p.sporty?.marketId, p.market),
+    kickoff: p.kickoff,
   }));
 }
 
@@ -256,6 +258,11 @@ async function saveLessons(code: string, legs: StudiedLeg[]) {
     const lost = legs.filter((l) => l.result === "lost").length;
     const hit = lost === 0 && won > 0 ? 1 : 0;
     await sql`update study_slips set studied = 1, hit = ${hit}, lost = ${lost}, won = ${won} where code = ${code}`;
+    await sql`
+      update desk_ledger
+      set returned = case when ${hit} = 1 then stake * coalesce(combo, 1) else 0 end
+      where code = ${code} and returned is null
+    `;
   } catch {
     /* ignore */
   }
@@ -447,6 +454,164 @@ export function blockedBy<T extends TicketPick>(picks: T[], blocks: string[]): T
   });
 }
 
+export function allowedBy<T extends TicketPick>(picks: T[], allows: string[]): T[] {
+  if (!allows.length) return picks;
+  return picks.filter((p) => {
+    const hay = `${p.home} ${p.away} ${p.league ?? ""}`.toLowerCase();
+    return allows.some((a) => hay.includes(a));
+  });
+}
+
+export async function addAllow(value: string) {
+  const v = value.trim().toLowerCase();
+  if (v.length < 3) return;
+  try {
+    const sql = await getSql();
+    await sql`insert into desk_allows (value) values (${v}) on conflict (value) do nothing`;
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function clearAllows() {
+  try {
+    const sql = await getSql();
+    await sql`delete from desk_allows`;
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function listAllows(): Promise<string[]> {
+  try {
+    const sql = await getSql();
+    const rows = await sql<{ value: string }>`select value from desk_allows order by value`;
+    return rows.map((r) => r.value);
+  } catch {
+    return [];
+  }
+}
+
+export async function setSetting(key: string, value: string) {
+  try {
+    const sql = await getSql();
+    await sql`
+      insert into desk_settings (key, value) values (${key}, ${value})
+      on conflict (key) do update set value = excluded.value
+    `;
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function getSetting(key: string): Promise<string | null> {
+  try {
+    const sql = await getSql();
+    const rows = await sql<{ value: string }>`select value from desk_settings where key = ${key} limit 1`;
+    return rows[0]?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function recordStake(code: string, stake: number, combo: number) {
+  try {
+    const sql = await getSql();
+    await sql`
+      insert into desk_ledger (code, stake, combo)
+      values (${code}, ${stake}, ${combo})
+    `;
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function formatBankroll(): Promise<string> {
+  try {
+    const sql = await getSql();
+    const rows = await sql<{ stake: number; combo: number | null; returned: number | null }>`
+      select stake, combo, returned from desk_ledger order by created_at desc limit 40
+    `;
+    if (!rows.length) return "No stakes yet. Say: stake 2000";
+    const inAmt = rows.reduce((s, r) => s + Number(r.stake || 0), 0);
+    const settled = rows.filter((r) => r.returned != null);
+    const outAmt = settled.reduce((s, r) => s + Number(r.returned || 0), 0);
+    const open = rows.length - settled.length;
+    const pl = outAmt - settled.reduce((s, r) => s + Number(r.stake || 0), 0);
+    const naira = (n: number) => `₦${Math.round(n).toLocaleString("en-NG")}`;
+    return [
+      `Staked ${naira(inAmt)}`,
+      `Returned ${naira(outAmt)}`,
+      settled.length ? `P/L ${naira(pl)} on settled` : "Nothing settled yet",
+      open ? `${open} still open` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  } catch {
+    return "Bankroll empty.";
+  }
+}
+
+export type OpenSlip = { code: string; picks: StoredPick[] };
+
+export async function loadOpenSlips(): Promise<OpenSlip[]> {
+  try {
+    const sql = await getSql();
+    const rows = await sql<{ code: string; picks_json: string }>`
+      select code, picks_json from study_slips where studied = 0 order by created_at desc limit 20
+    `;
+    return rows.map((r) => ({
+      code: r.code,
+      picks: JSON.parse(r.picks_json) as StoredPick[],
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function pingSent(code: string): Promise<boolean> {
+  try {
+    const sql = await getSql();
+    const rows = await sql<{ code: string }>`select code from desk_pings where code = ${code} limit 1`;
+    if (rows[0]) return true;
+    await sql`insert into desk_pings (code) values (${code}) on conflict (code) do nothing`;
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+export async function formatRecap(): Promise<string> {
+  try {
+    const sql = await getSql();
+    const rows = await sql<{
+      code: string;
+      studied: number;
+      hit: number | null;
+      lost: number | null;
+      won: number | null;
+    }>`
+      select code, studied, hit, lost, won
+      from study_slips
+      where created_at > now() - interval '7 days'
+      order by created_at desc
+      limit 20
+    `;
+    const money = await formatBankroll();
+    if (!rows.length) return `This week empty.\n\n${money}`;
+    const finished = rows.filter((r) => r.studied);
+    const hits = finished.filter((r) => r.hit === 1).length;
+    const cuts = finished.filter((r) => r.hit === 0).length;
+    const lines = rows.slice(0, 10).map((r) => {
+      const tag = !r.studied ? "open" : r.hit === 1 ? "HIT" : "CUT";
+      return `${r.code}  ·  ${tag}`;
+    });
+    return ["This week", `HIT ${hits}  ·  CUT ${cuts}  ·  ${rows.length - finished.length} open`, "", ...lines, "", money].join("\n");
+  } catch {
+    return "No recap yet.";
+  }
+}
+
 export async function formatBook(): Promise<string> {
   try {
     const sql = await getSql();
@@ -485,7 +650,7 @@ export async function formatBook(): Promise<string> {
     };
     const lines = rows.map((r, i) => {
       const tag =
-        !r.studied ? "⏳ still dey" : r.hit === 1 ? "✅ HIT" : "📉 CUT";
+        !r.studied ? "open" : r.hit === 1 ? "HIT" : "CUT";
       const score =
         r.studied && r.won != null && r.lost != null ? ` · ${r.won}-${r.lost}` : "";
       return `${i + 1}. ${r.code} · ${tag}${score}`;
@@ -493,12 +658,15 @@ export async function formatBook(): Promise<string> {
     const cutNote = worst.length
       ? `Markets wey dey cut you: ${worst.map((w) => `${famLabel[w.family] ?? w.family} (${w.n})`).join(", ")}`
       : "";
+    const money = await formatBankroll();
     return [
-      "📓 Your book",
-      `HIT ${hits} · CUT ${cuts} · still dey ${pending}  (last ${rows.length})`,
+      "Your book",
+      `HIT ${hits} · CUT ${cuts} · still dey ${pending}`,
       "",
       ...lines,
       cutNote ? `\n${cutNote}` : "",
+      "",
+      money,
     ]
       .filter((l, i, arr) => l !== "" || arr[i - 1] !== "")
       .join("\n");
