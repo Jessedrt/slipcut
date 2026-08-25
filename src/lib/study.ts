@@ -634,35 +634,6 @@ export async function formatBankroll(): Promise<string> {
   }
 }
 
-export type OpenSlip = { code: string; picks: StoredPick[] };
-
-export async function loadOpenSlips(): Promise<OpenSlip[]> {
-  try {
-    const sql = await getSql();
-    const rows = await sql<{ code: string; picks_json: string }>`
-      select code, picks_json from study_slips where studied = 0 order by created_at desc limit 20
-    `;
-    return rows.map((r) => ({
-      code: r.code,
-      picks: JSON.parse(r.picks_json) as StoredPick[],
-    }));
-  } catch {
-    return [];
-  }
-}
-
-export async function pingSent(code: string): Promise<boolean> {
-  try {
-    const sql = await getSql();
-    const rows = await sql<{ code: string }>`select code from desk_pings where code = ${code} limit 1`;
-    if (rows[0]) return true;
-    await sql`insert into desk_pings (code) values (${code}) on conflict (code) do nothing`;
-    return false;
-  } catch {
-    return true;
-  }
-}
-
 export async function formatRecap(): Promise<string> {
   try {
     const sql = await getSql();

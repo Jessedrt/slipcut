@@ -3,7 +3,7 @@ import { analyzePicks } from "./analyze";
 import { extractShareCode } from "./parse-ticket";
 import { normalizePidgin, pidginSmallTalk, slangHelp, splitChat, wantsCreate } from "./pidgin";
 import { getEventDetail, eventScore, loadBookingCode, listUpcomingPicks, mintShare, parseMarketTarget, retargetPicks, sportyOf, windowLabel, type CookWindow } from "./sportybet";
-import { addAllow, addBlock, allowedBy, applyLessonScores, accessLocked, blockedBy, clearAllows, formatBankroll, formatBook, formatRecap, formatStudy, getSetting, grantAccess, hasAccess, improvePicks, isOwner, latestCode, latestUnstudiedCode, listAccess, listAllows, listBlocks, listChats, loadOddsBand, loadOpenSlips, lockDesk, pingSent, recordSlip, recordStake, rememberChat, removeBlock, revokeAccess, saveOddsBand, setSetting, studyCode, unlockDesk } from "./study";
+import { addAllow, addBlock, allowedBy, applyLessonScores, accessLocked, blockedBy, clearAllows, formatBankroll, formatBook, formatRecap, formatStudy, getSetting, grantAccess, hasAccess, improvePicks, isOwner, latestCode, latestUnstudiedCode, listAccess, listAllows, listBlocks, listChats, loadOddsBand, lockDesk, recordSlip, recordStake, rememberChat, removeBlock, revokeAccess, saveOddsBand, setSetting, studyCode, unlockDesk } from "./study";
 import { buildToOdds, combinedOdds, copyRebuild, formatKickoff, formatOdds, keepTop, parseCommand, splitEven, trimToOdds, uniqueEvents } from "./workbench";
 import type { BookSport, TicketPick } from "./types";
 
@@ -14,7 +14,6 @@ const MENU = [
   { command: "weekend", description: "Weekend slip" },
   { command: "mix", description: "Mix all sports" },
   { command: "book", description: "Slips and bankroll" },
-  { command: "ping", description: "Kickoff alerts" },
   { command: "recap", description: "This week" },
   { command: "filter", description: "only EPL NBA ATP" },
   { command: "help", description: "How to talk to me" },
@@ -225,8 +224,7 @@ function deskKeyboard() {
   return {
     keyboard: [
       [{ text: "Today" }, { text: "Weekend" }, { text: "Mix" }],
-      [{ text: "Book" }, { text: "Recap" }, { text: "Ping" }],
-      [{ text: "Filter" }, { text: "Help" }],
+      [{ text: "Book" }, { text: "Recap" }, { text: "Help" }],
     ],
     resize_keyboard: true,
     is_persistent: true,
@@ -517,33 +515,6 @@ export async function sendScheduledLongshot() {
   return { sent: chats.length };
 }
 
-async function sendKickoffPings() {
-  if ((await getSetting("ping")) !== "1") return { sent: 0, off: true as const };
-  const chats = await listChats();
-  if (!chats.length) return { sent: 0 };
-  const now = Date.now();
-  const slips = await loadOpenSlips();
-  let sent = 0;
-  for (const slip of slips) {
-    const soon = slip.picks.filter(
-      (p) => p.kickoff && p.kickoff > now + 2 * 60_000 && p.kickoff < now + 50 * 60_000,
-    );
-    if (!soon.length) continue;
-    if (await pingSent(slip.code)) continue;
-    const lines = soon
-      .slice(0, 6)
-      .map((p) => `${p.home} vs ${p.away}  ·  ${formatKickoff(p.kickoff)}`);
-    const text = [`Kickoff soon`, slip.code, "", ...lines].join("\n");
-    for (const id of chats) {
-      const chatId = Number(id);
-      if (!Number.isFinite(chatId)) continue;
-      await tg("sendMessage", { chat_id: chatId, text });
-      sent += 1;
-    }
-  }
-  return { sent };
-}
-
 async function maybeSundayRecap() {
   const wat = new Date(Date.now() + 3_600_000);
   if (wat.getUTCDay() !== 0 || new Date().getUTCHours() !== 7) return { sent: 0, skip: true as const };
@@ -558,10 +529,9 @@ async function maybeSundayRecap() {
 }
 
 export async function runDeskCron() {
-  const ping = await sendKickoffPings();
   const longshot = await sendScheduledLongshot();
   const recap = await maybeSundayRecap();
-  return { ping, longshot, recap };
+  return { longshot, recap };
 }
 
 function parseCookWindow(text: string): CookWindow {
@@ -1089,15 +1059,6 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   }
   if (isCmd(raw, "book") || /^(my book|my slips|book|bankroll)\s*$/i.test(raw)) {
     await tg("sendMessage", { chat_id: msg.chat.id, text: await formatBook() });
-    return;
-  }
-  if (isCmd(raw, "ping")) {
-    const on = (await getSetting("ping")) === "1";
-    await setSetting("ping", on ? "0" : "1");
-    await tg("sendMessage", {
-      chat_id: msg.chat.id,
-      text: on ? "Kickoff alerts off." : "Kickoff alerts on. I go yarn you ~30 min before.",
-    });
     return;
   }
   if (isCmd(raw, "recap")) {
