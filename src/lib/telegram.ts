@@ -419,27 +419,16 @@ async function mintAndReply(chatId: number, picks: TicketPick[], country: string
     return;
   }
   const code = minted.shareCode;
-  const combo = combinedOdds(work);
-  const body = [
-    `<code>${esc(code)}</code>`,
-    `${work.length} games${combo ? `  ·  ${formatOdds(combo)}` : ""}`,
-    unique.dropped ? `dropped ${unique.dropped} same match` : "",
-    "",
-    copyRebuild(work),
-    minted.unavailable ? `\n${minted.unavailable} unavailable` : "",
-  ]
-    .filter((l, i, arr) => l !== "" || arr[i - 1] !== "")
-    .join("\n")
-    .slice(0, 3900);
   await tg("sendMessage", {
     chat_id: chatId,
-    text: body,
+    text: `<code>${esc(code)}</code>`,
     parse_mode: "HTML",
     reply_markup: {
       inline_keyboard: [
         [
           { text: "Copy", copy_text: { text: code } },
           { text: "Open", url: minted.shareURL },
+          { text: "Trim", callback_data: `g:${code}` },
         ],
       ],
     },
@@ -476,10 +465,7 @@ async function sureNAndReply(
     await tg("sendMessage", { chat_id: chatId, text: `I no fit pick ${n} sure games from that ticket.` });
     return;
   }
-  const note = top
-    .map((p) => `${p.probability}% ${p.home} vs ${p.away} — ${p.selection}`)
-    .join("\n");
-  await mintAndReply(chatId, top, "ng", title || `${top.length} games\n${note}`);
+  await mintAndReply(chatId, top, "ng", title || `${top.length} games`);
 }
 
 async function createSportSlip(
@@ -852,14 +838,7 @@ async function handleCode(chatId: number, code: string) {
   await tg("sendMessage", {
     chat_id: chatId,
     parse_mode: "HTML",
-    text: [
-      `<code>${esc(loaded.shareCode)}</code>`,
-      `${loaded.picks.length} games`,
-      "",
-      listPicks(loaded.picks),
-    ]
-      .join("\n")
-      .slice(0, 3900),
+    text: `<code>${esc(loaded.shareCode)}</code>`,
     reply_markup: keyboard(loaded.shareCode),
   });
   await recordSlip(loaded.shareCode, play);
