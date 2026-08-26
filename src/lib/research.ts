@@ -28,6 +28,7 @@ export function deskScore(pick: TicketPick): number {
   const fam = marketFamily(pick.sporty?.marketId, pick.market);
   const sel = `${pick.selection} ${pick.market}`.toLowerCase();
   if (pick.sport === "football") {
+    if (/\bunder\b/.test(sel)) s -= 40;
     if (fam === "ou" && /1\.5/.test(sel)) s += 8;
     if (fam === "ou" && /2\.5/.test(sel)) s += 3;
     if (fam === "dc" || fam === "dnb") s += 7;
