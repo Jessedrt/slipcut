@@ -342,7 +342,6 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
   const picks: TicketPick[] = [];
   for (const market of want) {
     for (const outcome of openOutcomes(market)) {
-      if (market.id === "18" && selectionBias(outcome.desc ?? "") === "under") continue;
       const pick = toPick(ev, "football", market, outcome);
       if (pick && inBookWindow(pick.odds)) picks.push(pick);
     }
@@ -434,19 +433,16 @@ function tennisCandidates(ev: EventDetail): TicketPick[] {
 }
 
 function pickFromEvent(cands: TicketPick[], used: Record<string, number>): TicketPick | null {
-  const pool0 = cands.filter(
-    (p) => !(p.sport === "football" && /\bunder\b/i.test(`${p.selection} ${p.market}`)),
-  );
-  if (!pool0.length) return null;
-  const families = [...new Set(pool0.map((p) => marketFamily(p.sporty?.marketId, p.market)))];
+  if (!cands.length) return null;
+  const families = [...new Set(cands.map((p) => marketFamily(p.sporty?.marketId, p.market)))];
   families.sort(
     (a, b) =>
       (used[a] ?? 0) - (used[b] ?? 0) || Number(a === "win") - Number(b === "win"),
   );
   const family = families[0];
   const pool = family
-    ? pool0.filter((p) => marketFamily(p.sporty?.marketId, p.market) === family)
-    : pool0;
+    ? cands.filter((p) => marketFamily(p.sporty?.marketId, p.market) === family)
+    : cands;
   const pick = pool.slice().sort((a, b) => implied(b.odds) - implied(a.odds))[0];
   if (pick && family) used[family] = (used[family] ?? 0) + 1;
   return pick ?? null;
