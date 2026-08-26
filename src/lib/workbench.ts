@@ -123,8 +123,11 @@ export function parseCommand(raw: string): DeskCommand {
   const split = t.match(/split(?:\s+into)?\s+(\d+)/);
   if (split) return { type: "split", parts: Number(split[1]) };
 
-  const trim = t.match(/trim(?:\s+to)?\s+(\d+(?:\.\d+)?)\s*[x×k]?/);
-  if (trim) return { type: "trim", targetOdds: Number(trim[1]) };
+  const trimOdds = t.match(/trim(?:\s+to)?\s+(\d+(?:\.\d+)?)\s*(?:odds|[x×])/);
+  if (trimOdds) return { type: "trim", targetOdds: Number(trimOdds[1]) };
+
+  const trimGames = t.match(/trim(?:\s+to)?\s+(\d+)\s*(?:games?|legs?)?/);
+  if (trimGames) return { type: "keepLegs", count: Number(trimGames[1]) };
 
   const keep = t.match(/keep\s+(\d+)\s*(?:legs?|picks?|games?)?/);
   if (keep && !/football|basket/.test(t)) return { type: "keepLegs", count: Number(keep[1]) };

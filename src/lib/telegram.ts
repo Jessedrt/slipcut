@@ -358,7 +358,7 @@ function keyboard(code: string) {
     inline_keyboard: [
       [
         { text: "Trim", callback_data: `g:${code}` },
-        { text: "Book", callback_data: `m:${code}` },
+        { text: "Copy", copy_text: { text: code } },
       ],
     ],
   };
@@ -785,20 +785,32 @@ function parseSport(text: string): BookSport | null {
   return null;
 }
 
-async function mintKeepersAndReply(chatId: number, picks: TicketPick[]) {
+async function mintKeepersAndReply(chatId: number, picks: TicketPick[], count?: number) {
   await tg("sendMessage", { chat_id: chatId, text: "Trimming…" });
   const result = await scorePlayable(picks);
   const counted = result.picks.filter((p) => p.sport !== "other");
-  const count = Math.max(2, Math.ceil(counted.length / 2));
-  const strongest = keepTop(await applyLessonScores(result.picks), count).filter((p) => p.sporty);
+  const n = clampLegs(count ?? Math.max(2, Math.ceil(counted.length / 2)), 2);
+  const strongest = keepTop(await applyLessonScores(result.picks), n).filter((p) => p.sporty);
   if (!strongest.length) {
     await tg("sendMessage", {
       chat_id: chatId,
-      text: "Nothing remain to book after I drop those ones.",
+      text: "Nothing remain after I drop those ones.",
     });
     return;
   }
-  await mintAndReply(chatId, strongest, "ng", `Strongest ${strongest.length} games`);
+  await mintAndReply(chatId, strongest, "ng", `Trimmed to ${strongest.length} games`);
+}
+
+async function askTrimCount(chatId: number, code: string, max: number) {
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: `Trim ${code} to how many games? (1–${Math.max(1, max)})`,
+    reply_markup: {
+      force_reply: true,
+      selective: true,
+      input_field_placeholder: "e.g. 5",
+    },
+  });
 }
 
 async function studyAndReply(chatId: number, code: string, picks?: TicketPick[]) {
@@ -1155,7 +1167,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       return;
     }
     if (kind === "g") {
-      await mintKeepersAndReply(chatId, base);
+      await askTrimCount(chatId, loaded.shareCode, base.length);
       return;
     }
     if (kind === "ch") {
@@ -1202,14 +1214,29 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   if (!msg?.text || !msg.chat) return;
   await rememberChat(msg.chat.id);
   const raw = msg.text.trim();
-  const drawAsk = msg.reply_to_message?.text ?? "";
-  if (/how many draw/i.test(drawAsk)) {
+  const replyText = msg.reply_to_message?.text ?? "";
+  if (/how many draw/i.test(replyText)) {
     const n = Number(raw.match(/\d{1,4}/)?.[0]);
     if (Number.isFinite(n) && n >= 1) {
       await createDrawSlip(msg.chat.id, n, "today");
       return;
     }
     await askDrawCount(msg.chat.id);
+    return;
+  }
+  if (/trim [A-Z0-9]+ to how many/i.test(replyText)) {
+    const code = replyText.match(/trim\s+([A-Z0-9]{4,16})/i)?.[1];
+    const n = Number(raw.match(/\d{1,4}/)?.[0]);
+    if (code && Number.isFinite(n) && n >= 1) {
+      const loaded = await loadBookingCode(code, "ng");
+      if ("error" in loaded) {
+        await tg("sendMessage", { chat_id: msg.chat.id, text: loaded.error });
+        return;
+      }
+      await mintKeepersAndReply(msg.chat.id, playable(loaded.picks), n);
+      return;
+    }
+    if (code) await askTrimCount(msg.chat.id, code, MAX_LEGS);
     return;
   }
   if (raw === "/start" || isCmd(raw, "start")) {
@@ -1553,7 +1580,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       await tg("sendMessage", { chat_id: msg.chat.id, text: loaded.error });
       return;
     }
-    await mintKeepersAndReply(msg.chat.id, playable(loaded.picks));
+    await askTrimCount(msg.chat.id, loaded.shareCode, playable(loaded.picks).length);
     return;
   }
   if (code && /\bmint all\b/i.test(text)) {
