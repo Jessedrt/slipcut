@@ -29,16 +29,19 @@ export function deskScore(pick: TicketPick): number {
   const sel = `${pick.selection} ${pick.market}`.toLowerCase();
   if (pick.sport === "football") {
     if (/\bunder\b/.test(sel)) s -= 40;
-    if (fam === "ou" && /1\.5/.test(sel)) s += 8;
-    if (fam === "ou" && /2\.5/.test(sel)) s += 3;
-    if (fam === "dc" || fam === "dnb") s += 7;
-    if (fam === "hcp") s += 6;
+    if (fam === "ou" && /\bover\b/.test(sel)) s += 14;
+    if (fam === "dc") s += 4;
+    if (fam === "dnb") s += 2;
+    if (fam === "hcp") s += 5;
     if (fam === "win" && !/\bdraw\b/.test(sel) && (pick.odds ?? 9) > 1.9) s -= 12;
     if (/\bdraw\b/.test(sel) && TOP_FB.test(league)) s += 4;
   }
   if (pick.sport === "basketball") {
     if (/\bunder\b/.test(sel) || /winner/i.test(pick.market) || pick.sporty?.marketId === "219") s -= 40;
-    if (fam === "hcp" || fam === "ou" || fam === "ou1h" || fam === "teamou") s += 6;
+    if (pick.sporty?.marketId === "225" && /\bover\b/.test(sel)) s += 16;
+    else if (fam === "ou1h" && /\bover\b/.test(sel)) s += 8;
+    else if (fam === "teamou" && /\bover\b/.test(sel)) s += 6;
+    else if (fam === "hcp") s += 5;
   }
   if (pick.sport === "tennis" && fam === "win" && (pick.odds ?? 9) > 1.8) s -= 10;
 
@@ -48,6 +51,27 @@ export function deskScore(pick: TicketPick): number {
 
   if (pick.kickoff && pick.kickoff < Date.now() + 8 * 60_000) s -= 22;
   return clamp(Math.round(s), 4, 96);
+}
+
+function isOverLane(pick: TicketPick) {
+  const sel = `${pick.selection} ${pick.market}`.toLowerCase();
+  if (!/\bover\b/.test(sel)) return false;
+  if (pick.sport === "basketball") return pick.sporty?.marketId === "225" || marketFamily(pick.sporty?.marketId, pick.market) === "ou1h";
+  return marketFamily(pick.sporty?.marketId, pick.market) === "ou";
+}
+
+function mixOvers<T extends TicketPick>(ranked: T[], want: number): T[] {
+  const overs = ranked.filter((p) => isOverLane(p));
+  const rest = ranked.filter((p) => !isOverLane(p));
+  const keep: T[] = [];
+  let i = 0;
+  let j = 0;
+  while (keep.length < want && (i < overs.length || j < rest.length)) {
+    if (i < overs.length) keep.push(overs[i++]);
+    if (keep.length >= want) break;
+    if (j < rest.length) keep.push(rest[j++]);
+  }
+  return keep;
 }
 
 async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
@@ -101,6 +125,6 @@ export async function researchPicks<T extends TicketPick>(
   const bar = researched ? 48 : 44;
   const strong = shortlist.filter((p) => (p.probability ?? 0) >= bar);
   const pool = strong.length >= Math.min(want, 3) ? strong : shortlist;
-  const keep = pool.slice(0, Math.max(1, want)) as T[];
+  const keep = mixOvers(pool, Math.max(1, want)) as T[];
   return { keep, dropped: unique.length - keep.length, researched };
 }

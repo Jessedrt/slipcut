@@ -463,15 +463,21 @@ function pickFromEvent(cands: TicketPick[], used: Record<string, number>): Ticke
     return true;
   });
   if (!pool0.length) return null;
+  const totalUsed = Object.values(used).reduce((n, v) => n + v, 0);
   const families = [...new Set(pool0.map((p) => marketFamily(p.sporty?.marketId, p.market)))];
+  const hasOu = families.includes("ou");
+  const ouShare = totalUsed ? (used.ou ?? 0) / totalUsed : 0;
   families.sort(
     (a, b) =>
       (used[a] ?? 0) - (used[b] ?? 0) ||
       Number(a === "win") - Number(b === "win") ||
+      Number(a === "dnb") - Number(b === "dnb") ||
       Number(a === "teamou") - Number(b === "teamou") ||
-      Number(b === "ou") - Number(a === "ou"),
+      Number(b === "ou") - Number(a === "ou") ||
+      Number(b === "ou1h") - Number(a === "ou1h"),
   );
-  const family = families[0];
+  let family = families[0];
+  if (hasOu && ouShare < 0.4) family = "ou";
   const pool = family
     ? pool0.filter((p) => marketFamily(p.sporty?.marketId, p.market) === family)
     : pool0;
