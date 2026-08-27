@@ -336,7 +336,6 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
     const hit = markets.find(pred);
     if (hit) want.push(hit);
   };
-  first((m) => m.id === "10");
   first((m) => m.id === "11");
   first((m) => m.id === "18" && m.specifier === "total=1.5");
   first((m) => m.id === "18" && (m.specifier === "total=2.5" || m.specifier === "total=2"));
@@ -349,7 +348,6 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
   for (const market of want) {
     for (const outcome of openOutcomes(market)) {
       if (market.id === "18" && selectionBias(outcome.desc ?? "") === "under") continue;
-      if (market.id === "10" && selectionBias(outcome.desc ?? "") !== "12") continue;
       const pick = toPick(ev, "football", market, outcome);
       if (pick && inBookWindow(pick.odds)) picks.push(pick);
     }
@@ -442,8 +440,7 @@ function tennisCandidates(ev: EventDetail): TicketPick[] {
 }
 
 function cookablePick(p: TicketPick) {
-  if (p.sport === "football" && p.sporty?.marketId === "1") return false;
-  if (p.sport === "football" && p.sporty?.marketId === "10" && selectionBias(p.selection) !== "12") return false;
+  if (p.sport === "football" && (p.sporty?.marketId === "1" || p.sporty?.marketId === "10")) return false;
   if (p.sport === "basketball" && (p.sporty?.marketId === "219" || /winner/i.test(p.market))) return false;
   if (p.sport === "football" && (p.sporty?.marketId === "29" || /\bgg\b|both teams|btts/i.test(`${p.selection} ${p.market}`)))
     return false;

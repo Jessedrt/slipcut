@@ -134,8 +134,8 @@ async function cookPool<T extends TicketPick>(picks: T[], band: OddsBand | null)
     if (p.sport === "football" && /\bunder\b/i.test(`${p.selection} ${p.market}`)) return false;
     if (p.sport === "football" && /\bgg\b|both teams|btts/i.test(`${p.selection} ${p.market}`)) return false;
     if (p.sport === "football" && p.sporty?.marketId === "29") return false;
-    if (p.sport === "football" && p.sporty?.marketId === "10" && !/home.*away|away.*home|\b12\b/i.test(p.selection))
-      return false;
+    if (p.sport === "football" && p.sporty?.marketId === "1") return false;
+    if (p.sport === "football" && p.sporty?.marketId === "10") return false;
     if (p.sport === "basketball" && /\bunder\b/i.test(`${p.selection} ${p.market}`)) return false;
     if (p.sport === "basketball" && (p.sporty?.marketId === "219" || /winner/i.test(p.market))) return false;
     return true;
@@ -391,9 +391,9 @@ function playable(picks: TicketPick[]) {
   return picks.filter((p) => p.sport !== "other" && p.sporty);
 }
 
-async function mintAndReply(chatId: number, picks: TicketPick[], country: string, title: string) {
+async function mintAndReply(chatId: number, picks: TicketPick[], country: string, title: string, limit = MAX_LEGS) {
   const unique = uniqueEvents(picks);
-  const work = unique.picks;
+  const work = unique.picks.slice(0, Math.max(1, Math.min(MAX_LEGS, limit)));
   const head =
     unique.dropped > 0 ? `${title} · I comot ${unique.dropped} same-match` : title;
   const selections = sportyOf(work);
@@ -497,7 +497,7 @@ async function createSportSlip(
   await maybeStudyLast(chatId);
   const pool = await cookPool(listed, useBand);
   const researched = await researchPicks(pool, n);
-  const take = researched.keep;
+  const take = uniqueEvents(researched.keep.filter((p) => p.sport === sport)).picks.slice(0, n);
   if (!take.length) {
     await tg("sendMessage", { chat_id: chatId, text: `No ${sport} remain after research. Relax the cap or blacklist.` });
     return;
@@ -507,7 +507,7 @@ async function createSportSlip(
     take.length < n
       ? `${take.length} games ${sport}${span ? ` · ${span}` : ""} · ${tag} — na only ${take.length} pass`
       : `${take.length} games ${sport}${span ? ` · ${span}` : ""} · ${tag}${researched.dropped ? ` · dropped ${researched.dropped}` : ""}`;
-  await mintAndReply(chatId, take, "ng", title);
+  await mintAndReply(chatId, take, "ng", title, n);
 }
 
 async function createOddsSlip(
@@ -532,7 +532,8 @@ async function createOddsSlip(
   await maybeStudyLast(chatId);
   const pool = await cookPool(listed, useBand);
   const researched = await researchPicks(pool, 24);
-  const take = buildToOdds(researched.keep, target).slice(0, MAX_LEGS);
+  const only = researched.keep.filter((p) => p.sport === sport);
+  const take = buildToOdds(only, target).slice(0, MAX_LEGS);
   if (!take.length) {
     await tg("sendMessage", { chat_id: chatId, text: `I no fit build ${formatOdds(target)} from the ${sport} wey dey now.` });
     return;
@@ -697,8 +698,8 @@ async function createMixSlip(
   const mixed = await cookPool(stacked, useBand);
   const researched = await researchPicks(mixed, opts.odds ? 24 : n);
   const take = opts.odds
-    ? buildToOdds(researched.keep, clampOddsTarget(opts.odds)).slice(0, MAX_LEGS)
-    : researched.keep.slice(0, n);
+    ? uniqueEvents(buildToOdds(researched.keep, clampOddsTarget(opts.odds))).picks.slice(0, MAX_LEGS)
+    : uniqueEvents(researched.keep).picks.slice(0, n);
   if (!take.length) {
     await tg("sendMessage", { chat_id: chatId, text: "Mix no gree. Relax filter or try again later." });
     return;
