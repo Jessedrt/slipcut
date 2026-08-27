@@ -336,17 +336,20 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
     const hit = markets.find(pred);
     if (hit) want.push(hit);
   };
+  first((m) => m.id === "1");
+  first((m) => m.id === "10");
+  first((m) => m.id === "11");
+  first((m) => m.id === "29");
   first((m) => m.id === "18" && m.specifier === "total=1.5");
   first((m) => m.id === "18" && (m.specifier === "total=2.5" || m.specifier === "total=2"));
   first((m) => m.id === "18" && (m.specifier === "total=3.5" || m.specifier === "total=3"));
-  if (!want.length) {
-    const ou = mostBalanced(markets.filter((m) => m.id === "18"));
-    if (ou) want.push(ou);
-  }
+  const ah = mostBalanced(markets.filter((m) => m.id === "16"));
+  const ah1h = mostBalanced(markets.filter((m) => m.id === "66"));
+  if (ah) want.push(ah);
+  if (ah1h) want.push(ah1h);
   const picks: TicketPick[] = [];
   for (const market of want) {
     for (const outcome of openOutcomes(market)) {
-      if (market.id === "18" && selectionBias(outcome.desc ?? "") === "under") continue;
       const pick = toPick(ev, "football", market, outcome);
       if (pick && inBookWindow(pick.odds)) picks.push(pick);
     }
@@ -395,12 +398,18 @@ function pushMarket(
 function basketballCandidates(ev: EventDetail): TicketPick[] {
   const markets = (ev.markets ?? []).filter((m) => m.status === 0);
   const picks: TicketPick[] = [];
+  pushMarket(
+    picks,
+    ev,
+    "basketball",
+    markets.find((m) => m.id === "219") ||
+      markets.find((m) => /winner/i.test(m.desc ?? "") && openOutcomes(m).length >= 2),
+  );
   pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "225")));
   pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "227")));
   pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "228")));
-  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "68")));
-  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "69")));
-  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "70")));
+  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "223")));
+  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "66")));
   pushMarket(
     picks,
     ev,
@@ -408,9 +417,9 @@ function basketballCandidates(ev: EventDetail): TicketPick[] {
     mostBalanced(markets.filter((m) => m.id === "236" && (m.specifier ?? "").includes("quarternr=1"))),
   );
   return picks.filter((p) => {
-    if (p.sporty?.marketId === "219" || /winner/i.test(p.market)) return false;
-    if (p.sporty?.marketId === "223" || p.sporty?.marketId === "66" || /handicap/i.test(p.market)) return false;
-    if (selectionBias(p.selection) === "under") return false;
+    const id = p.sporty?.marketId;
+    if (id === "68" || id === "69" || id === "70") return false;
+    if (/1st half/i.test(p.market) && /over|under|total/i.test(`${p.selection} ${p.market}`)) return false;
     return true;
   });
 }
@@ -438,15 +447,10 @@ function tennisCandidates(ev: EventDetail): TicketPick[] {
 }
 
 function cookablePick(p: TicketPick) {
-  if (p.sport === "football" && (p.sporty?.marketId === "1" || p.sporty?.marketId === "10" || p.sporty?.marketId === "11"))
-    return false;
-  if (p.sporty?.marketId === "16" || p.sporty?.marketId === "66" || p.sporty?.marketId === "223") return false;
-  if (/handicap/i.test(p.market)) return false;
-  if (p.sport === "basketball" && (p.sporty?.marketId === "219" || /winner/i.test(p.market))) return false;
-  if (p.sport === "football" && (p.sporty?.marketId === "29" || /\bgg\b|both teams|btts/i.test(`${p.selection} ${p.market}`)))
-    return false;
-  if ((p.sport === "football" || p.sport === "basketball") && selectionBias(p.selection) === "under")
-    return false;
+  if (p.sport !== "basketball") return true;
+  const id = p.sporty?.marketId;
+  if (id === "68" || id === "69" || id === "70") return false;
+  if (/1st half/i.test(p.market) && /over|under|total/i.test(`${p.selection} ${p.market}`)) return false;
   return true;
 }
 

@@ -33,17 +33,19 @@ export function deskScore(pick: TicketPick): number {
   const fam = marketFamily(pick.sporty?.marketId, pick.market);
   const sel = (pick.selection ?? "").toLowerCase();
   if (pick.sport === "football") {
-    if (/\bunder\b/.test(sel)) s -= 40;
-    if (fam === "ou" && /\bover\b/.test(sel)) s += 24;
-    else if (fam === "dnb" || fam === "hcp" || fam === "dc" || fam === "win") s -= 30;
-    if (fam === "win" && !/\bdraw\b/.test(sel) && odds > 1.9) s -= 12;
+    if (fam === "ou") s += 6;
+    if (fam === "dc" || fam === "dnb") s += 5;
+    if (fam === "hcp") s += 4;
+    if (fam === "gg") s += 3;
+    if (fam === "win" && !/\bdraw\b/.test(sel) && odds > 1.9) s -= 8;
   }
   if (pick.sport === "basketball") {
-    if (/\bunder\b/.test(sel) || /winner/i.test(pick.market) || pick.sporty?.marketId === "219") s -= 40;
-    if (pick.sporty?.marketId === "225" && /\bover\b/.test(sel)) s += 26;
-    else if (fam === "ou1h" && /\bover\b/.test(sel)) s += 16;
-    else if (fam === "teamou" && /\bover\b/.test(sel)) s += 12;
-    else if (fam === "hcp") s -= 20;
+    if (pick.sporty?.marketId === "68" || pick.sporty?.marketId === "69" || pick.sporty?.marketId === "70") s -= 40;
+    if (pick.sporty?.marketId === "225") s += 8;
+    else if (fam === "teamou") s += 6;
+    else if (fam === "hcp") s += 5;
+    else if (fam === "win") s += 3;
+    else if (fam === "ou1h") s -= 20;
   }
   if (pick.kickoff && pick.kickoff < Date.now() + 8 * 60_000) s -= 22;
   return clamp(Math.round(s), 4, 96);
