@@ -45,6 +45,10 @@ function eventKey(p: TicketPick) {
   return p.sporty?.eventId || `${p.home}|${p.away}|${p.kickoff ?? ""}`;
 }
 
+function familyOf(p: TicketPick) {
+  return marketFamily(p.sporty?.marketId, p.market);
+}
+
 function bias(sel: string) {
   const s = sel.toLowerCase();
   if (s.includes("under")) return "under";
