@@ -340,10 +340,6 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
   first((m) => m.id === "18" && m.specifier === "total=1.5");
   first((m) => m.id === "18" && (m.specifier === "total=2.5" || m.specifier === "total=2"));
   first((m) => m.id === "18" && (m.specifier === "total=3.5" || m.specifier === "total=3"));
-  const ah = mostBalanced(markets.filter((m) => m.id === "16"));
-  const ah1h = mostBalanced(markets.filter((m) => m.id === "66"));
-  if (ah) want.push(ah);
-  if (ah1h) want.push(ah1h);
   const picks: TicketPick[] = [];
   for (const market of want) {
     for (const outcome of openOutcomes(market)) {
@@ -399,7 +395,6 @@ function basketballCandidates(ev: EventDetail): TicketPick[] {
   pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "225")));
   pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "227")));
   pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "228")));
-  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "223")));
   pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "68")));
   pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "69")));
   pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "70")));
@@ -409,9 +404,9 @@ function basketballCandidates(ev: EventDetail): TicketPick[] {
     "basketball",
     mostBalanced(markets.filter((m) => m.id === "236" && (m.specifier ?? "").includes("quarternr=1"))),
   );
-  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "66")));
   return picks.filter((p) => {
     if (p.sporty?.marketId === "219" || /winner/i.test(p.market)) return false;
+    if (p.sporty?.marketId === "223" || p.sporty?.marketId === "66" || /handicap/i.test(p.market)) return false;
     if (/\bunder\b/i.test(`${p.selection} ${p.market}`)) return false;
     return true;
   });
@@ -441,6 +436,8 @@ function tennisCandidates(ev: EventDetail): TicketPick[] {
 
 function cookablePick(p: TicketPick) {
   if (p.sport === "football" && (p.sporty?.marketId === "1" || p.sporty?.marketId === "10")) return false;
+  if (p.sporty?.marketId === "16" || p.sporty?.marketId === "66" || p.sporty?.marketId === "223") return false;
+  if (/handicap/i.test(p.market)) return false;
   if (p.sport === "basketball" && (p.sporty?.marketId === "219" || /winner/i.test(p.market))) return false;
   if (p.sport === "football" && (p.sporty?.marketId === "29" || /\bgg\b|both teams|btts/i.test(`${p.selection} ${p.market}`)))
     return false;
