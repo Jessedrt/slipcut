@@ -27,25 +27,15 @@ export function deskScore(pick: TicketPick): number {
   else s -= 4;
 
   if (odds >= 1.4 && odds <= 2.15) s += 12;
-  else if (odds < 1.32) s -= 20;
-  else if (odds > 2.25) s -= 10;
+  else if (odds < 1.32) s -= 12;
+  else if (odds > 2.25) s -= 8;
 
   const fam = marketFamily(pick.sporty?.marketId, pick.market);
   const sel = (pick.selection ?? "").toLowerCase();
-  if (pick.sport === "football") {
-    if (fam === "ou") s += 6;
-    if (fam === "dc" || fam === "dnb") s += 5;
-    if (fam === "hcp") s += 4;
-    if (fam === "gg") s += 3;
-    if (fam === "win" && !/\bdraw\b/.test(sel) && odds > 1.9) s -= 8;
-  }
+  if (pick.sport === "football" && fam === "win" && !/\bdraw\b/.test(sel) && odds > 2.05) s -= 6;
   if (pick.sport === "basketball") {
     if (pick.sporty?.marketId === "68" || pick.sporty?.marketId === "69" || pick.sporty?.marketId === "70") s -= 40;
-    if (pick.sporty?.marketId === "225") s += 8;
-    else if (fam === "teamou") s += 6;
-    else if (fam === "hcp") s += 5;
-    else if (fam === "win") s += 3;
-    else if (fam === "ou1h") s -= 20;
+    if (fam === "ou1h") s -= 20;
   }
   if (pick.kickoff && pick.kickoff < Date.now() + 8 * 60_000) s -= 22;
   return clamp(Math.round(s), 4, 96);
@@ -53,6 +43,10 @@ export function deskScore(pick: TicketPick): number {
 
 function eventKey(p: TicketPick) {
   return p.sporty?.eventId || `${p.home}|${p.away}|${p.kickoff ?? ""}`;
+}
+
+function familyOf(p: TicketPick) {
+  return marketFamily(p.sporty?.marketId, p.market);
 }
 
 function bestPerEvent<T extends TicketPick>(picks: T[]): T[] {
@@ -63,12 +57,46 @@ function bestPerEvent<T extends TicketPick>(picks: T[]): T[] {
     arr.push(p);
     groups.set(key, arr);
   }
+  const used: Record<string, number> = {};
   const best: T[] = [];
   for (const arr of groups.values()) {
-    const hit = arr.slice().sort((a, b) => deskScore(b) - deskScore(a))[0];
-    if (hit) best.push(hit);
+    const families = [...new Set(arr.map(familyOf))];
+    families.sort((a, b) => (used[a] ?? 0) - (used[b] ?? 0));
+    const fam = families[0];
+    const pool = fam ? arr.filter((p) => familyOf(p) === fam) : arr;
+    const hit = pool.slice().sort((a, b) => deskScore(b) - deskScore(a))[0];
+    if (!hit) continue;
+    best.push(hit);
+    used[familyOf(hit)] = (used[familyOf(hit)] ?? 0) + 1;
   }
   return best;
+}
+
+function mixFamilies<T extends TicketPick>(ranked: T[], want: number): T[] {
+  const buckets = new Map<string, T[]>();
+  for (const p of ranked) {
+    const f = familyOf(p);
+    const arr = buckets.get(f) ?? [];
+    arr.push(p);
+    buckets.set(f, arr);
+  }
+  const keys = [...buckets.keys()];
+  const idx: Record<string, number> = {};
+  const keep: T[] = [];
+  while (keep.length < want) {
+    let added = false;
+    for (const k of keys) {
+      const i = idx[k] ?? 0;
+      const arr = buckets.get(k) ?? [];
+      if (i >= arr.length) continue;
+      keep.push(arr[i]);
+      idx[k] = i + 1;
+      added = true;
+      if (keep.length >= want) break;
+    }
+    if (!added) break;
+  }
+  return keep;
 }
 
 async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
@@ -114,9 +142,6 @@ export async function researchPicks<T extends TicketPick>(
   const bar = researched ? 48 : 44;
   const strong = shortlist.filter((p) => (p.probability ?? 0) >= bar);
   const pool = strong.length >= Math.min(want, 3) ? strong : shortlist;
-  const keep = pool
-    .slice()
-    .sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0))
-    .slice(0, Math.max(1, want)) as T[];
+  const keep = mixFamilies(pool, Math.max(1, want)) as T[];
   return { keep, dropped: unique.length - keep.length, researched };
 }
