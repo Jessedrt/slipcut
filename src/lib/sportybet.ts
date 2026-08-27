@@ -336,7 +336,6 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
     const hit = markets.find(pred);
     if (hit) want.push(hit);
   };
-  first((m) => m.id === "11");
   first((m) => m.id === "18" && m.specifier === "total=1.5");
   first((m) => m.id === "18" && (m.specifier === "total=2.5" || m.specifier === "total=2"));
   first((m) => m.id === "18" && (m.specifier === "total=3.5" || m.specifier === "total=3"));
@@ -435,7 +434,8 @@ function tennisCandidates(ev: EventDetail): TicketPick[] {
 }
 
 function cookablePick(p: TicketPick) {
-  if (p.sport === "football" && (p.sporty?.marketId === "1" || p.sporty?.marketId === "10")) return false;
+  if (p.sport === "football" && (p.sporty?.marketId === "1" || p.sporty?.marketId === "10" || p.sporty?.marketId === "11"))
+    return false;
   if (p.sporty?.marketId === "16" || p.sporty?.marketId === "66" || p.sporty?.marketId === "223") return false;
   if (/handicap/i.test(p.market)) return false;
   if (p.sport === "basketball" && (p.sporty?.marketId === "219" || /winner/i.test(p.market))) return false;
