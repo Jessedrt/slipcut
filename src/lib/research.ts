@@ -38,7 +38,7 @@ export function deskScore(pick: TicketPick): number {
   }
   if (pick.sport === "basketball") {
     if (/\bunder\b/.test(sel) || /winner/i.test(pick.market) || pick.sporty?.marketId === "219") s -= 40;
-    if (fam === "hcp" || fam === "ou" || fam === "ou1h") s += 6;
+    if (fam === "hcp" || fam === "ou" || fam === "ou1h" || fam === "teamou") s += 6;
   }
   if (pick.sport === "tennis" && fam === "win" && (pick.odds ?? 9) > 1.8) s -= 10;
 

@@ -258,7 +258,10 @@ function inBookWindow(odds?: number) {
   return Number.isFinite(odds) && (odds as number) >= 1.18 && (odds as number) <= 2.35;
 }
 
-export function marketFamily(id?: string, desc?: string): "win" | "dc" | "ou" | "gg" | "dnb" | "hcp" | "ou1h" {
+export function marketFamily(
+  id?: string,
+  desc?: string,
+): "win" | "dc" | "ou" | "gg" | "dnb" | "hcp" | "ou1h" | "teamou" {
   const d = (desc ?? "").toLowerCase();
   if (id === "10" || d.includes("double chance")) return "dc";
   if (id === "186" || id === "202") return "win";
@@ -266,7 +269,8 @@ export function marketFamily(id?: string, desc?: string): "win" | "dc" | "ou" | 
     return "hcp";
   if (id === "68" || id === "69" || id === "70" || (id === "236" && d.includes("1st")) || (d.includes("1st half") && d.includes("over")))
     return "ou1h";
-  if (id === "189" || id === "204" || id === "314" || id === "18" || id === "225" || id === "227" || id === "228" || d.includes("over/under") || d.includes("total games"))
+  if (id === "227" || id === "228") return "teamou";
+  if (id === "189" || id === "204" || id === "314" || id === "18" || id === "225" || d.includes("over/under") || d.includes("total games"))
     return "ou";
   if (id === "29" || d.includes("gg/ng")) return "gg";
   if (id === "11" || d.includes("draw no bet")) return "dnb";
@@ -454,13 +458,20 @@ function pickFromEvent(cands: TicketPick[], used: Record<string, number>): Ticke
   const families = [...new Set(pool0.map((p) => marketFamily(p.sporty?.marketId, p.market)))];
   families.sort(
     (a, b) =>
-      (used[a] ?? 0) - (used[b] ?? 0) || Number(a === "win") - Number(b === "win"),
+      (used[a] ?? 0) - (used[b] ?? 0) ||
+      Number(a === "win") - Number(b === "win") ||
+      Number(a === "teamou") - Number(b === "teamou") ||
+      Number(b === "ou") - Number(a === "ou"),
   );
   const family = families[0];
   const pool = family
     ? pool0.filter((p) => marketFamily(p.sporty?.marketId, p.market) === family)
     : pool0;
-  const pick = pool.slice().sort((a, b) => implied(b.odds) - implied(a.odds))[0];
+  const pick = pool.slice().sort((a, b) => {
+    const gameA = a.sporty?.marketId === "225" ? 1 : 0;
+    const gameB = b.sporty?.marketId === "225" ? 1 : 0;
+    return gameB - gameA || implied(b.odds) - implied(a.odds);
+  })[0];
   if (pick && family) used[family] = (used[family] ?? 0) + 1;
   return pick ?? null;
 }
