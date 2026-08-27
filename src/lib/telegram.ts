@@ -554,7 +554,7 @@ async function createStakeDaily(chatId: number) {
     return;
   }
   const short = listed.filter((p) => p.odds && p.odds >= 1.12 && p.odds <= 1.55);
-  const pool = await cookPool(uniqueEvents(short).picks, null);
+  const pool = await cookPool(short, null);
   const researched = await researchPicks(pool, 10);
   const take = buildToOdds(researched.keep, 2).slice(0, 5);
   if (!take.length) {
@@ -606,7 +606,7 @@ async function createSportyDaily2(chatId: number) {
     return;
   }
   const short = listed.filter((p) => p.odds && p.odds >= 1.12 && p.odds <= 1.55);
-  const pool = await cookPool(uniqueEvents(short).picks, null);
+  const pool = await cookPool(short, null);
   const researched = await researchPicks(pool, 10);
   const take = buildToOdds(researched.keep, 2).slice(0, 5);
   if (!take.length) {
@@ -694,7 +694,7 @@ async function createMixSlip(
   }
   await maybeStudyLast(chatId);
   const stacked = interleave(pools[0] ?? [], interleave(pools[1] ?? [], pools[2] ?? []));
-  const mixed = await cookPool(uniqueEvents(stacked).picks, useBand);
+  const mixed = await cookPool(stacked, useBand);
   const researched = await researchPicks(mixed, opts.odds ? 24 : n);
   const take = opts.odds
     ? buildToOdds(researched.keep, clampOddsTarget(opts.odds)).slice(0, MAX_LEGS)

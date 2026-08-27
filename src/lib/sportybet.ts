@@ -441,27 +441,19 @@ function tennisCandidates(ev: EventDetail): TicketPick[] {
   return picks;
 }
 
+function cookablePick(p: TicketPick) {
+  if (p.sport === "football" && p.sporty?.marketId === "1") return false;
+  if (p.sport === "football" && p.sporty?.marketId === "10" && selectionBias(p.selection) !== "12") return false;
+  if (p.sport === "basketball" && (p.sporty?.marketId === "219" || /winner/i.test(p.market))) return false;
+  if (p.sport === "football" && (p.sporty?.marketId === "29" || /\bgg\b|both teams|btts/i.test(`${p.selection} ${p.market}`)))
+    return false;
+  if ((p.sport === "football" || p.sport === "basketball") && /\bunder\b/i.test(`${p.selection} ${p.market}`))
+    return false;
+  return true;
+}
+
 function pickFromEvent(cands: TicketPick[], used: Record<string, number>): TicketPick | null {
-  const pool0 = cands.filter((p) => {
-    if (p.sport === "football" && p.sporty?.marketId === "1") return false;
-    if (
-      p.sport === "football" &&
-      p.sporty?.marketId === "10" &&
-      selectionBias(p.selection) !== "12"
-    ) {
-      return false;
-    }
-    if (p.sport === "basketball" && (p.sporty?.marketId === "219" || /winner/i.test(p.market))) return false;
-    if (p.sport === "football" && (p.sporty?.marketId === "29" || /\bgg\b|both teams|btts/i.test(`${p.selection} ${p.market}`)))
-      return false;
-    if (
-      (p.sport === "football" || p.sport === "basketball") &&
-      /\bunder\b/i.test(`${p.selection} ${p.market}`)
-    ) {
-      return false;
-    }
-    return true;
-  });
+  const pool0 = cands.filter(cookablePick);
   if (!pool0.length) return null;
   const totalUsed = Object.values(used).reduce((n, v) => n + v, 0);
   const families = [...new Set(pool0.map((p) => marketFamily(p.sporty?.marketId, p.market)))];
@@ -588,11 +580,11 @@ export async function listUpcomingPicks(
 
   const want = Math.max(1, Math.min(35, limit));
   const deadline = Date.now() + 45_000;
-  const used: Record<string, number> = {};
   const picks: TicketPick[] = [];
   const batchSize = want > 20 ? 10 : 8;
+  let events = 0;
 
-  for (let i = 0; i < upcoming.length && picks.length < want; i += batchSize) {
+  for (let i = 0; i < upcoming.length && events < want; i += batchSize) {
     if (Date.now() > deadline) break;
     const batch = upcoming.slice(i, i + batchSize);
     const details = await mapPool(batch, batchSize, async (e) => {
@@ -603,10 +595,14 @@ export async function listUpcomingPicks(
     });
     for (const ev of details) {
       if (!ev || ev.status !== 0 || ev.banned) continue;
+      if (events >= want) break;
       if (mode === "draw") {
         if (sport !== "football") continue;
         const draw = drawFromEvent(ev);
-        if (draw) picks.push(draw);
+        if (draw) {
+          picks.push(draw);
+          events += 1;
+        }
       } else {
         const cands =
           sport === "basketball"
@@ -614,10 +610,11 @@ export async function listUpcomingPicks(
             : sport === "tennis"
               ? tennisCandidates(ev)
               : footballCandidates(ev);
-        const pick = pickFromEvent(cands, used);
-        if (pick) picks.push(pick);
+        const open = cands.filter(cookablePick);
+        if (!open.length) continue;
+        picks.push(...open);
+        events += 1;
       }
-      if (picks.length >= want) break;
     }
   }
   if (!picks.length) return { error: `Could not read ${sport} markets on SportyBet.` };

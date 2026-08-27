@@ -16,41 +16,53 @@ function clamp(n: number, lo: number, hi: number) {
 }
 
 export function deskScore(pick: TicketPick): number {
-  let s = 52;
+  const impl = pick.odds && pick.odds > 1 ? (1 / pick.odds) * 100 : 50;
+  let s = impl;
   const league = pick.league ?? "";
   const blob = `${league} ${pick.home} ${pick.away}`;
   if (WEAK.test(blob)) s -= 28;
-  if (pick.sport === "football" && TOP_FB.test(league)) s += 14;
-  else if (pick.sport === "basketball" && TOP_BB.test(league)) s += 14;
-  else if (pick.sport === "tennis" && TOP_TN.test(league)) s += 10;
-  else s -= 6;
+  if (pick.sport === "football" && TOP_FB.test(league)) s += 8;
+  else if (pick.sport === "basketball" && TOP_BB.test(league)) s += 8;
+  else if (pick.sport === "tennis" && TOP_TN.test(league)) s += 6;
+  else s -= 5;
 
   const fam = marketFamily(pick.sporty?.marketId, pick.market);
   const sel = `${pick.selection} ${pick.market}`.toLowerCase();
   if (pick.sport === "football") {
     if (/\bunder\b/.test(sel)) s -= 40;
-    if (fam === "ou" && /\bover\b/.test(sel)) s += 14;
-    if (fam === "dc") s += 4;
-    if (fam === "dnb") s += 2;
-    if (fam === "hcp") s += 5;
+    if (fam === "ou" && /\bover\b/.test(sel)) s += 6;
+    if (fam === "dc") s += 2;
+    if (fam === "hcp") s += 2;
     if (fam === "win" && !/\bdraw\b/.test(sel) && (pick.odds ?? 9) > 1.9) s -= 12;
-    if (/\bdraw\b/.test(sel) && TOP_FB.test(league)) s += 4;
   }
   if (pick.sport === "basketball") {
     if (/\bunder\b/.test(sel) || /winner/i.test(pick.market) || pick.sporty?.marketId === "219") s -= 40;
-    if (pick.sporty?.marketId === "225" && /\bover\b/.test(sel)) s += 16;
-    else if (fam === "ou1h" && /\bover\b/.test(sel)) s += 8;
-    else if (fam === "teamou" && /\bover\b/.test(sel)) s += 6;
-    else if (fam === "hcp") s += 5;
+    if (pick.sporty?.marketId === "225" && /\bover\b/.test(sel)) s += 8;
+    else if (fam === "ou1h" && /\bover\b/.test(sel)) s += 4;
+    else if (fam === "hcp") s += 2;
   }
-  if (pick.sport === "tennis" && fam === "win" && (pick.odds ?? 9) > 1.8) s -= 10;
-
-  if (pick.odds && pick.odds > 1 && pick.odds <= 1.4) s += 7;
-  else if (pick.odds && pick.odds <= 1.65) s += 4;
-  else if (pick.odds && pick.odds >= 2.4 && !/\bdraw\b/.test(sel)) s -= 8;
-
   if (pick.kickoff && pick.kickoff < Date.now() + 8 * 60_000) s -= 22;
   return clamp(Math.round(s), 4, 96);
+}
+
+function eventKey(p: TicketPick) {
+  return p.sporty?.eventId || `${p.home}|${p.away}|${p.kickoff ?? ""}`;
+}
+
+function bestPerEvent<T extends TicketPick>(picks: T[]): T[] {
+  const groups = new Map<string, T[]>();
+  for (const p of picks) {
+    const key = eventKey(p);
+    const arr = groups.get(key) ?? [];
+    arr.push(p);
+    groups.set(key, arr);
+  }
+  const best: T[] = [];
+  for (const arr of groups.values()) {
+    const hit = arr.slice().sort((a, b) => deskScore(b) - deskScore(a))[0];
+    if (hit) best.push(hit);
+  }
+  return best;
 }
 
 function isOverLane(pick: TicketPick) {
@@ -92,15 +104,7 @@ export async function researchPicks<T extends TicketPick>(
   picks: T[],
   want: number,
 ): Promise<{ keep: T[]; dropped: number; researched: boolean }> {
-  const unique: T[] = [];
-  const seen = new Set<string>();
-  for (const p of picks) {
-    const key = p.sporty?.eventId || `${p.home}|${p.away}|${p.kickoff ?? ""}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    unique.push(p);
-  }
-
+  const unique = bestPerEvent(picks);
   const seeded = unique.map((p) => ({ ...p, probability: deskScore(p) }));
   const lessoned = await applyLessonScores(seeded);
   lessoned.sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0));
@@ -125,6 +129,9 @@ export async function researchPicks<T extends TicketPick>(
   const bar = researched ? 48 : 44;
   const strong = shortlist.filter((p) => (p.probability ?? 0) >= bar);
   const pool = strong.length >= Math.min(want, 3) ? strong : shortlist;
-  const keep = mixOvers(pool, Math.max(1, want)) as T[];
+  const keep = pool
+    .slice()
+    .sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0))
+    .slice(0, Math.max(1, want)) as T[];
   return { keep, dropped: unique.length - keep.length, researched };
 }
