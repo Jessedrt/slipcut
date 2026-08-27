@@ -330,7 +330,6 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
   };
   first((m) => m.id === "10");
   first((m) => m.id === "11");
-  first((m) => m.id === "29");
   first((m) => m.id === "18" && m.specifier === "total=1.5");
   first((m) => m.id === "18" && (m.specifier === "total=2.5" || m.specifier === "total=2"));
   first((m) => m.id === "18" && (m.specifier === "total=3.5" || m.specifier === "total=3"));
@@ -435,6 +434,8 @@ function tennisCandidates(ev: EventDetail): TicketPick[] {
 function pickFromEvent(cands: TicketPick[], used: Record<string, number>): TicketPick | null {
   const pool0 = cands.filter((p) => {
     if (p.sport === "football" && p.sporty?.marketId === "1") return false;
+    if (p.sport === "football" && (p.sporty?.marketId === "29" || /\bgg\b|both teams|btts/i.test(`${p.selection} ${p.market}`)))
+      return false;
     if (
       (p.sport === "football" || p.sport === "basketball") &&
       /\bunder\b/i.test(`${p.selection} ${p.market}`)

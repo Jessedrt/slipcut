@@ -33,7 +33,6 @@ export function deskScore(pick: TicketPick): number {
     if (fam === "ou" && /2\.5/.test(sel)) s += 3;
     if (fam === "dc" || fam === "dnb") s += 7;
     if (fam === "hcp") s += 6;
-    if (fam === "gg") s += 2;
     if (fam === "win" && !/\bdraw\b/.test(sel) && (pick.odds ?? 9) > 1.9) s -= 12;
     if (/\bdraw\b/.test(sel) && TOP_FB.test(league)) s += 4;
   }
