@@ -255,7 +255,7 @@ function implied(odds?: number) {
 }
 
 function inBookWindow(odds?: number) {
-  return Number.isFinite(odds) && (odds as number) >= 1.18 && (odds as number) <= 2.35;
+  return Number.isFinite(odds) && (odds as number) >= 1.16 && (odds as number) <= 2.75;
 }
 
 export function marketFamily(
@@ -339,6 +339,10 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
   first((m) => m.id === "18" && m.specifier === "total=1.5");
   first((m) => m.id === "18" && (m.specifier === "total=2.5" || m.specifier === "total=2"));
   first((m) => m.id === "18" && (m.specifier === "total=3.5" || m.specifier === "total=3"));
+  if (!want.length) {
+    const ou = mostBalanced(markets.filter((m) => m.id === "18"));
+    if (ou) want.push(ou);
+  }
   const picks: TicketPick[] = [];
   for (const market of want) {
     for (const outcome of openOutcomes(market)) {
@@ -406,7 +410,7 @@ function basketballCandidates(ev: EventDetail): TicketPick[] {
   return picks.filter((p) => {
     if (p.sporty?.marketId === "219" || /winner/i.test(p.market)) return false;
     if (p.sporty?.marketId === "223" || p.sporty?.marketId === "66" || /handicap/i.test(p.market)) return false;
-    if (/\bunder\b/i.test(`${p.selection} ${p.market}`)) return false;
+    if (selectionBias(p.selection) === "under") return false;
     return true;
   });
 }
@@ -441,7 +445,7 @@ function cookablePick(p: TicketPick) {
   if (p.sport === "basketball" && (p.sporty?.marketId === "219" || /winner/i.test(p.market))) return false;
   if (p.sport === "football" && (p.sporty?.marketId === "29" || /\bgg\b|both teams|btts/i.test(`${p.selection} ${p.market}`)))
     return false;
-  if ((p.sport === "football" || p.sport === "basketball") && /\bunder\b/i.test(`${p.selection} ${p.market}`))
+  if ((p.sport === "football" || p.sport === "basketball") && selectionBias(p.selection) === "under")
     return false;
   return true;
 }
