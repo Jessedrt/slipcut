@@ -16,30 +16,36 @@ function clamp(n: number, lo: number, hi: number) {
 }
 
 export function deskScore(pick: TicketPick): number {
-  const impl = pick.odds && pick.odds > 1 ? (1 / pick.odds) * 100 : 50;
-  let s = impl;
+  const odds = pick.odds ?? 9;
+  let s = 50;
   const league = pick.league ?? "";
   const blob = `${league} ${pick.home} ${pick.away}`;
-  if (WEAK.test(blob)) s -= 28;
+  if (WEAK.test(blob)) s -= 25;
   if (pick.sport === "football" && TOP_FB.test(league)) s += 8;
   else if (pick.sport === "basketball" && TOP_BB.test(league)) s += 8;
   else if (pick.sport === "tennis" && TOP_TN.test(league)) s += 6;
-  else s -= 5;
+  else s -= 4;
+
+  if (odds >= 1.4 && odds <= 2.15) s += 12;
+  else if (odds < 1.32) s -= 20;
+  else if (odds > 2.25) s -= 10;
 
   const fam = marketFamily(pick.sporty?.marketId, pick.market);
   const sel = `${pick.selection} ${pick.market}`.toLowerCase();
   if (pick.sport === "football") {
     if (/\bunder\b/.test(sel)) s -= 40;
-    if (fam === "ou" && /\bover\b/.test(sel)) s += 6;
-    if (fam === "dc") s += 2;
-    if (fam === "hcp") s += 2;
-    if (fam === "win" && !/\bdraw\b/.test(sel) && (pick.odds ?? 9) > 1.9) s -= 12;
+    if (fam === "ou" && /\bover\b/.test(sel)) s += 24;
+    else if (fam === "hcp") s += 12;
+    else if (fam === "dnb") s += 3;
+    else if (fam === "dc") s -= 12;
+    if (fam === "win" && !/\bdraw\b/.test(sel) && odds > 1.9) s -= 12;
   }
   if (pick.sport === "basketball") {
     if (/\bunder\b/.test(sel) || /winner/i.test(pick.market) || pick.sporty?.marketId === "219") s -= 40;
-    if (pick.sporty?.marketId === "225" && /\bover\b/.test(sel)) s += 8;
-    else if (fam === "ou1h" && /\bover\b/.test(sel)) s += 4;
-    else if (fam === "hcp") s += 2;
+    if (pick.sporty?.marketId === "225" && /\bover\b/.test(sel)) s += 26;
+    else if (fam === "ou1h" && /\bover\b/.test(sel)) s += 16;
+    else if (fam === "teamou" && /\bover\b/.test(sel)) s += 12;
+    else if (fam === "hcp") s += 10;
   }
   if (pick.kickoff && pick.kickoff < Date.now() + 8 * 60_000) s -= 22;
   return clamp(Math.round(s), 4, 96);
@@ -63,27 +69,6 @@ function bestPerEvent<T extends TicketPick>(picks: T[]): T[] {
     if (hit) best.push(hit);
   }
   return best;
-}
-
-function isOverLane(pick: TicketPick) {
-  const sel = `${pick.selection} ${pick.market}`.toLowerCase();
-  if (!/\bover\b/.test(sel)) return false;
-  if (pick.sport === "basketball") return pick.sporty?.marketId === "225" || marketFamily(pick.sporty?.marketId, pick.market) === "ou1h";
-  return marketFamily(pick.sporty?.marketId, pick.market) === "ou";
-}
-
-function mixOvers<T extends TicketPick>(ranked: T[], want: number): T[] {
-  const overs = ranked.filter((p) => isOverLane(p));
-  const rest = ranked.filter((p) => !isOverLane(p));
-  const keep: T[] = [];
-  let i = 0;
-  let j = 0;
-  while (keep.length < want && (i < overs.length || j < rest.length)) {
-    if (i < overs.length) keep.push(overs[i++]);
-    if (keep.length >= want) break;
-    if (j < rest.length) keep.push(rest[j++]);
-  }
-  return keep;
 }
 
 async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
