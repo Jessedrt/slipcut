@@ -264,9 +264,9 @@ export function marketFamily(id?: string, desc?: string): "win" | "dc" | "ou" | 
   if (id === "186" || id === "202") return "win";
   if (id === "187" || id === "188" || id === "16" || id === "14" || id === "223" || id === "66" || d.includes("handicap"))
     return "hcp";
-  if (id === "68" || (id === "236" && d.includes("1st")) || d.includes("1st half") && d.includes("over"))
+  if (id === "68" || id === "69" || id === "70" || (id === "236" && d.includes("1st")) || (d.includes("1st half") && d.includes("over")))
     return "ou1h";
-  if (id === "189" || id === "204" || id === "314" || id === "18" || id === "225" || d.includes("over/under") || d.includes("total games"))
+  if (id === "189" || id === "204" || id === "314" || id === "18" || id === "225" || id === "227" || id === "228" || d.includes("over/under") || d.includes("total games"))
     return "ou";
   if (id === "29" || d.includes("gg/ng")) return "gg";
   if (id === "11" || d.includes("draw no bet")) return "dnb";
@@ -289,6 +289,10 @@ function toPick(
   else if (market.id === "16") label = `Asian Handicap ${hcp}`.trim();
   else if (market.id === "223" || market.id === "14") label = `Handicap ${hcp}`.trim();
   else if (market.id === "68") label = `1st Half O/U ${total}`.trim();
+  else if (market.id === "227") label = `Home total ${total}`.trim();
+  else if (market.id === "228") label = `Away total ${total}`.trim();
+  else if (market.id === "69") label = `1H home total ${total}`.trim();
+  else if (market.id === "70") label = `1H away total ${total}`.trim();
   else if (market.id === "66") label = `1st Half Handicap ${hcp}`.trim();
   else if (market.id === "236" && spec.includes("quarternr=1")) label = `1st quarter O/U ${total}`.trim();
   else if (market.id === "186") label = "Winner";
@@ -389,16 +393,13 @@ function pushMarket(
 function basketballCandidates(ev: EventDetail): TicketPick[] {
   const markets = (ev.markets ?? []).filter((m) => m.status === 0);
   const picks: TicketPick[] = [];
-  pushMarket(
-    picks,
-    ev,
-    "basketball",
-    markets.find((m) => m.id === "219") ||
-      markets.find((m) => /winner/i.test(m.desc ?? "") && openOutcomes(m).length >= 2),
-  );
   pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "225")));
+  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "227")));
+  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "228")));
   pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "223")));
   pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "68")));
+  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "69")));
+  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "70")));
   pushMarket(
     picks,
     ev,
@@ -406,7 +407,11 @@ function basketballCandidates(ev: EventDetail): TicketPick[] {
     mostBalanced(markets.filter((m) => m.id === "236" && (m.specifier ?? "").includes("quarternr=1"))),
   );
   pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "66")));
-  return picks.filter((p) => !/\bunder\b/i.test(`${p.selection} ${p.market}`));
+  return picks.filter((p) => {
+    if (p.sporty?.marketId === "219" || /winner/i.test(p.market)) return false;
+    if (/\bunder\b/i.test(`${p.selection} ${p.market}`)) return false;
+    return true;
+  });
 }
 
 function tennisCandidates(ev: EventDetail): TicketPick[] {
@@ -434,6 +439,7 @@ function tennisCandidates(ev: EventDetail): TicketPick[] {
 function pickFromEvent(cands: TicketPick[], used: Record<string, number>): TicketPick | null {
   const pool0 = cands.filter((p) => {
     if (p.sport === "football" && p.sporty?.marketId === "1") return false;
+    if (p.sport === "basketball" && (p.sporty?.marketId === "219" || /winner/i.test(p.market))) return false;
     if (p.sport === "football" && (p.sporty?.marketId === "29" || /\bgg\b|both teams|btts/i.test(`${p.selection} ${p.market}`)))
       return false;
     if (

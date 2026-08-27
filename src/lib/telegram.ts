@@ -135,6 +135,7 @@ async function cookPool<T extends TicketPick>(picks: T[], band: OddsBand | null)
     if (p.sport === "football" && /\bgg\b|both teams|btts/i.test(`${p.selection} ${p.market}`)) return false;
     if (p.sport === "football" && p.sporty?.marketId === "29") return false;
     if (p.sport === "basketball" && /\bunder\b/i.test(`${p.selection} ${p.market}`)) return false;
+    if (p.sport === "basketball" && (p.sporty?.marketId === "219" || /winner/i.test(p.market))) return false;
     return true;
   });
   return applyBand(allowedBy(blockedBy(noFootballUnder, blocks), allows), band);
