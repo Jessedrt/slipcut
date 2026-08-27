@@ -343,6 +343,7 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
   first((m) => m.id === "18" && m.specifier === "total=1.5");
   first((m) => m.id === "18" && (m.specifier === "total=2.5" || m.specifier === "total=2"));
   first((m) => m.id === "18" && (m.specifier === "total=3.5" || m.specifier === "total=3"));
+  first((m) => m.id === "68" && (m.specifier === "total=0.5" || m.specifier === "total=1.5" || m.specifier === "total=1"));
   const ah = mostBalanced(markets.filter((m) => m.id === "16"));
   const ah1h = mostBalanced(markets.filter((m) => m.id === "66"));
   if (ah) want.push(ah);

@@ -45,8 +45,85 @@ function eventKey(p: TicketPick) {
   return p.sporty?.eventId || `${p.home}|${p.away}|${p.kickoff ?? ""}`;
 }
 
-function familyOf(p: TicketPick) {
-  return marketFamily(p.sporty?.marketId, p.market);
+function bias(sel: string) {
+  const s = sel.toLowerCase();
+  if (s.includes("under")) return "under";
+  if (s.includes("over")) return "over";
+  if (s.includes("home") && s.includes("away")) return "12";
+  if (s.includes("home") && s.includes("draw")) return "1x";
+  if (s.includes("draw") && s.includes("away")) return "x2";
+  if (s.includes("home")) return "home";
+  if (s.includes("away")) return "away";
+  if (s.includes("draw")) return "draw";
+  if (s === "yes" || /\bgg\b/.test(s)) return "yes";
+  if (s === "no" || /\bng\b/.test(s)) return "no";
+  return "other";
+}
+
+function findOdds(arr: TicketPick[], pred: (p: TicketPick) => boolean) {
+  return arr.find(pred)?.odds;
+}
+
+function footballMarketScore(pick: TicketPick, all: TicketPick[], used: Record<string, number>) {
+  let s = deskScore(pick);
+  const fam = familyOf(pick);
+  const side = bias(pick.selection);
+  const home = findOdds(all, (p) => p.sporty?.marketId === "1" && bias(p.selection) === "home");
+  const away = findOdds(all, (p) => p.sporty?.marketId === "1" && bias(p.selection) === "away");
+  const over15 = findOdds(all, (p) => /1\.5/.test(p.market) && bias(p.selection) === "over");
+  const over25 = findOdds(all, (p) => /2\.5/.test(p.market) && bias(p.selection) === "over");
+  const over35 = findOdds(all, (p) => /3\.5/.test(p.market) && bias(p.selection) === "over");
+  const ggYes = findOdds(all, (p) => familyOf(p) === "gg" && bias(p.selection) === "yes");
+  const fav = home && away ? (home <= away ? "home" : "away") : home ? "home" : away ? "away" : null;
+  const favOdds = fav === "home" ? home : fav === "away" ? away : undefined;
+  const open = Boolean(home && away && home >= 1.72 && away >= 1.72);
+  const onFav =
+    Boolean(fav) &&
+    (side === fav ||
+      (side === "1x" && fav === "home") ||
+      (side === "x2" && fav === "away"));
+
+  if (over25 && over25 >= 1.48 && over25 <= 1.92 && fam === "ou" && side === "over" && /2\.5/.test(pick.market)) s += 18;
+  if (over15 && over15 >= 1.36 && over15 <= 1.62 && fam === "ou" && side === "over" && /1\.5/.test(pick.market)) s += 12;
+  if (over35 && over35 >= 1.55 && over35 <= 2.05 && fam === "ou" && side === "over" && /3\.5/.test(pick.market)) s += 8;
+  if (over25 && over25 >= 2.08 && fam === "ou" && side === "over") s -= 12;
+  if (over25 && over25 >= 2.05 && fam === "ou" && side === "under" && /2\.5/.test(pick.market)) s += 14;
+  if (over15 && over15 >= 1.85 && fam === "ou" && side === "under" && /1\.5/.test(pick.market)) s += 8;
+
+  if (favOdds && favOdds <= 1.48 && onFav && (fam === "dnb" || fam === "dc")) s += 16;
+  if (favOdds && favOdds <= 1.42 && onFav && fam === "win" && (pick.odds ?? 9) >= 1.32 && (pick.odds ?? 9) <= 1.7) s += 11;
+  if (fav && side !== fav && side !== "1x" && side !== "x2" && side !== "12" && fam === "win") s -= 16;
+  if (open && fam === "dc" && side === "12") s += 15;
+  if (open && over25 && over25 <= 1.78 && fam === "gg" && side === "yes") s += 11;
+  if (fam === "hcp" && onFav && (pick.odds ?? 9) >= 1.48 && (pick.odds ?? 9) <= 2.05) s += 13;
+  if (fam === "hcp" && !onFav && favOdds && favOdds <= 1.55) s -= 10;
+  if (ggYes && ggYes >= 1.48 && ggYes <= 1.9 && fam === "gg" && side === "yes" && over25 && over25 <= 1.85) s += 9;
+
+  s -= (used[fam] ?? 0) * 8;
+  return s;
+}
+
+function footballShapePick<T extends TicketPick>(picks: T[]): T[] {
+  const groups = new Map<string, T[]>();
+  for (const p of picks) {
+    const key = eventKey(p);
+    const arr = groups.get(key) ?? [];
+    arr.push(p);
+    groups.set(key, arr);
+  }
+  const used: Record<string, number> = {};
+  const best: T[] = [];
+  for (const arr of groups.values()) {
+    const ranked = arr
+      .map((p) => ({ p, s: footballMarketScore(p, arr, used) }))
+      .sort((a, b) => b.s - a.s);
+    const hit = ranked[0];
+    if (!hit || hit.s < 38) continue;
+    best.push(hit.p);
+    const fam = familyOf(hit.p);
+    used[fam] = (used[fam] ?? 0) + 1;
+  }
+  return best;
 }
 
 function bestPerEvent<T extends TicketPick>(picks: T[]): T[] {
@@ -117,7 +194,9 @@ export async function researchPicks<T extends TicketPick>(
   picks: T[],
   want: number,
 ): Promise<{ keep: T[]; dropped: number; researched: boolean }> {
-  const unique = bestPerEvent(picks);
+  const football = footballShapePick(picks.filter((p) => p.sport === "football"));
+  const other = bestPerEvent(picks.filter((p) => p.sport !== "football"));
+  const unique = [...football, ...other];
   const seeded = unique.map((p) => ({ ...p, probability: deskScore(p) }));
   const lessoned = await applyLessonScores(seeded);
   lessoned.sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0));
@@ -126,7 +205,8 @@ export async function researchPicks<T extends TicketPick>(
   let researched = false;
 
   if (youKeys().length && shortlist.length) {
-    const ai = await withTimeout(analyzePicks(shortlist.slice(0, 8), 45), 9_000);
+    const sample = shortlist.filter((p) => p.sport === "football").slice(0, 10);
+    const ai = await withTimeout(analyzePicks(sample.length ? sample : shortlist.slice(0, 8), 45), 12_000);
     if (ai?.picks?.length) {
       researched = true;
       const byId = new Map(ai.picks.map((row) => [row.id, row.probability]));
@@ -142,6 +222,9 @@ export async function researchPicks<T extends TicketPick>(
   const bar = researched ? 48 : 44;
   const strong = shortlist.filter((p) => (p.probability ?? 0) >= bar);
   const pool = strong.length >= Math.min(want, 3) ? strong : shortlist;
-  const keep = mixFamilies(pool, Math.max(1, want)) as T[];
+  const footballOnly = pool.every((p) => p.sport === "football") || football.length >= pool.length / 2;
+  const keep = (
+    footballOnly ? pool.slice().sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0)).slice(0, Math.max(1, want)) : mixFamilies(pool, Math.max(1, want))
+  ) as T[];
   return { keep, dropped: unique.length - keep.length, researched };
 }
