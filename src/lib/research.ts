@@ -38,6 +38,7 @@ export function deskScore(pick: TicketPick): number {
     if (/\bdraw\b/.test(sel) && TOP_FB.test(league)) s += 4;
   }
   if (pick.sport === "basketball") {
+    if (/\bunder\b/.test(sel)) s -= 40;
     if (fam === "hcp" || fam === "ou" || fam === "ou1h") s += 5;
     if (fam === "win" && (pick.odds ?? 9) > 1.85) s -= 8;
   }

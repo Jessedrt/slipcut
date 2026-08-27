@@ -328,7 +328,6 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
     const hit = markets.find(pred);
     if (hit) want.push(hit);
   };
-  first((m) => m.id === "1");
   first((m) => m.id === "10");
   first((m) => m.id === "11");
   first((m) => m.id === "29");
@@ -408,7 +407,7 @@ function basketballCandidates(ev: EventDetail): TicketPick[] {
     mostBalanced(markets.filter((m) => m.id === "236" && (m.specifier ?? "").includes("quarternr=1"))),
   );
   pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "66")));
-  return picks;
+  return picks.filter((p) => !/\bunder\b/i.test(`${p.selection} ${p.market}`));
 }
 
 function tennisCandidates(ev: EventDetail): TicketPick[] {
@@ -434,9 +433,16 @@ function tennisCandidates(ev: EventDetail): TicketPick[] {
 }
 
 function pickFromEvent(cands: TicketPick[], used: Record<string, number>): TicketPick | null {
-  const pool0 = cands.filter(
-    (p) => !(p.sport === "football" && /\bunder\b/i.test(`${p.selection} ${p.market}`)),
-  );
+  const pool0 = cands.filter((p) => {
+    if (p.sport === "football" && p.sporty?.marketId === "1") return false;
+    if (
+      (p.sport === "football" || p.sport === "basketball") &&
+      /\bunder\b/i.test(`${p.selection} ${p.market}`)
+    ) {
+      return false;
+    }
+    return true;
+  });
   if (!pool0.length) return null;
   const families = [...new Set(pool0.map((p) => marketFamily(p.sporty?.marketId, p.market)))];
   families.sort(
