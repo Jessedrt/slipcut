@@ -344,10 +344,6 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
   first((m) => m.id === "18" && (m.specifier === "total=2.5" || m.specifier === "total=2"));
   first((m) => m.id === "18" && (m.specifier === "total=3.5" || m.specifier === "total=3"));
   first((m) => m.id === "68" && (m.specifier === "total=0.5" || m.specifier === "total=1.5" || m.specifier === "total=1"));
-  const ah = mostBalanced(markets.filter((m) => m.id === "16"));
-  const ah1h = mostBalanced(markets.filter((m) => m.id === "66"));
-  if (ah) want.push(ah);
-  if (ah1h) want.push(ah1h);
   const picks: TicketPick[] = [];
   for (const market of want) {
     for (const outcome of openOutcomes(market)) {
@@ -476,8 +472,6 @@ function basketballCandidates(ev: EventDetail): TicketPick[] {
   pushOver(picks, ev, "basketball", lowerOverLine(markets.filter((m) => m.id === "225")));
   pushOver(picks, ev, "basketball", lowerOverLine(markets.filter((m) => m.id === "227")));
   pushOver(picks, ev, "basketball", lowerOverLine(markets.filter((m) => m.id === "228")));
-  pushMarket(picks, ev, "basketball", tighterHandicap(markets.filter((m) => m.id === "223")));
-  pushMarket(picks, ev, "basketball", tighterHandicap(markets.filter((m) => m.id === "66")));
   pushOver(
     picks,
     ev,
@@ -487,6 +481,7 @@ function basketballCandidates(ev: EventDetail): TicketPick[] {
   return picks.filter((p) => {
     const id = p.sporty?.marketId;
     if (id === "68" || id === "69" || id === "70") return false;
+    if (id === "223" || id === "66" || /handicap/i.test(p.market)) return false;
     if (/1st half/i.test(p.market) && /over|under|total/i.test(`${p.selection} ${p.market}`)) return false;
     return true;
   });
@@ -515,10 +510,13 @@ function tennisCandidates(ev: EventDetail): TicketPick[] {
 }
 
 function cookablePick(p: TicketPick) {
-  if (p.sport !== "basketball") return true;
   const id = p.sporty?.marketId;
-  if (id === "68" || id === "69" || id === "70") return false;
-  if (/1st half/i.test(p.market) && /over|under|total/i.test(`${p.selection} ${p.market}`)) return false;
+  if (p.sport === "football" && (id === "16" || id === "66" || /handicap/i.test(p.market))) return false;
+  if (p.sport === "basketball") {
+    if (id === "68" || id === "69" || id === "70") return false;
+    if (id === "223" || id === "66" || /handicap/i.test(p.market)) return false;
+    if (/1st half/i.test(p.market) && /over|under|total/i.test(`${p.selection} ${p.market}`)) return false;
+  }
   return true;
 }
 

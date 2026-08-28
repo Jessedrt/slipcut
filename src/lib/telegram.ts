@@ -131,8 +131,10 @@ function applyBand<T extends { odds?: number }>(picks: T[], band: OddsBand | nul
 async function cookPool<T extends TicketPick>(picks: T[], band: OddsBand | null): Promise<T[]> {
   const [blocks, allows] = await Promise.all([listBlocks(), listAllows()]);
   const clean = picks.filter((p) => {
-    if (p.sport !== "basketball") return true;
     const id = p.sporty?.marketId;
+    if ((p.sport === "football" || p.sport === "basketball") && (id === "16" || id === "66" || id === "223" || /handicap/i.test(p.market)))
+      return false;
+    if (p.sport !== "basketball") return true;
     if (id === "68" || id === "69" || id === "70") return false;
     if (/1st half/i.test(p.market) && /over|under|total/i.test(`${p.selection} ${p.market}`)) return false;
     return true;
