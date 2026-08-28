@@ -4,8 +4,11 @@ import { applyLessonScores } from "./study";
 import { youKeys } from "./you";
 import type { TicketPick } from "./types";
 
-const WEAK =
+const WEAK_FB =
   /friendly|women|womens|u-?1[789]|u-?2[013]|reserve|\bii\b|amateur|virtual|esport|simulat|youth|qualification play-off/i;
+const WEAK_BB = /friendly|club friendly|virtual|esport|simulat|u-?1[89]/i;
+const WEAK =
+  /friendly|u-?1[789]|u-?2[013]|reserve|\bii\b|amateur|virtual|esport|simulat|youth|qualification play-off/i;
 const TOP_FB =
   /premier league|la liga|laliga|serie a|bundesliga|ligue 1|champions league|europa league|conference league|eredivisie|primeira|championship|mls|copa libertadores|nations league|saudi|super lig|liga portugal|pro league/i;
 const TOP_BB = /nba|euroleague|ncaa|wnba|acb|nbl/i;
@@ -20,7 +23,7 @@ export function deskScore(pick: TicketPick): number {
   let s = 50;
   const league = pick.league ?? "";
   const blob = `${league} ${pick.home} ${pick.away}`;
-  if (WEAK.test(blob)) s -= 25;
+  if (WEAK.test(blob) && !TOP_FB.test(league) && !TOP_BB.test(league) && !TOP_TN.test(league)) s -= 28;
   if (pick.sport === "football" && TOP_FB.test(league)) s += 8;
   else if (pick.sport === "basketball" && TOP_BB.test(league)) s += 8;
   else if (pick.sport === "tennis" && TOP_TN.test(league)) s += 6;
@@ -40,6 +43,21 @@ export function deskScore(pick: TicketPick): number {
   }
   if (pick.kickoff && pick.kickoff < Date.now() + 8 * 60_000) s -= 22;
   return clamp(Math.round(s), 4, 96);
+}
+
+function isJunk(pick: TicketPick) {
+  const blob = `${pick.league ?? ""} ${pick.home} ${pick.away}`;
+  if (pick.sport === "football") return WEAK_FB.test(blob);
+  if (pick.sport === "basketball") return WEAK_BB.test(blob) && !TOP_BB.test(pick.league ?? "");
+  return false;
+}
+
+function isTop(pick: TicketPick) {
+  const league = pick.league ?? "";
+  if (pick.sport === "football") return TOP_FB.test(league);
+  if (pick.sport === "basketball") return TOP_BB.test(league);
+  if (pick.sport === "tennis") return TOP_TN.test(league);
+  return false;
 }
 
 function eventKey(p: TicketPick) {
@@ -199,37 +217,42 @@ export async function researchPicks<T extends TicketPick>(
   picks: T[],
   want: number,
 ): Promise<{ keep: T[]; dropped: number; researched: boolean }> {
-  const football = footballShapePick(picks.filter((p) => p.sport === "football"));
-  const other = bestPerEvent(picks.filter((p) => p.sport !== "football"));
+  const clean = picks.filter((p) => !isJunk(p));
+  const football = footballShapePick(clean.filter((p) => p.sport === "football"));
+  const other = bestPerEvent(clean.filter((p) => p.sport !== "football"));
   const unique = [...football, ...other];
-  const seeded = unique.map((p) => ({ ...p, probability: deskScore(p) }));
+  const seeded = unique.map((p) => ({
+    ...p,
+    probability: deskScore(p) + (isTop(p) ? 6 : 0),
+  }));
   const lessoned = await applyLessonScores(seeded);
-  lessoned.sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0));
+  lessoned.sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0) || Number(isTop(b)) - Number(isTop(a)));
 
-  const shortlist = lessoned.slice(0, Math.min(lessoned.length, Math.max(want + 8, want * 2)));
+  const shortlist = lessoned.slice(0, Math.min(lessoned.length, Math.max(want + 10, want * 2)));
   let researched = false;
 
   if (youKeys().length && shortlist.length) {
-    const sample = shortlist.filter((p) => p.sport === "football").slice(0, 10);
-    const ai = await withTimeout(analyzePicks(sample.length ? sample : shortlist.slice(0, 8), 45), 12_000);
+    const sample = shortlist.slice(0, Math.min(12, shortlist.length));
+    const ai = await withTimeout(analyzePicks(sample, 55), 22_000);
     if (ai?.picks?.length) {
       researched = true;
-      const byId = new Map(ai.picks.map((row) => [row.id, row.probability]));
+      const byId = new Map(ai.picks.map((row) => [row.id, row]));
       for (const p of shortlist) {
         const live = byId.get(p.id);
-        if (typeof live !== "number") continue;
-        p.probability = clamp(Math.round(0.45 * (p.probability ?? 50) + 0.55 * live), 4, 96);
+        if (typeof live?.probability !== "number") continue;
+        const conf = live.confidence === "high" ? 4 : live.confidence === "low" ? -6 : 0;
+        p.probability = clamp(Math.round(0.25 * (p.probability ?? 50) + 0.75 * live.probability + conf), 4, 96);
       }
       shortlist.sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0));
     }
   }
 
-  const bar = researched ? 48 : 44;
-  const strong = shortlist.filter((p) => (p.probability ?? 0) >= bar);
-  const pool = strong.length >= Math.min(want, 3) ? strong : shortlist;
-  const footballOnly = pool.every((p) => p.sport === "football") || football.length >= pool.length / 2;
-  const keep = (
-    footballOnly ? pool.slice().sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0)).slice(0, Math.max(1, want)) : mixFamilies(pool, Math.max(1, want))
-  ) as T[];
+  const bar = researched ? 56 : isTop(shortlist[0] ?? ({} as T)) ? 58 : 62;
+  const strong = shortlist.filter((p) => (p.probability ?? 0) >= bar && (researched || isTop(p) || (p.probability ?? 0) >= 66));
+  const keep = strong.slice(0, Math.max(1, want)) as T[];
+  if (!keep.length && shortlist.length) {
+    const fallback = shortlist.filter((p) => isTop(p)).slice(0, Math.max(1, Math.min(want, 8))) as T[];
+    return { keep: fallback.length ? fallback : (shortlist.slice(0, 1) as T[]), dropped: unique.length - 1, researched };
+  }
   return { keep, dropped: unique.length - keep.length, researched };
 }

@@ -72,11 +72,11 @@ async function youPost(
   throw new Error(lastError);
 }
 
-export async function youAnswer(query: string): Promise<string> {
+export async function youAnswer(query: string, timeoutMs = 8_000): Promise<string> {
   const body = (await youPost(
     "/v1/answer",
     { query, freshness: "week" },
-    8_000,
+    timeoutMs,
   )) as { answer?: string };
   return body.answer ?? "";
 }

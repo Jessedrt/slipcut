@@ -127,7 +127,7 @@ function pickQuery(pick: TicketPick) {
         : "football soccer";
   const core = `${sport}: ${clip(pick.home, 36)} vs ${clip(pick.away, 36)}. ${clip(pick.league, 24)}. Market: ${clip(pick.market, 36)}. Selection: ${clip(pick.selection, 36)}.`;
   const tail =
-    " Live form and news only. IGNORE betting odds/prices. Reply ONLY JSON {\"probability\":0-100,\"confidence\":\"high|medium|low\",\"summary\":\"short\",\"reasons\":[\"x\"],\"risks\":[\"x\"]}";
+    " Recent form, injuries, H2H, motivation. Be harsh. If unsure score under 45. IGNORE odds. Reply ONLY JSON {\"probability\":0-100,\"confidence\":\"high|medium|low\",\"summary\":\"short\",\"reasons\":[\"x\"],\"risks\":[\"x\"]}";
   return (core + tail).slice(0, 400);
 }
 
@@ -138,7 +138,7 @@ function parsePickScore(text: string): Record<string, unknown> {
   } catch {
     const pct = cleaned.match(/\b(\d{1,2}|100)\s*%/);
     return {
-      probability: pct ? Number(pct[1]) : 50,
+      probability: pct ? Number(pct[1]) : 40,
       confidence: "low",
       summary: clip(cleaned.replace(/[#*_]/g, ""), 140) || "Live brief had no clean score.",
       reasons: [],
@@ -170,14 +170,14 @@ async function scoreChunk(picks: TicketPick[]): Promise<Record<string, unknown>[
   if (picks.length === 1) {
     const pick = picks[0]!;
     try {
-      const answer = await youAnswer(pickQuery(pick));
+      const answer = await youAnswer(pickQuery(pick), 12_000);
       return [{ id: pick.id, sport: pick.sport, ...parsePickScore(answer) }];
     } catch {
       return [
         {
           id: pick.id,
           sport: pick.sport,
-          probability: 50,
+          probability: 40,
           confidence: "low",
           summary: "Live research missed this pick.",
           reasons: [],
@@ -192,12 +192,12 @@ async function scoreChunk(picks: TicketPick[]): Promise<Record<string, unknown>[
         `${i + 1}. ${p.sport}: ${clip(p.home, 28)} vs ${clip(p.away, 28)}. ${clip(p.league, 20)}. ${clip(p.market, 24)} — ${clip(p.selection, 24)}`,
     )
     .join("\n");
-  const query = `Score these ${picks.length} football/basketball selections from live form and news only. IGNORE betting odds. Reply ONLY JSON {"picks":[{"i":1,"probability":0-100,"confidence":"high|medium|low","summary":"one line","reasons":["form"],"risks":["x"]}]}\n${lines}`.slice(
+  const query = `You are a sharp football/basketball analyst. For each selection, use recent form, injuries, H2H and whether the market actually fits the match. Be harsh: average games 40-50, only strong spots 60+. IGNORE odds. Reply ONLY JSON {"picks":[{"i":1,"probability":0-100,"confidence":"high|medium|low","summary":"one line","reasons":["form"],"risks":["x"]}]}\n${lines}`.slice(
     0,
-    1600,
+    1800,
   );
   try {
-    const answer = await youAnswer(query);
+    const answer = await youAnswer(query, 14_000);
     const parsed = stripJson(answer) as { picks?: unknown };
     const rows = Array.isArray(parsed.picks) ? parsed.picks : [];
     return picks.map((pick, i) => {
@@ -211,13 +211,13 @@ async function scoreChunk(picks: TicketPick[]): Promise<Record<string, unknown>[
   } catch {
     const singles = await mapPool(picks, 2, async (pick) => {
       try {
-        const answer = await youAnswer(pickQuery(pick));
+        const answer = await youAnswer(pickQuery(pick), 12_000);
         return { id: pick.id, sport: pick.sport, ...parsePickScore(answer) };
       } catch {
         return {
           id: pick.id,
           sport: pick.sport,
-          probability: 50,
+          probability: 40,
           confidence: "low",
           summary: "Live research missed this pick.",
           reasons: [],
