@@ -36,6 +36,9 @@ export function deskScore(pick: TicketPick): number {
   if (pick.sport === "basketball") {
     if (pick.sporty?.marketId === "68" || pick.sporty?.marketId === "69" || pick.sporty?.marketId === "70") s -= 40;
     if (fam === "ou1h") s -= 20;
+    if (odds > 1.85) s -= 14;
+    const total = Number((pick.sporty?.specifier ?? pick.market).match(/([\d.]+)/)?.[1] ?? NaN);
+    if ((fam === "ou" || pick.sporty?.marketId === "225") && Number.isFinite(total) && total >= 220) s -= 8;
   }
   if (pick.kickoff && pick.kickoff < Date.now() + 8 * 60_000) s -= 22;
   return clamp(Math.round(s), 4, 96);

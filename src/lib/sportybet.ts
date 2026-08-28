@@ -383,6 +383,73 @@ function mostBalanced(markets: EventMarket[]): EventMarket | undefined {
   return best;
 }
 
+function specNum(market: EventMarket, key: string) {
+  const n = Number((market.specifier ?? "").match(new RegExp(`${key}=(-?[\\d.]+)`))?.[1]);
+  return Number.isFinite(n) ? n : null;
+}
+
+function lowerOverLine(markets: EventMarket[]): EventMarket | undefined {
+  const main = mostBalanced(markets);
+  const mainTotal = main ? specNum(main, "total") : null;
+  let best: EventMarket | undefined;
+  let bestScore = -999;
+  for (const market of markets) {
+    const total = specNum(market, "total");
+    const over = openOutcomes(market).find((o) => /over/i.test(o.desc ?? ""));
+    const odds = Number(over?.odds);
+    if (!over || !inBookWindow(odds) || total == null) continue;
+    if (odds > 1.78) continue;
+    let s = 20 - Math.abs(odds - 1.52) * 14;
+    if (mainTotal != null) {
+      const drop = mainTotal - total;
+      if (drop >= 3 && drop <= 12) s += 16;
+      else if (drop > 12) s += 4;
+      else if (drop < 0) s -= 14;
+    }
+    if (s > bestScore) {
+      bestScore = s;
+      best = market;
+    }
+  }
+  return best ?? main;
+}
+
+function tighterHandicap(markets: EventMarket[]): EventMarket | undefined {
+  let best: EventMarket | undefined;
+  let bestScore = -999;
+  for (const market of markets) {
+    const hcp = specNum(market, "hcp");
+    const outs = openOutcomes(market).filter((o) => inBookWindow(Number(o.odds)));
+    if (!outs.length) continue;
+    const odds = Math.min(...outs.map((o) => Number(o.odds)));
+    if (odds > 1.85) continue;
+    const abs = hcp == null ? 9 : Math.abs(hcp);
+    let s = 12 - Math.abs(odds - 1.55) * 10;
+    if (abs <= 5.5) s += 10;
+    else if (abs <= 8.5) s += 4;
+    else s -= 8;
+    if (s > bestScore) {
+      bestScore = s;
+      best = market;
+    }
+  }
+  return best ?? mostBalanced(markets);
+}
+
+function pushOver(
+  picks: TicketPick[],
+  ev: EventDetail,
+  sport: BookSport,
+  market: EventMarket | undefined,
+) {
+  if (!market) return;
+  for (const outcome of openOutcomes(market)) {
+    if (/under/i.test(outcome.desc ?? "")) continue;
+    const pick = toPick(ev, sport, market, outcome);
+    if (pick && inBookWindow(pick.odds) && (pick.odds as number) <= 1.78) picks.push(pick);
+  }
+}
+
 function pushMarket(
   picks: TicketPick[],
   ev: EventDetail,
@@ -406,16 +473,16 @@ function basketballCandidates(ev: EventDetail): TicketPick[] {
     markets.find((m) => m.id === "219") ||
       markets.find((m) => /winner/i.test(m.desc ?? "") && openOutcomes(m).length >= 2),
   );
-  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "225")));
-  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "227")));
-  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "228")));
-  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "223")));
-  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "66")));
-  pushMarket(
+  pushOver(picks, ev, "basketball", lowerOverLine(markets.filter((m) => m.id === "225")));
+  pushOver(picks, ev, "basketball", lowerOverLine(markets.filter((m) => m.id === "227")));
+  pushOver(picks, ev, "basketball", lowerOverLine(markets.filter((m) => m.id === "228")));
+  pushMarket(picks, ev, "basketball", tighterHandicap(markets.filter((m) => m.id === "223")));
+  pushMarket(picks, ev, "basketball", tighterHandicap(markets.filter((m) => m.id === "66")));
+  pushOver(
     picks,
     ev,
     "basketball",
-    mostBalanced(markets.filter((m) => m.id === "236" && (m.specifier ?? "").includes("quarternr=1"))),
+    lowerOverLine(markets.filter((m) => m.id === "236" && (m.specifier ?? "").includes("quarternr=1"))),
   );
   return picks.filter((p) => {
     const id = p.sporty?.marketId;
