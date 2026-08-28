@@ -247,7 +247,7 @@ export async function researchPicks<T extends TicketPick>(
     }
   }
 
-  const bar = researched ? 56 : isTop(shortlist[0] ?? ({} as T)) ? 58 : 62;
+  const bar = researched ? 45 : isTop(shortlist[0] ?? ({} as T)) ? 58 : 62;
   const strong = shortlist.filter((p) => (p.probability ?? 0) >= bar && (researched || isTop(p) || (p.probability ?? 0) >= 66));
   const keep = strong.slice(0, Math.max(1, want)) as T[];
   if (!keep.length && shortlist.length) {
