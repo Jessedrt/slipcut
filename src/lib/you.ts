@@ -1,21 +1,7 @@
+import { youKeys as deskYouKeys } from "./keys";
+
 export function youKeys(): string[] {
-  const listed = [
-    process.env.YDC_API_KEY,
-    process.env.YDC_API_KEY_2,
-    process.env.YDC_API_KEY_3,
-    process.env.YOU_API_KEY,
-    process.env.YOUCOM_API_KEY,
-  ];
-  const extra = (process.env.YDC_API_KEYS ?? "").split(/[,;\n]+/);
-  const seen = new Set<string>();
-  const keys: string[] = [];
-  for (const raw of [...listed, ...extra]) {
-    const key = (raw ?? "").trim();
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    keys.push(key);
-  }
-  return keys;
+  return deskYouKeys();
 }
 
 export function youKey() {

@@ -11,5 +11,7 @@ Load a booking code, cut weak legs, then mint a **new SportyBet code** from the 
 
 Env vars (Vercel):
 
-- `YDC_API_KEY` — You.com, for analysis
+- `YDC_API_KEY` — You.com, for live search
+- `SEEKAI_API_KEY` — SeekAI Claude Opus, for reasoning
+- Extra keys from Telegram: `/key you …` or `/key seekai …`
 - `TELEGRAM_BOT_TOKEN` — optional bot. Click Telegram in the header after adding it, then Redeploy.

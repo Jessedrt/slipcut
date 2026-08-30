@@ -5,6 +5,7 @@ import { normalizePidgin, pidginSmallTalk, slangHelp, splitChat, wantsCreate } f
 import { researchPicks } from "./research";
 import { getEventDetail, eventScore, loadBookingCode, listUpcomingPicks, mintShare, parseMarketTarget, retargetPicks, sportyOf, windowLabel, type CookWindow } from "./sportybet";
 import { addAllow, addBlock, allowedBy, applyLessonScores, blockedBy, clearAllows, formatBankroll, formatBook, formatRecap, formatStudy, getSetting, latestCode, latestUnstudiedCode, listAllows, listBlocks, listChats, loadOddsBand, recordSlip, recordStake, rememberChat, removeBlock, saveOddsBand, setSetting, studyCode } from "./study";
+import { addDeskKey, delDeskKey, detectKey, formatKeyList, refreshKeys } from "./keys";
 import { buildToOdds, combinedOdds, copyRebuild, formatKickoff, formatOdds, keepTop, parseCommand, splitEven, trimToOdds, uniqueEvents } from "./workbench";
 import type { BookSport, TicketPick } from "./types";
 
@@ -1057,6 +1058,7 @@ function parseLegCount(text: string): number | null {
 export async function handleTelegramUpdate(update: TgUpdate) {
   if (!TOKEN()) return;
   await ensureMenu();
+  await refreshKeys();
 
   const from = update.callback_query?.from ?? update.message?.from;
   const chatId = update.callback_query?.message?.chat.id ?? update.message?.chat.id;
@@ -1268,6 +1270,68 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   if (raw === "/slang") {
     await tg("sendMessage", { chat_id: msg.chat.id, text: slangHelp() });
     return;
+  }
+  if (isCmd(raw, "keys") || isCmd(raw, "key")) {
+    const user = msg.from;
+    if (!user || !(await isOwner(user))) {
+      await tg("sendMessage", { chat_id: msg.chat.id, text: "Private desk." });
+      return;
+    }
+    const arg = cmdArg(raw);
+    if (!arg || isCmd(raw, "keys")) {
+      await tg("sendMessage", { chat_id: msg.chat.id, text: formatKeyList() });
+      return;
+    }
+    const del = arg.match(/^del(?:ete)?\s+(you|seekai|you\.com)\s+(\d+)\s*$/i);
+    if (del) {
+      const kind = del[1]!.toLowerCase().startsWith("you") ? "you" : "seekai";
+      const ok = await delDeskKey(kind, Number(del[2]));
+      await refreshKeys();
+      await tg("sendMessage", {
+        chat_id: msg.chat.id,
+        text: ok ? `Removed ${kind} extra ${del[2]}.\n\n${formatKeyList()}` : `No extra ${kind} key ${del[2]}. Env keys stay.`,
+      });
+      return;
+    }
+    const add = arg.match(/^(you|seekai|you\.com)\s+(\S+)/i);
+    const detected = detectKey(arg);
+    if (add || detected) {
+      const kind = add
+        ? add[1]!.toLowerCase().startsWith("you")
+          ? "you"
+          : "seekai"
+        : detected!.kind;
+      const key = add ? add[2]! : detected!.key;
+      const look = detectKey(key) ?? (kind === "you" || kind === "seekai" ? { kind, key } : null);
+      if (!look) {
+        await tg("sendMessage", { chat_id: msg.chat.id, text: "That no look like a key." });
+        return;
+      }
+      await addDeskKey(look.kind, look.key);
+      await refreshKeys();
+      await tg("sendMessage", {
+        chat_id: msg.chat.id,
+        text: `Added ${look.kind} key.\n\n${formatKeyList()}`,
+      });
+      return;
+    }
+    await tg("sendMessage", {
+      chat_id: msg.chat.id,
+      text: ["Add extra keys anytime:", "", "/key you ydc-sk-…", "/key seekai sk-…", "/keys", "/key del you 1"].join("\n"),
+    });
+    return;
+  }
+  {
+    const pasted = detectKey(raw);
+    if (pasted && msg.from && (await isOwner(msg.from))) {
+      await addDeskKey(pasted.kind, pasted.key);
+      await refreshKeys();
+      await tg("sendMessage", {
+        chat_id: msg.chat.id,
+        text: `Added ${pasted.kind} key.\n\n${formatKeyList()}`,
+      });
+      return;
+    }
   }
   if (isCmd(raw, "who") || isCmd(raw, "grant") || isCmd(raw, "revoke")) {
     const user = msg.from;

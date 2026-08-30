@@ -2,6 +2,7 @@ import { analyzePicks } from "./analyze";
 import { marketFamily } from "./sportybet";
 import { applyLessonScores } from "./study";
 import { youKeys } from "./you";
+import { seekaiKeys } from "./keys";
 import type { TicketPick } from "./types";
 
 const WEAK_FB =
@@ -231,9 +232,9 @@ export async function researchPicks<T extends TicketPick>(
   const shortlist = lessoned.slice(0, Math.min(lessoned.length, Math.max(want + 10, want * 2)));
   let researched = false;
 
-  if (youKeys().length && shortlist.length) {
+  if ((seekaiKeys().length || youKeys().length) && shortlist.length) {
     const sample = shortlist.slice(0, Math.min(12, shortlist.length));
-    const ai = await withTimeout(analyzePicks(sample, 55), 22_000);
+    const ai = await withTimeout(analyzePicks(sample, 45), 36_000);
     if (ai?.picks?.length) {
       researched = true;
       const byId = new Map(ai.picks.map((row) => [row.id, row]));
