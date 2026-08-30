@@ -85,13 +85,13 @@ export function maskKey(key: string) {
   return `${t.slice(0, 6)}…${t.slice(-4)}`;
 }
 
+/** Strip all whitespace so multi-line Telegram pastes still work */
 export function detectKey(raw: string): { kind: KeyKind; key: string } | null {
-  const t = raw.trim().replace(/^["'`]+|["'`]+$/g, "");
+  const t = raw.replace(/\s+/g, "").replace(/^["'`]+|["'`]+$/g, "");
   if (/^ydc-sk-[A-Za-z0-9_-]{12,}$/i.test(t) || /^ydc-[A-Za-z0-9_-]{16,}$/i.test(t)) {
     return { kind: "you", key: t };
   }
   if (/^sk-[A-Za-z0-9]{20,}$/.test(t)) return { kind: "seekai", key: t };
-  // Google AI Studio / Gemini keys
   if (/^AIza[0-9A-Za-z_-]{30,}$/.test(t)) return { kind: "gemini", key: t };
   if (/^AQ\.[A-Za-z0-9_-]{20,}$/.test(t)) return { kind: "gemini", key: t };
   return null;
@@ -99,7 +99,8 @@ export function detectKey(raw: string): { kind: KeyKind; key: string } | null {
 
 export async function addDeskKey(kind: KeyKind, key: string) {
   await refreshKeys();
-  extra[kind] = unique([...extra[kind], key]);
+  const clean = key.replace(/\s+/g, "").trim();
+  extra[kind] = unique([...extra[kind], clean]);
   await setSetting(`keys_${kind}`, JSON.stringify(extra[kind]));
 }
 
@@ -130,7 +131,7 @@ export function formatKeyList() {
   lines.push("");
   lines.push("/key you ydc-sk-…");
   lines.push("/key seekai sk-…");
-  lines.push("/key gemini AIza…");
+  lines.push("/key gemini AIza… or AQ.…");
   lines.push("/key del you 1");
   lines.push("/key del seekai 1");
   lines.push("/key del gemini 1");
