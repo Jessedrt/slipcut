@@ -1,8 +1,8 @@
 import { getSetting, setSetting } from "./study";
 
-export type KeyKind = "you" | "seekai";
+export type KeyKind = "you" | "seekai" | "gemini";
 
-const extra: Record<KeyKind, string[]> = { you: [], seekai: [] };
+const extra: Record<KeyKind, string[]> = { you: [], seekai: [], gemini: [] };
 
 function unique(list: string[]) {
   const seen = new Set<string>();
@@ -47,9 +47,20 @@ function envSeekai() {
   ]);
 }
 
+function envGemini() {
+  return unique([
+    process.env.GEMINI_API_KEY ?? "",
+    process.env.GOOGLE_AI_API_KEY ?? "",
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? "",
+    process.env.GEMINI_API_KEY_2 ?? "",
+    ...(process.env.GEMINI_API_KEYS ?? "").split(/[,;\n]+/),
+  ]);
+}
+
 export async function refreshKeys() {
   extra.you = parseList(await getSetting("keys_you"));
   extra.seekai = parseList(await getSetting("keys_seekai"));
+  extra.gemini = parseList(await getSetting("keys_gemini"));
 }
 
 export function youKeys() {
@@ -58,6 +69,10 @@ export function youKeys() {
 
 export function seekaiKeys() {
   return unique([...envSeekai(), ...extra.seekai]);
+}
+
+export function geminiKeys() {
+  return unique([...envGemini(), ...extra.gemini]);
 }
 
 export function extraCount(kind: KeyKind) {
@@ -76,6 +91,9 @@ export function detectKey(raw: string): { kind: KeyKind; key: string } | null {
     return { kind: "you", key: t };
   }
   if (/^sk-[A-Za-z0-9]{20,}$/.test(t)) return { kind: "seekai", key: t };
+  // Google AI Studio / Gemini keys
+  if (/^AIza[0-9A-Za-z_-]{30,}$/.test(t)) return { kind: "gemini", key: t };
+  if (/^AQ\.[A-Za-z0-9_-]{20,}$/.test(t)) return { kind: "gemini", key: t };
   return null;
 }
 
@@ -96,6 +114,7 @@ export async function delDeskKey(kind: KeyKind, index: number) {
 export function formatKeyList() {
   const youEnv = envYou();
   const seekEnv = envSeekai();
+  const gemEnv = envGemini();
   const lines = ["Keys on this desk", ""];
   lines.push(`you.com env: ${youEnv.length}`);
   extra.you.forEach((k, i) => lines.push(`you extra ${i + 1}: ${maskKey(k)}`));
@@ -105,9 +124,15 @@ export function formatKeyList() {
   extra.seekai.forEach((k, i) => lines.push(`seekai extra ${i + 1}: ${maskKey(k)}`));
   if (!seekEnv.length && !extra.seekai.length) lines.push("seekai: none");
   lines.push("");
+  lines.push(`gemini env: ${gemEnv.length}`);
+  extra.gemini.forEach((k, i) => lines.push(`gemini extra ${i + 1}: ${maskKey(k)}`));
+  if (!gemEnv.length && !extra.gemini.length) lines.push("gemini: none");
+  lines.push("");
   lines.push("/key you ydc-sk-…");
   lines.push("/key seekai sk-…");
+  lines.push("/key gemini AIza…");
   lines.push("/key del you 1");
   lines.push("/key del seekai 1");
+  lines.push("/key del gemini 1");
   return lines.join("\n");
 }
