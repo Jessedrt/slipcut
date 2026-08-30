@@ -687,6 +687,135 @@ export async function listUpcomingPicks(
 
 export type MarketTarget = "ou15" | "ou25" | "ou35" | "gg" | "dc" | "dnb" | "win";
 
+export type CookAsk = {
+  period: "ft" | "1h" | "q1" | "any";
+  side: "over" | "under" | "any";
+  line?: number;
+  family?: "ou" | "ou1h" | "teamou" | "gg" | "dc" | "dnb" | "win" | "hcp";
+};
+
+export function parseCookAsks(text: string): CookAsk[] {
+  const t = text
+    .toLowerCase()
+    .replace(/full[-\s]?times?/g, "fulltime")
+    .replace(/full[-\s]?games?/g, "fulltime")
+    .replace(/half[-\s]?times?/g, "halftime");
+  const asks: CookAsk[] = [];
+  const add = (a: CookAsk) => {
+    const key = JSON.stringify(a);
+    if (!asks.some((x) => JSON.stringify(x) === key)) asks.push(a);
+  };
+
+  const has1h = /1st\s*half|first\s*half|\b1h\b|halftime/.test(t);
+  const hasFt = /fulltime|\bft\b/.test(t);
+  const hasQ1 = /1st\s*quarter|first\s*quarter|\bq1\b/.test(t);
+  const hasOver = /\bovers?\b|\bover\b/.test(t);
+  const hasUnder = /\bunders?\b|\bunder\b/.test(t);
+  const side: CookAsk["side"] = hasUnder && !hasOver ? "under" : hasOver || has1h || hasFt || hasQ1 ? "over" : "any";
+
+  const lines: number[] = [];
+  if (/over\s*3\.5|o\s*3\.5|ou\s*3\.5|o3\.5/.test(t)) lines.push(3.5);
+  if (/over\s*2\.5|o\s*2\.5|ou\s*2\.5|o2\.5/.test(t)) lines.push(2.5);
+  if (/(?:over\s*2|o\s*2|ou\s*2)(?!\.5|\.\d)/.test(t)) lines.push(2);
+  if (/over\s*1\.5|o\s*1\.5|ou\s*1\.5|o1\.5/.test(t)) lines.push(1.5);
+  if (/over\s*0\.5|o0\.5|ou\s*0\.5/.test(t)) lines.push(0.5);
+
+  if (/\bgg\b|btts|both teams/.test(t)) add({ period: "any", side: "any", family: "gg" });
+  if (/draw no bet|\bdnb\b/.test(t)) add({ period: "any", side: "any", family: "dnb" });
+  if (/double chance|\bdc\b/.test(t) || (/home or away/.test(t) && !hasOver)) add({ period: "any", side: "any", family: "dc" });
+  if (/\bhandicap\b|\bspread\b/.test(t)) add({ period: "any", side: "any", family: "hcp" });
+  if (/1x2|match winner|straight win/.test(t)) add({ period: "any", side: "any", family: "win" });
+  if (/team totals?|home total|away total|individual over/.test(t)) {
+    add({ period: "ft", side: side === "any" ? "over" : side, family: "teamou" });
+  }
+
+  const periods: CookAsk["period"][] = [];
+  if (hasFt) periods.push("ft");
+  if (has1h) periods.push("1h");
+  if (hasQ1) periods.push("q1");
+  if (!periods.length && (lines.length || hasOver || hasUnder)) periods.push("ft");
+
+  for (const period of periods) {
+    const family = period === "1h" ? "ou1h" : "ou";
+    if (lines.length) {
+      for (const line of lines) add({ period, side: side === "any" ? "over" : side, line, family });
+    } else if (hasOver || hasUnder || has1h || hasFt || hasQ1) {
+      add({ period, side: side === "any" ? "over" : side, family });
+    }
+  }
+  return asks;
+}
+
+export function formatCookAsks(asks: CookAsk[]): string {
+  if (!asks.length) return "";
+  return asks
+    .map((a) => {
+      if (a.family === "gg") return "GG";
+      if (a.family === "dnb") return "DNB";
+      if (a.family === "dc") return "DC";
+      if (a.family === "hcp") return "handicap";
+      if (a.family === "win") return "1X2";
+      if (a.family === "teamou") return a.side === "under" ? "team Under" : "team Over";
+      const when = a.period === "1h" ? "1H " : a.period === "q1" ? "Q1 " : a.period === "ft" ? "FT " : "";
+      const side = a.side === "under" ? "Under" : a.side === "over" ? "Over" : "O/U";
+      return `${when}${side}${a.line != null ? ` ${a.line}` : ""}`.trim();
+    })
+    .join(" + ");
+}
+
+function pickPeriod(p: TicketPick): "ft" | "1h" | "q1" | "other" {
+  const id = p.sporty?.marketId;
+  if (id === "236" || /1st quarter/i.test(p.market)) return "q1";
+  if (id === "68" || id === "69" || id === "70" || /1st half|1h /i.test(p.market)) return "1h";
+  if (id === "18" || id === "225" || id === "227" || id === "228") return "ft";
+  const fam = marketFamily(p.sporty?.marketId, p.market);
+  if (fam === "ou1h") return "1h";
+  if (fam === "ou" || fam === "teamou") return "ft";
+  return "other";
+}
+
+function pickLine(p: TicketPick): number | null {
+  const spec = p.sporty?.specifier ?? "";
+  const fromSpec = Number(spec.match(/total=([\d.]+)/)?.[1]);
+  if (Number.isFinite(fromSpec)) return fromSpec;
+  const fromMkt = Number((p.market ?? "").match(/(\d+(?:\.\d+)?)/)?.[1]);
+  return Number.isFinite(fromMkt) ? fromMkt : null;
+}
+
+export function pickMatchesAsks(p: TicketPick, asks: CookAsk[]): boolean {
+  if (!asks.length) return true;
+  const fam = marketFamily(p.sporty?.marketId, p.market);
+  const period = pickPeriod(p);
+  const sel = (p.selection ?? "").toLowerCase();
+  const over = /\bover\b/.test(sel);
+  const under = /\bunder\b/.test(sel);
+  const line = pickLine(p);
+  return asks.some((ask) => {
+    if (ask.family === "gg") return fam === "gg";
+    if (ask.family === "dnb") return fam === "dnb";
+    if (ask.family === "dc") return fam === "dc";
+    if (ask.family === "hcp") return fam === "hcp";
+    if (ask.family === "win") return fam === "win";
+    if (ask.family === "teamou") {
+      if (fam !== "teamou") return false;
+      if (ask.side === "over" && !over) return false;
+      if (ask.side === "under" && !under) return false;
+      return true;
+    }
+    if (ask.period === "1h" && period !== "1h") return false;
+    if (ask.period === "ft" && period !== "ft") return false;
+    if (ask.period === "q1" && period !== "q1") return false;
+    if (ask.period === "ft" && (fam === "teamou" || p.sporty?.marketId === "227" || p.sporty?.marketId === "228"))
+      return false;
+    if (ask.side === "over" && !over) return false;
+    if (ask.side === "under" && !under) return false;
+    if (ask.line != null && line != null && line !== ask.line) return false;
+    if (ask.family === "ou" && fam !== "ou" && fam !== "ou1h") return false;
+    if (ask.family === "ou1h" && fam !== "ou1h") return false;
+    return fam === "ou" || fam === "ou1h" || over || under;
+  });
+}
+
 export function parseMarketTarget(text: string): MarketTarget | null {
   const t = text.toLowerCase().trim();
   if (t === "ou35" || /over\s*3\.5|o3\.5|ou\s*3\.5/.test(t)) return "ou35";
