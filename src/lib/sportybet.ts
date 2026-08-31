@@ -264,7 +264,7 @@ export function marketFamily(
 ): "win" | "dc" | "ou" | "gg" | "dnb" | "hcp" | "ou1h" | "teamou" {
   const d = (desc ?? "").toLowerCase();
   if (id === "10" || d.includes("double chance")) return "dc";
-  if (id === "186" || id === "202") return "win";
+  if (id === "186" || id === "202" || id === "1" || id === "219") return "win";
   if (id === "187" || id === "188" || id === "16" || id === "14" || id === "223" || id === "66" || d.includes("handicap"))
     return "hcp";
   if (id === "68" || id === "69" || id === "70" || (id === "236" && d.includes("1st")) || (d.includes("1st half") && d.includes("over")))
@@ -336,18 +336,14 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
     const hit = markets.find(pred);
     if (hit) want.push(hit);
   };
-  first((m) => m.id === "1");
-  first((m) => m.id === "10");
-  first((m) => m.id === "11");
-  first((m) => m.id === "29");
+  // Removed: 1X2 home/draw/away win (id "1") and Asian Handicap (16, 66)
+  first((m) => m.id === "10"); // double chance
+  first((m) => m.id === "11"); // draw no bet
+  first((m) => m.id === "29"); // GG/NG
   first((m) => m.id === "18" && m.specifier === "total=1.5");
   first((m) => m.id === "18" && (m.specifier === "total=2.5" || m.specifier === "total=2"));
   first((m) => m.id === "18" && (m.specifier === "total=3.5" || m.specifier === "total=3"));
   first((m) => m.id === "68" && (m.specifier === "total=0.5" || m.specifier === "total=1.5" || m.specifier === "total=1"));
-  const ah = mostBalanced(markets.filter((m) => m.id === "16"));
-  const ah1h = mostBalanced(markets.filter((m) => m.id === "66"));
-  if (ah) want.push(ah);
-  if (ah1h) want.push(ah1h);
   const picks: TicketPick[] = [];
   for (const market of want) {
     for (const outcome of openOutcomes(market)) {
@@ -414,28 +410,6 @@ function lowerOverLine(markets: EventMarket[]): EventMarket | undefined {
   return best ?? main;
 }
 
-function tighterHandicap(markets: EventMarket[]): EventMarket | undefined {
-  let best: EventMarket | undefined;
-  let bestScore = -999;
-  for (const market of markets) {
-    const hcp = specNum(market, "hcp");
-    const outs = openOutcomes(market).filter((o) => inBookWindow(Number(o.odds)));
-    if (!outs.length) continue;
-    const odds = Math.min(...outs.map((o) => Number(o.odds)));
-    if (odds > 1.85) continue;
-    const abs = hcp == null ? 9 : Math.abs(hcp);
-    let s = 12 - Math.abs(odds - 1.55) * 10;
-    if (abs <= 5.5) s += 10;
-    else if (abs <= 8.5) s += 4;
-    else s -= 8;
-    if (s > bestScore) {
-      bestScore = s;
-      best = market;
-    }
-  }
-  return best ?? mostBalanced(markets);
-}
-
 function pushOver(
   picks: TicketPick[],
   ev: EventDetail,
@@ -466,18 +440,10 @@ function pushMarket(
 function basketballCandidates(ev: EventDetail): TicketPick[] {
   const markets = (ev.markets ?? []).filter((m) => m.status === 0);
   const picks: TicketPick[] = [];
-  pushMarket(
-    picks,
-    ev,
-    "basketball",
-    markets.find((m) => m.id === "219") ||
-      markets.find((m) => /winner/i.test(m.desc ?? "") && openOutcomes(m).length >= 2),
-  );
+  // Removed: Winner (home/away) and Handicap markets
   pushOver(picks, ev, "basketball", lowerOverLine(markets.filter((m) => m.id === "225")));
   pushOver(picks, ev, "basketball", lowerOverLine(markets.filter((m) => m.id === "227")));
   pushOver(picks, ev, "basketball", lowerOverLine(markets.filter((m) => m.id === "228")));
-  pushMarket(picks, ev, "basketball", tighterHandicap(markets.filter((m) => m.id === "223")));
-  pushMarket(picks, ev, "basketball", tighterHandicap(markets.filter((m) => m.id === "66")));
   pushOver(picks, ev, "basketball", lowerOverLine(markets.filter((m) => m.id === "68")));
   pushOver(picks, ev, "basketball", lowerOverLine(markets.filter((m) => m.id === "69")));
   pushOver(picks, ev, "basketball", lowerOverLine(markets.filter((m) => m.id === "70")));
@@ -513,6 +479,11 @@ function tennisCandidates(ev: EventDetail): TicketPick[] {
 }
 
 function cookablePick(p: TicketPick) {
+  // Block home/away win and handicap for football & basketball
+  if (p.sport === "football" || p.sport === "basketball") {
+    const fam = marketFamily(p.sporty?.marketId, p.market);
+    if (fam === "win" || fam === "hcp") return false;
+  }
   return true;
 }
 
@@ -723,8 +694,7 @@ export function parseCookAsks(text: string): CookAsk[] {
   if (/\bgg\b|btts|both teams/.test(t)) add({ period: "any", side: "any", family: "gg" });
   if (/draw no bet|\bdnb\b/.test(t)) add({ period: "any", side: "any", family: "dnb" });
   if (/double chance|\bdc\b/.test(t) || (/home or away/.test(t) && !hasOver)) add({ period: "any", side: "any", family: "dc" });
-  if (/\bhandicap\b|\bspread\b/.test(t)) add({ period: "any", side: "any", family: "hcp" });
-  if (/1x2|match winner|straight win/.test(t)) add({ period: "any", side: "any", family: "win" });
+  // handicap / 1x2 win no longer primary cook options
   if (/team totals?|home total|away total|individual over/.test(t)) {
     add({ period: "ft", side: side === "any" ? "over" : side, family: "teamou" });
   }
