@@ -50,6 +50,7 @@ function envSeekai() {
 function envGemini() {
   return unique([
     process.env.GEMINI_API_KEY ?? "",
+    process.env.GOOGLE_API_KEY ?? "",
     process.env.GOOGLE_AI_API_KEY ?? "",
     process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? "",
     process.env.GEMINI_API_KEY_2 ?? "",
@@ -91,6 +92,9 @@ export function detectKey(raw: string): { kind: KeyKind; key: string } | null {
   if (/^ydc-sk-[A-Za-z0-9_-]{12,}$/i.test(t) || /^ydc-[A-Za-z0-9_-]{16,}$/i.test(t)) {
     return { kind: "you", key: t };
   }
+  if (/^AIza[0-9A-Za-z_-]{20,}$/.test(t) || /^AQ\.[A-Za-z0-9_-]{16,}$/.test(t)) {
+    return { kind: "gemini", key: t };
+  }
   if (/^sk-[A-Za-z0-9]{20,}$/.test(t)) return { kind: "seekai", key: t };
   if (/^AIza[0-9A-Za-z_-]{30,}$/.test(t)) return { kind: "gemini", key: t };
   if (/^AQ\.[A-Za-z0-9_-]{20,}$/.test(t)) return { kind: "gemini", key: t };
@@ -100,8 +104,10 @@ export function detectKey(raw: string): { kind: KeyKind; key: string } | null {
 export async function addDeskKey(kind: KeyKind, key: string) {
   await refreshKeys();
   const clean = key.replace(/\s+/g, "").trim();
-  extra[kind] = unique([...extra[kind], clean]);
-  await setSetting(`keys_${kind}`, JSON.stringify(extra[kind]));
+  extra[kind] = unique([...(extra[kind] ?? []), clean]);
+  const ok = await setSetting(`keys_${kind}`, JSON.stringify(extra[kind]));
+  await refreshKeys();
+  return ok && extra[kind].includes(clean);
 }
 
 export async function delDeskKey(kind: KeyKind, index: number) {
@@ -129,11 +135,12 @@ export function formatKeyList() {
   extra.gemini.forEach((k, i) => lines.push(`gemini extra ${i + 1}: ${maskKey(k)}`));
   if (!gemEnv.length && !extra.gemini.length) lines.push("gemini: none");
   lines.push("");
-  lines.push("/key you ydc-sk-…");
-  lines.push("/key seekai sk-…");
-  lines.push("/key gemini AIza… or AQ.…");
-  lines.push("/key del you 1");
-  lines.push("/key del seekai 1");
-  lines.push("/key del gemini 1");
+  lines.push("Add on Vercel → Project → Settings → Environment Variables → Production, then Redeploy:");
+  lines.push("YDC_API_KEY");
+  lines.push("YDC_API_KEY_2");
+  lines.push("SEEKAI_API_KEY");
+  lines.push("GEMINI_API_KEY");
+  lines.push("");
+  lines.push("Or paste here: /key gemini AQ.…");
   return lines.join("\n");
 }

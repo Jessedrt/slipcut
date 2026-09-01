@@ -190,7 +190,7 @@ export function sportyOf(picks: TicketPick[]): SportySelection[] {
 
 const FOOTBALL_LEAGUES =
   /premier league|laliga|la liga|serie a|bundesliga|ligue 1|champions league|europa league|conference league|eredivisie|primeira|championship|mls|copa libertadores|nations league|pro league|saudi/i;
-const BASKETBALL_LEAGUES = /nba|euroleague|eurocup|ncaa|wnba|nbl|acb|bbl/i;
+const BASKETBALL_LEAGUES = /euroleague|eurocup|ncaa|wnba|nbl|acb|bbl/i;
 const TENNIS_LEAGUES = /atp|wta|us open|australian open|wimbledon|roland|french open|masters|challenger|grand slam/i;
 
 type EventMarket = {
@@ -336,10 +336,9 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
     const hit = markets.find(pred);
     if (hit) want.push(hit);
   };
-  // Removed: 1X2 home/draw/away win (id "1") and Asian Handicap (16, 66)
-  first((m) => m.id === "10"); // double chance
-  first((m) => m.id === "11"); // draw no bet
-  first((m) => m.id === "29"); // GG/NG
+  first((m) => m.id === "10");
+  first((m) => m.id === "11");
+  first((m) => m.id === "29");
   first((m) => m.id === "18" && m.specifier === "total=1.5");
   first((m) => m.id === "18" && (m.specifier === "total=2.5" || m.specifier === "total=2"));
   first((m) => m.id === "18" && (m.specifier === "total=3.5" || m.specifier === "total=3"));
@@ -440,7 +439,6 @@ function pushMarket(
 function basketballCandidates(ev: EventDetail): TicketPick[] {
   const markets = (ev.markets ?? []).filter((m) => m.status === 0);
   const picks: TicketPick[] = [];
-  // Removed: Winner (home/away) and Handicap markets
   pushOver(picks, ev, "basketball", lowerOverLine(markets.filter((m) => m.id === "225")));
   pushOver(picks, ev, "basketball", lowerOverLine(markets.filter((m) => m.id === "227")));
   pushOver(picks, ev, "basketball", lowerOverLine(markets.filter((m) => m.id === "228")));
@@ -453,7 +451,7 @@ function basketballCandidates(ev: EventDetail): TicketPick[] {
     "basketball",
     lowerOverLine(markets.filter((m) => m.id === "236" && (m.specifier ?? "").includes("quarternr=1"))),
   );
-  return picks;
+  return picks.filter((p) => !/\bnba\b/i.test(p.league ?? ""));
 }
 
 function tennisCandidates(ev: EventDetail): TicketPick[] {
@@ -479,10 +477,12 @@ function tennisCandidates(ev: EventDetail): TicketPick[] {
 }
 
 function cookablePick(p: TicketPick) {
-  // Block home/away win and handicap for football & basketball
+  const id = p.sporty?.marketId;
+  const fam = marketFamily(id, p.market);
+  if (p.sport === "basketball" && /\bnba\b/i.test(p.league ?? "")) return false;
   if (p.sport === "football" || p.sport === "basketball") {
-    const fam = marketFamily(p.sporty?.marketId, p.market);
-    if (fam === "win" || fam === "hcp") return false;
+    if (id === "1" || id === "219" || fam === "win") return false;
+    if (id === "16" || id === "66" || id === "223" || fam === "hcp") return false;
   }
   return true;
 }
@@ -602,7 +602,8 @@ export async function listUpcomingPicks(
           e.status === 0 &&
           !e.banned &&
           e.eventId &&
-          inCookWindow(e.estimateStartTime ?? 0, window, now),
+          inCookWindow(e.estimateStartTime ?? 0, window, now) &&
+          (sport !== "basketball" || !/\bnba\b/i.test(e.leagueHint ?? "")),
       )
       .sort((a, b) => {
         const ap = prefer.test(a.leagueHint ?? "") ? 0 : 1;

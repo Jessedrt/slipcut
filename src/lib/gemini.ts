@@ -1,6 +1,11 @@
 import { geminiKeys } from "./keys";
 
-const MODEL = process.env.GEMINI_MODEL?.trim() || "gemini-2.0-flash";
+const MODELS = [
+  process.env.GEMINI_MODEL?.trim(),
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+  "gemini-1.5-flash",
+].filter((m): m is string => Boolean(m));
 
 let seq = 0;
 
@@ -14,65 +19,53 @@ export function geminiReady() {
 }
 
 export async function geminiChat(
-  messages: { role: "system" | "user" | "assistant"; content: string }[],
-  timeoutMs = 20_000,
+  system: string,
+  user: string,
+  timeoutMs = 28_000,
 ): Promise<string> {
   const keys = geminiKeys();
   if (!keys.length) throw new Error("Gemini key no dey");
 
-  const system = messages.find((m) => m.role === "system")?.content ?? "";
-  const contents = messages
-    .filter((m) => m.role !== "system")
-    .map((m) => ({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.content }],
-    }));
-
   let last = "Gemini unavailable.";
   for (let attempt = 0; attempt < keys.length; attempt++) {
     const apiKey = takeKey(keys);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`;
-      const res = await fetch(url, {
-        method: "POST",
-        signal: controller.signal,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemInstruction: system ? { parts: [{ text: system }] } : undefined,
-          contents,
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 900,
+    for (const model of MODELS) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+          {
+            method: "POST",
+            signal: controller.signal,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: system }] },
+              contents: [{ role: "user", parts: [{ text: user }] }],
+              generationConfig: { temperature: 0.15, maxOutputTokens: 1400 },
+            }),
           },
-        }),
-      });
-      if (res.status === 401 || res.status === 403 || res.status === 429) {
-        last = `Gemini unavailable (${res.status})`;
-        continue;
-      }
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "");
-        throw new Error(
-          `Gemini unavailable (${res.status})${errText ? `: ${errText.slice(0, 160)}` : ""}`,
         );
+        if (res.status === 401 || res.status === 403 || res.status === 429) {
+          last = `Gemini unavailable (${res.status})`;
+          break;
+        }
+        if (!res.ok) {
+          last = `Gemini ${model} (${res.status})`;
+          continue;
+        }
+        const body = (await res.json()) as {
+          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+        };
+        const text =
+          body.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim() ?? "";
+        if (!text) throw new Error("Gemini returned empty");
+        return text;
+      } catch (err) {
+        last = err instanceof Error ? err.message : last;
+      } finally {
+        clearTimeout(timer);
       }
-      const body = (await res.json()) as {
-        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-      };
-      const text =
-        body.candidates?.[0]?.content?.parts
-          ?.map((p) => p.text ?? "")
-          .join("")
-          .trim() ?? "";
-      if (!text) throw new Error("Gemini returned empty");
-      return text;
-    } catch (err) {
-      last = err instanceof Error ? err.message : last;
-      if (attempt === keys.length - 1) throw err;
-    } finally {
-      clearTimeout(timer);
     }
   }
   throw new Error(last);

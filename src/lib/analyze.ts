@@ -2,8 +2,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { applyThreshold, combinedChance } from "./format";
 import { extractShareCode, parseTicketText } from "./parse-ticket";
 import { loadBookingCode, mintShare, sportyOf } from "./sportybet";
-import { firstUrl, youAnswer, youContents } from "./you";
+import { firstUrl, youAnswer, youContents, youKeys } from "./you";
 import { seekaiReady, seekChat } from "./seekai";
+import { geminiReady, geminiChat } from "./gemini";
+import { refreshKeys } from "./keys";
 import type {
   AnalyzedPick,
   CutResponse,
@@ -167,44 +169,78 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
+async function liveBrief(picks: TicketPick[]): Promise<string> {
+  if (!youKeys().length) return "";
+  const q = picks
+    .slice(0, 6)
+    .map((p) => `${clip(p.home, 24)} vs ${clip(p.away, 24)} ${clip(p.league, 18)} ${clip(p.market, 18)} ${clip(p.selection, 16)}`)
+    .join(" | ");
+  try {
+    return clip(
+      await youAnswer(
+        `For each match give: last 5 results both teams, injuries/absences, H2H goals or pace, and whether ${picks[0]?.selection ?? "this pick"} is justified. Be specific, no odds. ${q}`,
+        10_000,
+      ),
+      1400,
+    );
+  } catch {
+    return "";
+  }
+}
+
 async function scoreChunk(picks: TicketPick[]): Promise<Record<string, unknown>[]> {
   const lines = picks
-    .map(
-      (p, i) =>
-        `${i + 1}. ${p.sport}: ${clip(p.home, 32)} vs ${clip(p.away, 32)}. ${clip(p.league, 22)}. ${clip(p.market, 28)} — ${clip(p.selection, 28)}${p.odds ? ` @${p.odds}` : ""}`,
-    )
+    .map((p, i) => {
+      const when = p.kickoff ? new Date(p.kickoff).toISOString().slice(0, 16) : "tba";
+      return `${i + 1}. ${p.sport} | ${clip(p.league, 28)} | ${clip(p.home, 34)} vs ${clip(p.away, 34)} | ${clip(p.market, 32)} → ${clip(p.selection, 32)} | price ${p.odds ?? "?"} | KO ${when}`;
+    })
     .join("\n");
+  const brief = await liveBrief(picks);
+  const system =
+    "You are an elite football/basketball match analyst, not a tipster. Think carefully about each selection: league quality, team style, injuries, rest, H2H, whether this MARKET (Over/1H Over/GG/DNB/DC) actually fits THIS match. Reject Home/Away winner and handicap. Score true chance the selection wins, 0-100. Coin-flips 40-48. Only 62+ if you would stake your own money. Reply ONLY JSON {\"picks\":[{\"i\":1,\"probability\":0-100,\"confidence\":\"high|medium|low\",\"summary\":\"one line\",\"reasons\":[\"form\",\"style\"],\"risks\":[\"x\"]}]}";
+  const user = `${brief ? `LIVE RESEARCH:\n${brief}\n\n` : ""}Score each selection independently. Do not copy the same market across games unless the matchup truly matches.\n${lines}`;
 
-  if (seekaiReady()) {
+  const tryParse = (answer: string, engine: string) => {
     try {
-      const answer = await seekChat(
-        [
-          {
-            role: "system",
-            content:
-              "You are a sharp football/basketball betting analyst. Reason about form, injuries, H2H, league quality and whether THIS market fits the match. Do not default to Over or Home/Away. Be harsh: coin-flips 40-50, only strong spots 60+. Reply ONLY JSON {\"picks\":[{\"i\":1,\"probability\":0-100,\"confidence\":\"high|medium|low\",\"summary\":\"one line\",\"reasons\":[\"form\"],\"risks\":[\"x\"]}]}",
-          },
-          {
-            role: "user",
-            content: `Score these ${picks.length} selections:\n${lines}`,
-          },
-        ],
-        22_000,
-      );
       const parsed = stripJson(answer) as { picks?: unknown };
       const rows = Array.isArray(parsed.picks) ? parsed.picks : [];
-      if (rows.length) {
-        return picks.map((pick, i) => {
-          const row =
-            rows.find((r) => r && typeof r === "object" && Number((r as { i?: number }).i) === i + 1) ??
-            rows[i] ??
-            {};
-          const rec = (row && typeof row === "object" ? row : {}) as Record<string, unknown>;
-          return { id: pick.id, sport: pick.sport, ...rec };
-        });
-      }
+      if (!rows.length) return null;
+      return picks.map((pick, i) => {
+        const row =
+          rows.find((r) => r && typeof r === "object" && Number((r as { i?: number }).i) === i + 1) ??
+          rows[i] ??
+          {};
+        const rec = (row && typeof row === "object" ? row : {}) as Record<string, unknown>;
+        return { id: pick.id, sport: pick.sport, engine, ...rec };
+      });
     } catch {
-      /* fall through to you.com */
+      return null;
+    }
+  };
+
+  if (geminiReady()) {
+    try {
+      const hit = tryParse(await geminiChat(system, user, 28_000), "gemini");
+      if (hit) return hit;
+    } catch {
+      /* opus next */
+    }
+  }
+  if (seekaiReady()) {
+    try {
+      const hit = tryParse(
+        await seekChat(
+          [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          28_000,
+        ),
+        "opus",
+      );
+      if (hit) return hit;
+    } catch {
+      /* you.com next */
     }
   }
 
@@ -279,16 +315,17 @@ async function scorePicks(picks: TicketPick[]): Promise<unknown> {
       risks: ["Sport is outside the desk."],
     });
   }
-  const groups = chunk(playable, 4);
-  const scored = await mapPool(groups, 2, (group) => scoreChunk(group));
+  const groups = chunk(playable, 2);
+  const scored = await mapPool(groups, 3, (group) => scoreChunk(group));
   for (const group of scored) rows.push(...group);
   return {
-    desk: `🧠 ${seekaiReady() ? "Opus" : "AI"} form read of ${playable.length} selection${playable.length === 1 ? "" : "s"}.`,
+    desk: `🧠 ${geminiReady() ? "Gemini" : seekaiReady() ? "Opus" : "AI"}${youKeys().length ? " + you.com" : ""} deep read of ${playable.length} selection${playable.length === 1 ? "" : "s"}.`,
     picks: rows,
   };
 }
 
 export async function analyzePicks(picks: TicketPick[], threshold = 45) {
+  await refreshKeys();
   const analyzedRaw = await scorePicks(picks);
   return mergeAnalysis(picks, analyzedRaw, clampThreshold(threshold));
 }

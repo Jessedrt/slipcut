@@ -2,7 +2,7 @@ import { analyzePicks } from "./analyze";
 import { marketFamily } from "./sportybet";
 import { applyLessonScores } from "./study";
 import { youKeys } from "./you";
-import { seekaiKeys } from "./keys";
+import { refreshKeys, seekaiKeys, geminiKeys } from "./keys";
 import type { TicketPick } from "./types";
 
 const WEAK_FB =
@@ -12,7 +12,7 @@ const WEAK =
   /friendly|u-?1[789]|u-?2[013]|reserve|\bii\b|amateur|virtual|esport|simulat|youth|qualification play-off/i;
 const TOP_FB =
   /premier league|la liga|laliga|serie a|bundesliga|ligue 1|champions league|europa league|conference league|eredivisie|primeira|championship|mls|copa libertadores|nations league|saudi|super lig|liga portugal|pro league/i;
-const TOP_BB = /nba|euroleague|ncaa|wnba|acb|nbl/i;
+const TOP_BB = /euroleague|ncaa|wnba|acb|nbl|eurocup|bbl/i;
 const TOP_TN = /atp|wta|us open|australian open|wimbledon|roland|french open|masters|grand slam|challenger/i;
 
 function clamp(n: number, lo: number, hi: number) {
@@ -49,7 +49,7 @@ export function deskScore(pick: TicketPick): number {
 function isJunk(pick: TicketPick) {
   const blob = `${pick.league ?? ""} ${pick.home} ${pick.away}`;
   if (pick.sport === "football") return WEAK_FB.test(blob);
-  if (pick.sport === "basketball") return WEAK_BB.test(blob) && !TOP_BB.test(pick.league ?? "");
+  if (pick.sport === "basketball") return WEAK_BB.test(blob) || /\bnba\b/i.test(pick.league ?? "");
   return false;
 }
 
@@ -218,6 +218,7 @@ export async function researchPicks<T extends TicketPick>(
   picks: T[],
   want: number,
 ): Promise<{ keep: T[]; dropped: number; researched: boolean }> {
+  await refreshKeys();
   const clean = picks.filter((p) => !isJunk(p));
   const football = footballShapePick(clean.filter((p) => p.sport === "football"));
   const other = bestPerEvent(clean.filter((p) => p.sport !== "football"));
@@ -229,20 +230,20 @@ export async function researchPicks<T extends TicketPick>(
   const lessoned = await applyLessonScores(seeded);
   lessoned.sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0) || Number(isTop(b)) - Number(isTop(a)));
 
-  const shortlist = lessoned.slice(0, Math.min(lessoned.length, Math.max(want + 10, want * 2)));
+  const shortlist = lessoned.slice(0, Math.min(lessoned.length, Math.max(want + 12, want * 2)));
   let researched = false;
 
-  if ((seekaiKeys().length || youKeys().length) && shortlist.length) {
-    const sample = shortlist.slice(0, Math.min(12, shortlist.length));
-    const ai = await withTimeout(analyzePicks(sample, 45), 36_000);
+  if ((geminiKeys().length || seekaiKeys().length || youKeys().length) && shortlist.length) {
+    const sample = shortlist.slice(0, Math.min(14, shortlist.length));
+    const ai = await withTimeout(analyzePicks(sample, 45), 55_000);
     if (ai?.picks?.length) {
       researched = true;
       const byId = new Map(ai.picks.map((row) => [row.id, row]));
       for (const p of shortlist) {
         const live = byId.get(p.id);
         if (typeof live?.probability !== "number") continue;
-        const conf = live.confidence === "high" ? 4 : live.confidence === "low" ? -6 : 0;
-        p.probability = clamp(Math.round(0.25 * (p.probability ?? 50) + 0.75 * live.probability + conf), 4, 96);
+        const conf = live.confidence === "high" ? 5 : live.confidence === "low" ? -8 : 0;
+        p.probability = clamp(Math.round(0.15 * (p.probability ?? 50) + 0.85 * live.probability + conf), 4, 96);
       }
       shortlist.sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0));
     }

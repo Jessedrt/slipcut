@@ -6,10 +6,19 @@ import { researchPicks } from "./research";
 import { getEventDetail, eventScore, loadBookingCode, listUpcomingPicks, mintShare, parseCookAsks, parseMarketTarget, pickMatchesAsks, formatCookAsks, retargetPicks, sportyOf, windowLabel, type CookAsk, type CookWindow } from "./sportybet";
 import { addAllow, addBlock, allowedBy, applyLessonScores, blockedBy, clearAllows, formatBankroll, formatBook, formatRecap, formatStudy, getSetting, latestCode, latestUnstudiedCode, listAllows, listBlocks, listChats, loadOddsBand, recordSlip, recordStake, rememberChat, removeBlock, saveOddsBand, setSetting, studyCode } from "./study";
 import { addDeskKey, delDeskKey, detectKey, formatKeyList, refreshKeys } from "./keys";
+import { seekaiReady } from "./seekai";
+import { geminiReady } from "./gemini";
 import { buildToOdds, combinedOdds, copyRebuild, formatKickoff, formatOdds, keepTop, parseCommand, splitEven, trimToOdds, uniqueEvents } from "./workbench";
 import type { BookSport, TicketPick } from "./types";
 
 const MAX_LEGS = 35;
+
+function researchTag(researched: boolean) {
+  if (!researched) return "desk read";
+  if (geminiReady()) return "gemini";
+  if (seekaiReady()) return "opus";
+  return "researched";
+}
 const MENU = [
   { command: "start", description: "Welcome" },
   { command: "today", description: "Today football" },
@@ -20,7 +29,7 @@ const MENU = [
   { command: "daily2", description: "SportyBet daily 2 odds" },
   { command: "book", description: "Slips and bankroll" },
   { command: "recap", description: "This week" },
-  { command: "filter", description: "only EPL NBA ATP" },
+  { command: "filter", description: "only EPL ATP" },
   { command: "help", description: "How to talk to me" },
 ];
 
@@ -505,7 +514,7 @@ async function createSportSlip(
     await tg("sendMessage", { chat_id: chatId, text: `No ${sport}${market ? ` ${market}` : ""} remain after research.` });
     return;
   }
-  const tag = researched.researched ? "researched" : "desk read";
+  const tag = researchTag(researched.researched);
   const title =
     take.length < n
       ? `${take.length} games ${sport}${market ? ` · ${market}` : ""}${span ? ` · ${span}` : ""} · ${tag} — na only ${take.length} pass`
@@ -542,7 +551,7 @@ async function createOddsSlip(
     return;
   }
   const actual = combinedOdds(take);
-  const tag = researched.researched ? "researched" : "desk read";
+  const tag = researchTag(researched.researched);
   const title =
     actual && actual < target * 0.75
       ? `${take.length} games ${sport}${span ? ` · ${span}` : ""} · ${formatOdds(actual)} · ${tag} — pool no reach ${formatOdds(target)}`
@@ -622,7 +631,7 @@ async function createSportyDaily2(chatId: number) {
     chatId,
     take,
     "ng",
-    `SportyBet · daily 2${combo ? ` · ${formatOdds(combo)}` : ""} · ${researched.researched ? "researched" : "desk read"}`,
+    `SportyBet · daily 2${combo ? ` · ${formatOdds(combo)}` : ""} · ${researched.researched ? researchTag(true) : "desk read"}`,
   );
 }
 
@@ -647,7 +656,7 @@ async function createDrawSlip(chatId: number, count: number, window: CookWindow 
     chatId,
     take,
     "ng",
-    `Draw only · ${take.length} football${combo ? ` · ${formatOdds(combo)}` : ""} · ${researched.researched ? "researched" : "desk read"}`,
+    `Draw only · ${take.length} football${combo ? ` · ${formatOdds(combo)}` : ""} · ${researched.researched ? researchTag(true) : "desk read"}`,
   );
 }
 
@@ -715,7 +724,7 @@ async function createMixSlip(
     chatId,
     take,
     "ng",
-    `Mix ${fc} football + ${bc} basketball + ${tc} tennis${actual ? ` · ${formatOdds(actual)}` : ""}${span ? ` · ${span}` : ""} · ${researched.researched ? "researched" : "desk read"}`,
+    `Mix ${fc} football + ${bc} basketball + ${tc} tennis${actual ? ` · ${formatOdds(actual)}` : ""}${span ? ` · ${span}` : ""} · ${researched.researched ? researchTag(true) : "desk read"}`,
   );
 }
 
@@ -1300,9 +1309,10 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       await tg("sendMessage", { chat_id: msg.chat.id, text: formatKeyList() });
       return;
     }
-    const del = arg.match(/^del(?:ete)?\s+(you|seekai|you\.com)\s+(\d+)\s*$/i);
+    const del = arg.match(/^del(?:ete)?\s+(you|seekai|gemini|you\.com)\s+(\d+)\s*$/i);
     if (del) {
-      const kind = del[1]!.toLowerCase().startsWith("you") ? "you" : "seekai";
+      const token = del[1]!.toLowerCase();
+      const kind = token.startsWith("you") ? "you" : token.startsWith("gem") ? "gemini" : "seekai";
       const ok = await delDeskKey(kind, Number(del[2]));
       await refreshKeys();
       await tg("sendMessage", {
@@ -1311,42 +1321,45 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       });
       return;
     }
-    const add = arg.match(/^(you|seekai|you\.com)\s+(\S+)/i);
+    const add = arg.match(/^(you|seekai|gemini|you\.com)\s+(\S+)/i);
     const detected = detectKey(arg);
     if (add || detected) {
-      const kind = add
-        ? add[1]!.toLowerCase().startsWith("you")
+      const token = add?.[1]?.toLowerCase() ?? "";
+      const kind = detected
+        ? detected.kind
+        : token.startsWith("you")
           ? "you"
-          : "seekai"
-        : detected!.kind;
+          : token.startsWith("gem")
+            ? "gemini"
+            : "seekai";
       const key = add ? add[2]! : detected!.key;
-      const look = detectKey(key) ?? (kind === "you" || kind === "seekai" ? { kind, key } : null);
-      if (!look) {
-        await tg("sendMessage", { chat_id: msg.chat.id, text: "That no look like a key." });
-        return;
-      }
-      await addDeskKey(look.kind, look.key);
+      const look = detectKey(key) ?? { kind, key };
+      const saved = await addDeskKey(look.kind, look.key);
       await refreshKeys();
       await tg("sendMessage", {
         chat_id: msg.chat.id,
-        text: `Added ${look.kind} key.\n\n${formatKeyList()}`,
+        text: saved
+          ? `Added ${look.kind} key.\n\n${formatKeyList()}`
+          : `Could not save ${look.kind} key to the database. Add it on Vercel as ${look.kind === "gemini" ? "GEMINI_API_KEY" : look.kind === "seekai" ? "SEEKAI_API_KEY" : "YDC_API_KEY"} then Redeploy.\n\n${formatKeyList()}`,
       });
       return;
     }
     await tg("sendMessage", {
       chat_id: msg.chat.id,
-      text: ["Add extra keys anytime:", "", "/key you ydc-sk-…", "/key seekai sk-…", "/keys", "/key del you 1"].join("\n"),
+      text: formatKeyList(),
     });
     return;
   }
   {
     const pasted = detectKey(raw);
     if (pasted && msg.from && (await isOwner(msg.from))) {
-      await addDeskKey(pasted.kind, pasted.key);
+      const saved = await addDeskKey(pasted.kind, pasted.key);
       await refreshKeys();
       await tg("sendMessage", {
         chat_id: msg.chat.id,
-        text: `Added ${pasted.kind} key.\n\n${formatKeyList()}`,
+        text: saved
+          ? `Added ${pasted.kind} key.\n\n${formatKeyList()}`
+          : `Could not save. Add ${pasted.kind === "gemini" ? "GEMINI_API_KEY" : pasted.kind === "seekai" ? "SEEKAI_API_KEY" : "YDC_API_KEY"} on Vercel, then Redeploy.\n\n${formatKeyList()}`,
       });
       return;
     }

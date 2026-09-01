@@ -500,8 +500,10 @@ export async function setSetting(key: string, value: string) {
       insert into desk_settings (key, value) values (${key}, ${value})
       on conflict (key) do update set value = excluded.value
     `;
+    const rows = await sql<{ value: string }>`select value from desk_settings where key = ${key} limit 1`;
+    return rows[0]?.value === value;
   } catch {
-    /* ignore */
+    return false;
   }
 }
 
