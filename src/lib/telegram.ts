@@ -1,17 +1,39 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { analyzePicks } from "./analyze";
-import { extractShareCode } from "./parse-ticket";
 import { normalizePidgin, pidginSmallTalk, slangHelp, splitChat, wantsCreate } from "./pidgin";
 import { researchPicks } from "./research";
 import { getEventDetail, eventScore, loadBookingCode, listUpcomingPicks, mintShare, parseCookAsks, parseMarketTarget, pickMatchesAsks, formatCookAsks, retargetPicks, sportyOf, windowLabel, type CookAsk, type CookWindow } from "./sportybet";
-import { addAllow, addBlock, allowedBy, applyLessonScores, blockedBy, clearAllows, formatBankroll, formatBook, formatRecap, formatStudy, getSetting, latestCode, latestUnstudiedCode, listAllows, listBlocks, listChats, loadOddsBand, recordSlip, recordStake, rememberChat, removeBlock, saveOddsBand, setSetting, studyCode } from "./study";
+import { addAllow, addBlock, allowedBy, applyLessonScores, blockedBy, clearAllows, formatBook, formatRecap, formatStudy, latestCode, latestUnstudiedCode, listAllows, listBlocks, listChats, loadOddsBand, markUpdateSeen, recordSlip, recordStake, rememberChat, removeBlock, saveOddsBand, studyCode } from "./study";
 import { addDeskKey, delDeskKey, detectKey, formatKeyList, refreshKeys } from "./keys";
 import { seekaiReady } from "./seekai";
 import { geminiReady } from "./gemini";
-import { buildToOdds, combinedOdds, copyRebuild, formatKickoff, formatOdds, keepTop, parseCommand, splitEven, trimToOdds, uniqueEvents } from "./workbench";
+import { buildToOdds, combinedOdds, formatKickoff, formatOdds, keepTop, parseCommand, splitEven, trimToOdds, uniqueEvents } from "./workbench";
+import {
+  MAX_LEGS,
+  applyBand,
+  clampLegs,
+  clampOddsTarget,
+  cmdArg,
+  codeFromText,
+  escapeHtml as esc,
+  isCmd,
+  looksLikeShareCode,
+  normalizeFilter,
+  parseBlock,
+  parseCombineCode,
+  parseCookWindow,
+  parseDropIndexes,
+  parseLegCount,
+  parseOddsBand,
+  parseOddsTarget,
+  parseSport,
+  parseStake,
+  wantsDraw,
+  wantsLive,
+  wantsMix,
+  type OddsBand,
+} from "./intent";
 import type { BookSport, TicketPick } from "./types";
-
-const MAX_LEGS = 35;
 
 function researchTag(researched: boolean) {
   if (!researched) return "desk read";
@@ -27,6 +49,8 @@ const MENU = [
   { command: "draw", description: "Draw-only football" },
   { command: "stake", description: "Stake.com daily 2 odds" },
   { command: "daily2", description: "SportyBet daily 2 odds" },
+  { command: "score", description: "Live score of last slip" },
+  { command: "study", description: "Settle the last slip" },
   { command: "book", description: "Slips and bankroll" },
   { command: "recap", description: "This week" },
   { command: "filter", description: "only EPL ATP" },
@@ -45,97 +69,79 @@ async function ensureMenu(force = false) {
   menuReady = true;
 }
 
-function isCmd(raw: string, name: string) {
-  const t = raw.trim().replace(/[\u200b\u2060]/g, "");
-  if (new RegExp(`^/${name}(?:@\\w+)?(?:\\s|$)`, "i").test(t)) return true;
-  return new RegExp(`^${name}$`, "i").test(t);
-}
-
-function cmdArg(raw: string) {
-  return raw.trim().replace(/^\/\w+(?:@\w+)?\s*/i, "").trim();
-}
-
-function normalizeFilter(raw: string): string | "clear" | null {
-  const t = raw.trim().toLowerCase();
-  if (!t) return null;
-  if (/^(clear|off|any|all)$/.test(t)) return "clear";
-  if (/epl|premier/.test(t)) return "premier league";
-  if (/la ?liga/.test(t)) return "laliga";
-  if (/serie/.test(t)) return "serie a";
-  if (/\bnba\b/.test(t)) return "nba";
-  if (/\bwta\b/.test(t)) return "wta";
-  if (/atp|us open|grand slam/.test(t)) return "atp";
-  if (t.length >= 3) return t;
-  return null;
-}
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
 const BANNER_URL = "https://slipcut.vercel.app/banner.jpg";
 const KEEP_LINE = 45;
-
-function clampLegs(n: number, fallback: number) {
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(1, Math.min(MAX_LEGS, Math.round(n)));
-}
+/** Telegram API call budget — a hung fetch must not eat the whole function timeout. */
+const TG_TIMEOUT_MS = 20_000;
+/** How long one chat is considered "cooking" before a new request may start. */
+const BUSY_MS = 120_000;
+/** Remember recent update_ids so Telegram retries do not cook the same slip twice. */
+const RECENT_UPDATES_MAX = 1000;
 
 function naira(n: number) {
   return `₦${Math.round(n).toLocaleString("en-NG")}`;
 }
 
-function parseStake(text: string): number | null {
-  const m =
-    text.match(/\bstake\s+([\d,.]+)\s*([kKmM])?\b/i) ||
-    text.match(/\b([\d,.]+)\s*([kKmM])?\s*stake\b/i);
-  if (!m) return null;
-  let n = Number(String(m[1]).replace(/,/g, ""));
-  if (!Number.isFinite(n) || n <= 0) return null;
-  const u = (m[2] || "").toLowerCase();
-  if (u === "k") n *= 1000;
-  if (u === "m") n *= 1_000_000;
-  return n;
-}
+// ---- per-chat busy guard --------------------------------------------------
 
-type OddsBand = { min: number; max: number };
+const busyChats = new Map<number, number>();
 
-function parseOddsBand(text: string): OddsBand | null {
-  const between = text.match(/between\s+([\d.]+)\s+and\s+([\d.]+)/i);
-  if (between) {
-    const a = Number(between[1]);
-    const b = Number(between[2]);
-    if (Number.isFinite(a) && Number.isFinite(b)) return { min: Math.min(a, b), max: Math.max(a, b) };
+function isBusy(chatId: number) {
+  const since = busyChats.get(chatId);
+  if (!since) return false;
+  if (Date.now() - since > BUSY_MS) {
+    busyChats.delete(chatId);
+    return false;
   }
-  const maxM = text.match(/(?:no game(?:s)? above|max(?:imum)?(?: odds?)?|not above|cap)\s+([\d.]+)/i);
-  const minM = text.match(/(?:no game(?:s)? below|min(?:imum)?(?: odds?)?)\s+([\d.]+)/i);
-  if (!maxM && !minM) return null;
-  return {
-    min: minM ? Number(minM[1]) : 1.05,
-    max: maxM ? Number(maxM[1]) : 6,
-  };
+  return true;
 }
 
-function wantsMix(text: string) {
-  return /\bmix\b|both sports?|football and basketball|basketball and football|bola and hoop/i.test(text);
+/**
+ * Run a long job (research, mint) for a chat: shows a progress line plus the
+ * typing indicator, blocks a second concurrent job for the same chat, and
+ * removes the progress line once the real answer has been sent.
+ */
+async function withProgress(chatId: number, text: string, job: () => Promise<void>) {
+  if (isBusy(chatId)) {
+    await tg("sendMessage", { chat_id: chatId, text: "I still dey cook the last one. Hold on small." });
+    return;
+  }
+  busyChats.set(chatId, Date.now());
+  const sent = await tg("sendMessage", { chat_id: chatId, text });
+  const progressId = messageIdOf(sent);
+  await tg("sendChatAction", { chat_id: chatId, action: "typing" });
+  try {
+    await job();
+  } finally {
+    busyChats.delete(chatId);
+    if (progressId) await tg("deleteMessage", { chat_id: chatId, message_id: progressId });
+  }
 }
 
-function wantsLive(text: string) {
-  return /^(score|live|scores?)\b/i.test(text) || /\b(live score|how e dey play)\b/i.test(text);
+function messageIdOf(result: unknown): number | null {
+  if (result && typeof result === "object" && "message_id" in result) {
+    const id = Number((result as { message_id?: unknown }).message_id);
+    return Number.isFinite(id) ? id : null;
+  }
+  return null;
 }
 
-function parseBlock(text: string): { add?: string; remove?: string; list?: boolean } | null {
-  if (/^(blacklist|blocks?|blocked|no list)\s*$/i.test(text)) return { list: true };
-  const rem = text.match(/^(?:allow|unban|unblock|remove block)\s+(.+)/i);
-  if (rem?.[1]) return { remove: rem[1].trim() };
-  if (/no game(?:s)? above|no game(?:s)? below|no wahala|no be |not /i.test(text)) return null;
-  const add = text.match(/^(?:no|block|blacklist)\s+(.+)$/i);
-  if (!add?.[1]) return null;
-  const v = add[1].trim().replace(/[.!?]+$/, "");
-  if (v.length < 3) return null;
-  if (/^(football|basketball|tennis|legs?|games?|odds?|code|bola|hoop)/i.test(v)) return null;
-  return { add: v };
-}
+// ---- update de-duplication -----------------------------------------------
 
-function applyBand<T extends { odds?: number }>(picks: T[], band: OddsBand | null): T[] {
-  if (!band) return picks;
-  return picks.filter((p) => p.odds && p.odds >= band.min && p.odds <= band.max);
+const recentUpdates = new Set<number>();
+
+async function alreadySeen(updateId?: number): Promise<boolean> {
+  if (!Number.isFinite(updateId)) return false;
+  const id = updateId as number;
+  if (recentUpdates.has(id)) return true;
+  recentUpdates.add(id);
+  if (recentUpdates.size > RECENT_UPDATES_MAX) {
+    const first = recentUpdates.values().next().value;
+    if (first !== undefined) recentUpdates.delete(first);
+  }
+  // Cross-instance guard (serverless retries can land on a cold instance).
+  return !(await markUpdateSeen(id));
 }
 
 async function cookPool<T extends TicketPick>(picks: T[], band: OddsBand | null): Promise<T[]> {
@@ -196,6 +202,7 @@ type TgCallback = {
   data?: string;
 };
 type TgUpdate = {
+  update_id?: number;
   message?: TgMessage;
   callback_query?: TgCallback;
 };
@@ -206,23 +213,37 @@ export type ChatBridge = {
 
 export const chatBridge = new AsyncLocalStorage<ChatBridge>();
 
+/** Methods whose failure is noise (e.g. deleting an already-deleted message). */
+const QUIET_METHODS = new Set(["deleteMessage", "sendChatAction", "answerCallbackQuery"]);
+
 async function tg(method: string, payload: Record<string, unknown> = {}) {
   const bridged = chatBridge.getStore();
   if (bridged) {
-    await bridged.send(method, payload);
+    try {
+      await bridged.send(method, payload);
+    } catch (err) {
+      console.error(`[bridge] ${method} failed:`, err instanceof Error ? err.message : err);
+    }
     return null;
   }
   const token = TOKEN();
   if (!token) return null;
-  const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
   try {
-    const data = (await res.json()) as { ok?: boolean; result?: unknown };
+    const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(TG_TIMEOUT_MS),
+    });
+    const data = (await res.json()) as { ok?: boolean; result?: unknown; description?: string };
+    if (!data.ok && !QUIET_METHODS.has(method)) {
+      console.error(`[tg] ${method} rejected:`, data.description ?? res.status);
+    }
     return data.ok ? data.result : null;
-  } catch {
+  } catch (err) {
+    if (!QUIET_METHODS.has(method)) {
+      console.error(`[tg] ${method} failed:`, err instanceof Error ? err.message : err);
+    }
     return null;
   }
 }
@@ -293,16 +314,29 @@ function descText(result: unknown): string {
   return "";
 }
 
-async function loadAccess(): Promise<AccessState> {
+/**
+ * Access state lives in the bot description (no DB dependency) but reading it
+ * costs two Telegram round-trips. Cache briefly so a normal message does not
+ * pay that price; every save refreshes the cache immediately.
+ */
+const ACCESS_TTL_MS = 60_000;
+let accessCache: { state: AccessState; at: number } | null = null;
+
+async function loadAccess(force = false): Promise<AccessState> {
+  if (!force && accessCache && Date.now() - accessCache.at < ACCESS_TTL_MS) return accessCache.state;
   const long = parseAccess(descText(await tg("getMyDescription", {})));
-  if (long.locked || long.users.length) return long;
-  const short = parseShort(descText(await tg("getMyShortDescription", {})));
-  return short ?? long;
+  let state = long;
+  if (!long.locked && !long.users.length) {
+    state = parseShort(descText(await tg("getMyShortDescription", {}))) ?? long;
+  }
+  accessCache = { state, at: Date.now() };
+  return state;
 }
 
 async function saveAccess(state: AccessState) {
   await tg("setMyDescription", { description: encodeAccess(state) });
   await tg("setMyShortDescription", { short_description: encodeShort(state) });
+  accessCache = { state, at: Date.now() };
 }
 
 function userAllowed(state: AccessState, user: { id: number; username?: string }) {
@@ -356,20 +390,44 @@ function deskKeyboard() {
   return {
     keyboard: [
       [{ text: "Today" }, { text: "Weekend" }, { text: "Draw" }],
-      [{ text: "2 odds" }, { text: "Stake 2" }, { text: "Help" }],
+      [{ text: "2 odds" }, { text: "Mix" }, { text: "Score" }],
+      [{ text: "Book" }, { text: "Stake 2" }, { text: "Help" }],
     ],
     resize_keyboard: true,
     is_persistent: true,
-    input_field_placeholder: "Paste a code",
+    input_field_placeholder: "Paste a code, or say 12 games football",
   };
 }
 
+/** Buttons under a code the user pasted. */
 function keyboard(code: string) {
   return {
     inline_keyboard: [
       [
-        { text: "Trim", callback_data: `g:${code}` },
         { text: "Copy", copy_text: { text: code } },
+        { text: "Trim", callback_data: `g:${code}` },
+        { text: "Split 2", callback_data: `s:${code}:2` },
+      ],
+      [
+        { text: "Score", callback_data: `v:${code}` },
+        { text: "Study", callback_data: `y:${code}` },
+      ],
+    ],
+  };
+}
+
+/** Buttons under a code the bot just minted. */
+function mintedKeyboard(code: string, url: string) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "Copy", copy_text: { text: code } },
+        { text: "Open", url },
+        { text: "Trim", callback_data: `g:${code}` },
+      ],
+      [
+        { text: "Score", callback_data: `v:${code}` },
+        { text: "Study", callback_data: `y:${code}` },
       ],
     ],
   };
@@ -430,21 +488,9 @@ async function mintAndReply(chatId: number, picks: TicketPick[], country: string
     chat_id: chatId,
     text: `<code>${esc(code)}</code>`,
     parse_mode: "HTML",
-    reply_markup: {
-      inline_keyboard: [
-        [
-          { text: "Copy", copy_text: { text: code } },
-          { text: "Open", url: minted.shareURL },
-          { text: "Trim", callback_data: `g:${code}` },
-        ],
-      ],
-    },
+    reply_markup: mintedKeyboard(code, minted.shareURL),
   });
   await recordSlip(code, work);
-}
-
-function esc(s: string) {
-  return s.replace(/[&<>]/g, (ch) => ({ "&": "&", "<": "<", ">": ">" })[ch] as string);
 }
 
 async function scorePlayable(picks: TicketPick[]) {
@@ -462,17 +508,15 @@ async function sureNAndReply(
     await tg("sendMessage", { chat_id: chatId, text: "No football or basketball for this one." });
     return;
   }
-  await tg("sendMessage", {
-    chat_id: chatId,
-    text: `Picking ${n}…`,
+  await withProgress(chatId, `Picking ${n}…`, async () => {
+    const result = await scorePlayable(picks);
+    const top = keepTop(await applyLessonScores(result.picks), n);
+    if (!top.length) {
+      await tg("sendMessage", { chat_id: chatId, text: `I no fit pick ${n} sure games from that ticket.` });
+      return;
+    }
+    await mintAndReply(chatId, top, "ng", title || `${top.length} games`);
   });
-  const result = await scorePlayable(picks);
-  const top = keepTop(await applyLessonScores(result.picks), n);
-  if (!top.length) {
-    await tg("sendMessage", { chat_id: chatId, text: `I no fit pick ${n} sure games from that ticket.` });
-    return;
-  }
-  await mintAndReply(chatId, top, "ng", title || `${top.length} games`);
 }
 
 async function createSportSlip(
@@ -485,14 +529,24 @@ async function createSportSlip(
 ) {
   const n = clampLegs(count, 5);
   const span = windowLabel(window);
+  const market = formatCookAsks(asks);
+  const label = span
+    ? `Researching ${span}${market ? ` · ${market}` : ""}…`
+    : `Researching ${n} ${sport}${market ? ` · ${market}` : ""}…`;
+  await withProgress(chatId, label, () => cookSportSlip(chatId, sport, n, window, band, asks));
+}
+
+async function cookSportSlip(
+  chatId: number,
+  sport: BookSport,
+  n: number,
+  window: CookWindow,
+  band: OddsBand | null | undefined,
+  asks: CookAsk[],
+) {
+  const span = windowLabel(window);
   const useBand = band ?? (await loadOddsBand());
   const market = formatCookAsks(asks);
-  await tg("sendMessage", {
-    chat_id: chatId,
-    text: span
-      ? `Researching ${span}${market ? ` · ${market}` : ""}…`
-      : `Researching ${n} ${sport}${market ? ` · ${market}` : ""}…`,
-  });
   const listed = await listUpcomingPicks(sport, Math.min(n + 16, 40), window);
   if ("error" in listed) {
     await tg("sendMessage", { chat_id: chatId, text: listed.error });
@@ -531,11 +585,19 @@ async function createOddsSlip(
 ) {
   const target = clampOddsTarget(targetRaw);
   const span = windowLabel(window);
+  const label = span ? `Researching ${span}…` : `Researching ${formatOdds(target)} ${sport}…`;
+  await withProgress(chatId, label, () => cookOddsSlip(chatId, sport, target, window, band));
+}
+
+async function cookOddsSlip(
+  chatId: number,
+  sport: BookSport,
+  target: number,
+  window: CookWindow,
+  band: OddsBand | null | undefined,
+) {
+  const span = windowLabel(window);
   const useBand = band ?? (await loadOddsBand());
-  await tg("sendMessage", {
-    chat_id: chatId,
-    text: span ? `Researching ${span}…` : `Researching ${formatOdds(target)} ${sport}…`,
-  });
   const listed = await listUpcomingPicks(sport, 35, window);
   if ("error" in listed) {
     await tg("sendMessage", { chat_id: chatId, text: listed.error });
@@ -560,7 +622,10 @@ async function createOddsSlip(
 }
 
 async function createStakeDaily(chatId: number) {
-  await tg("sendMessage", { chat_id: chatId, text: "Researching Stake 2…" });
+  await withProgress(chatId, "Researching Stake 2…", () => cookStakeDaily(chatId));
+}
+
+async function cookStakeDaily(chatId: number) {
   const listed = await listUpcomingPicks("football", 28, "today");
   if ("error" in listed) {
     await tg("sendMessage", { chat_id: chatId, text: listed.error });
@@ -612,7 +677,10 @@ async function createStakeDaily(chatId: number) {
 }
 
 async function createSportyDaily2(chatId: number) {
-  await tg("sendMessage", { chat_id: chatId, text: "Researching 2 odds…" });
+  await withProgress(chatId, "Researching 2 odds…", () => cookSportyDaily2(chatId));
+}
+
+async function cookSportyDaily2(chatId: number) {
   const listed = await listUpcomingPicks("football", 28, "today");
   if ("error" in listed) {
     await tg("sendMessage", { chat_id: chatId, text: listed.error });
@@ -638,7 +706,10 @@ async function createSportyDaily2(chatId: number) {
 async function createDrawSlip(chatId: number, count: number, window: CookWindow = "today") {
   const n = clampLegs(count, 12);
   const span = windowLabel(window) || "today";
-  await tg("sendMessage", { chat_id: chatId, text: `Researching ${n} draws · ${span}…` });
+  await withProgress(chatId, `Researching ${n} draws · ${span}…`, () => cookDrawSlip(chatId, n, window));
+}
+
+async function cookDrawSlip(chatId: number, n: number, window: CookWindow) {
   const listed = await listUpcomingPicks("football", Math.min(n + 14, 35), window, "draw");
   if ("error" in listed) {
     await tg("sendMessage", { chat_id: chatId, text: listed.error });
@@ -688,13 +759,20 @@ async function createMixSlip(
   window: CookWindow = "soon",
   band?: OddsBand | null,
 ) {
+  const span = windowLabel(window);
+  const label = span ? `Researching mix · ${span}…` : "Researching mix…";
+  await withProgress(chatId, label, () => cookMixSlip(chatId, opts, window, band));
+}
+
+async function cookMixSlip(
+  chatId: number,
+  opts: { games?: number; odds?: number },
+  window: CookWindow,
+  band: OddsBand | null | undefined,
+) {
   const useBand = band ?? (await loadOddsBand());
   const n = clampLegs(opts.games ?? 12, 8);
   const span = windowLabel(window);
-  await tg("sendMessage", {
-    chat_id: chatId,
-    text: span ? `Researching mix · ${span}…` : "Researching mix…",
-  });
   const [foot, hoop, ten] = await Promise.all([
     listUpcomingPicks("football", 16, window),
     listUpcomingPicks("basketball", 16, window),
@@ -782,40 +860,21 @@ export async function runDeskCron() {
   return { longshot, recap };
 }
 
-function parseCookWindow(text: string): CookWindow {
-  if (/\btoday\b/i.test(text)) return "today";
-  if (/weekends?|\bsat(?:urday)?s?\b|\bsun(?:day)?s?\b/i.test(text)) return "weekend";
-  if (/2\s*weeks?|two weeks|fortnight/i.test(text)) return "fortnight";
-  if (/long\s*shots?|longshot|1\s*week|one week|this week/i.test(text)) return "week";
-  return "soon";
-}
-
-function wantsDraw(text: string) {
-  if (/draw no bet|\bdnb\b/i.test(text)) return false;
-  return /\bdraws?\b/i.test(text);
-}
-
-function parseSport(text: string): BookSport | null {
-  if (/tennis|atp|wta/i.test(text)) return "tennis";
-  if (/basket|hoop/i.test(text)) return "basketball";
-  if (/foot|soccer|bola/i.test(text)) return "football";
-  return null;
-}
-
 async function mintKeepersAndReply(chatId: number, picks: TicketPick[], count?: number) {
-  await tg("sendMessage", { chat_id: chatId, text: "Trimming…" });
-  const result = await scorePlayable(picks);
-  const counted = result.picks.filter((p) => p.sport !== "other");
-  const n = clampLegs(count ?? Math.max(2, Math.ceil(counted.length / 2)), 2);
-  const strongest = keepTop(await applyLessonScores(result.picks), n).filter((p) => p.sporty);
-  if (!strongest.length) {
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: "Nothing remain after I drop those ones.",
-    });
-    return;
-  }
-  await mintAndReply(chatId, strongest, "ng", `Trimmed to ${strongest.length} games`);
+  await withProgress(chatId, "Trimming…", async () => {
+    const result = await scorePlayable(picks);
+    const counted = result.picks.filter((p) => p.sport !== "other");
+    const n = clampLegs(count ?? Math.max(2, Math.ceil(counted.length / 2)), 2);
+    const strongest = keepTop(await applyLessonScores(result.picks), n).filter((p) => p.sporty);
+    if (!strongest.length) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: "Nothing remain after I drop those ones.",
+      });
+      return;
+    }
+    await mintAndReply(chatId, strongest, "ng", `Trimmed to ${strongest.length} games`);
+  });
 }
 
 async function askTrimCount(chatId: number, code: string, max: number) {
@@ -862,94 +921,6 @@ async function handleCode(chatId: number, code: string) {
     reply_markup: keyboard(loaded.shareCode),
   });
   await recordSlip(loaded.shareCode, play);
-}
-
-const NOT_A_CODE = new Set([
-  "CREATE",
-  "START",
-  "HELP",
-  "LEGS",
-  "GAMES",
-  "ODDS",
-  "TRIM",
-  "MINT",
-  "ANALYZE",
-  "FOOTBALL",
-  "BASKETBALL",
-  "SOCCER",
-  "SLIPCUT",
-  "SPORT",
-  "SHARE",
-  "CODE",
-  "KEEP",
-  "DROP",
-  "HOME",
-  "AWAY",
-  "OVER",
-  "UNDER",
-  "SPLIT",
-  "STUDY",
-  "CUT",
-  "LOST",
-  "COOK",
-  "LIKE",
-  "TENNIS",
-  "ATP",
-  "WTA",
-  "BOOK",
-  "COMBINE",
-  "WEEKEND",
-  "WEEKENDS",
-  "WEEK",
-  "WEEKS",
-  "STAKE",
-  "TODAY",
-  "WEEKEND",
-  "MIX",
-  "FILTER",
-  "PING",
-  "RECAP",
-  "SCORE",
-  "LIVE",
-  "BLOCK",
-  "STAKE",
-  "DRAW",
-]);
-
-function looksLikeShareCode(token: string): boolean {
-  const t = token.trim().toUpperCase();
-  if (!/^[A-Z0-9]{4,16}$/.test(t)) return false;
-  if (NOT_A_CODE.has(t)) return false;
-  return true;
-}
-
-function codeFromText(raw?: string): string | null {
-  if (!raw) return null;
-  const trimmed = raw.trim();
-  if (looksLikeShareCode(trimmed)) return trimmed.toUpperCase();
-  const labeled = extractShareCode(trimmed);
-  if (labeled && looksLikeShareCode(labeled)) return labeled;
-  const head = trimmed.match(/^([A-Z0-9]{4,16})(?:\s|$|·)/i)?.[1];
-  if (head && looksLikeShareCode(head)) return head.toUpperCase();
-  return null;
-}
-
-function parseDropIndexes(text: string): number[] | null {
-  const m = text.match(
-    /(?:drop|remove|delete|comot)\s+(?:(?:legs?|games?|match(?:es)?)\s+)?(?:game\s+)?([\d,\s&and]+)/i,
-  );
-  if (!m) return null;
-  if (!/(?:drop|remove|delete|comot)/i.test(text)) return null;
-  const nums = [...m[1].matchAll(/\d+/g)].map((x) => Number(x[0])).filter((n) => n >= 1 && n <= 80);
-  return nums.length ? nums : null;
-}
-
-function parseCombineCode(text: string): string | null {
-  const m = text.match(
-    /\b(?:combin(?:e|ing)|join|add|merge|plus)\s+(?:am\s+)?(?:with\s+)?(?:code\s+)?([A-Z0-9]{4,16})\b/i,
-  );
-  if (!m?.[1] || !looksLikeShareCode(m[1])) return null;
-  return m[1].toUpperCase();
 }
 
 function wantsMarketChange(text: string) {
