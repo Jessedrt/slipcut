@@ -3,8 +3,7 @@ import { evPerStake, fairProbFromOdds } from "./odds.ts";
 import { buildSlip, rankByValue, type Leg, type Slip } from "./optimizer.ts";
 import { marketFamily } from "./sportybet.ts";
 import { applyLessonScores } from "./study.ts";
-import { youKeys } from "./you.ts";
-import { refreshKeys, seekaiKeys, geminiKeys } from "./keys.ts";
+import { refreshKeys, geminiKeys } from "./keys.ts";
 import type { TicketPick } from "./types.ts";
 
 const WEAK_FB =
@@ -19,7 +18,6 @@ function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
 }
 
-/** Desk-only fallback when no engine answers. Anchored on de-vigged price. */
 export function deskScore(pick: TicketPick): number {
   const fam = marketFamily(pick.sporty?.marketId, pick.market);
   const market = fairProbFromOdds(pick.odds, fam, pick.sport);
@@ -35,11 +33,10 @@ export function deskScore(pick: TicketPick): number {
 
   let p = market ?? 0.5;
   if (weak) p -= 0.18;
-  if (!top) p -= 0.08; // punish obscure leagues hard when we have no research
+  if (!top) p -= 0.08;
   if (top) p += 0.03;
   if (pick.kickoff && pick.kickoff < Date.now() + 8 * 60_000) p -= 0.18;
   if (pick.odds && pick.odds > 3.5) p -= 0.04;
-  // Prefer safer market families when desk-only
   if (fam === "dc" || fam === "dnb") p += 0.02;
   if (fam === "ou" || fam === "ou1h") p += 0.01;
   return clamp(Math.round(p * 100), 4, 96);
@@ -115,7 +112,6 @@ export async function researchPicks<T extends TicketPick>(
   want: number,
   opts: { target?: number } = {},
 ): Promise<ResearchResult<T>> {
-  // Keys from env work even if the database is down.
   try {
     await refreshKeys();
   } catch {
@@ -130,7 +126,8 @@ export async function researchPicks<T extends TicketPick>(
     probability: deskScore(p),
   })) as Array<T & { probability: number }>;
 
-  const canResearch = Boolean(geminiKeys().length || seekaiKeys().length || youKeys().length);
+  // Gemini only.
+  const canResearch = Boolean(geminiKeys().length);
   let researched = false;
   if (canResearch && seeded.length) {
     const shortlist = seeded
@@ -161,7 +158,6 @@ export async function researchPicks<T extends TicketPick>(
     lessoned = seeded;
   }
 
-  // With live research: mid-40s is fine. Without it: ONLY top leagues, high bar.
   const bar = researched ? 42 : 58;
   let pool = lessoned.filter((p) => {
     if (p.probability < bar) return false;
@@ -169,10 +165,12 @@ export async function researchPicks<T extends TicketPick>(
     return true;
   });
 
-  // If still empty and researched, relax slightly. If not researched, stay strict on top leagues.
   if (!pool.length) {
     pool = researched
-      ? lessoned.filter((p) => p.probability >= 40).sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0)).slice(0, want + 4)
+      ? lessoned
+          .filter((p) => p.probability >= 40)
+          .sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0))
+          .slice(0, want + 4)
       : lessoned
           .filter((p) => isTop(p))
           .sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0))
