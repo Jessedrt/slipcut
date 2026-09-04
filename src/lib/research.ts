@@ -11,7 +11,7 @@ const WEAK_FB =
   /friendly|women|womens|u-?1[789]|u-?2[013]|reserve|\bii\b|amateur|virtual|esport|simulat|youth|qualification play-off/i;
 const WEAK_BB = /friendly|club friendly|virtual|esport|simulat|u-?1[89]/i;
 const TOP_FB =
-  /premier league|la liga|laliga|serie a|bundesliga|ligue 1|champions league|europa league|conference league|eredivisie|primeira|championship|mls|copa libertadores|nations league|saudi|super lig|liga portugal|pro league/i;
+  /premier league|la liga|laliga|serie a|bundesliga|ligue 1|champions league|europa league|conference league|eredivisie|primeira|championship|mls|copa libertadores|nations league|saudi|super lig|liga portugal|pro league|belgian|jupiler|swiss|austrian|scottish|turkish/i;
 const TOP_BB = /euroleague|ncaa|wnba|acb|nbl|eurocup|bbl/i;
 const TOP_TN = /atp|wta|us open|australian open|wimbledon|roland|french open|masters|grand slam|challenger/i;
 
@@ -34,10 +34,14 @@ export function deskScore(pick: TicketPick): number {
     pick.sport === "football" ? TOP_FB.test(league) : pick.sport === "basketball" ? TOP_BB.test(league) : TOP_TN.test(league);
 
   let p = market ?? 0.5;
-  if (weak) p -= 0.12;
-  if (top) p += 0.02;
+  if (weak) p -= 0.18;
+  if (!top) p -= 0.08; // punish obscure leagues hard when we have no research
+  if (top) p += 0.03;
   if (pick.kickoff && pick.kickoff < Date.now() + 8 * 60_000) p -= 0.18;
-  if (pick.odds && pick.odds > 4) p -= 0.02;
+  if (pick.odds && pick.odds > 3.5) p -= 0.04;
+  // Prefer safer market families when desk-only
+  if (fam === "dc" || fam === "dnb") p += 0.02;
+  if (fam === "ou" || fam === "ou1h") p += 0.01;
   return clamp(Math.round(p * 100), 4, 96);
 }
 
@@ -106,16 +110,18 @@ export type ResearchResult<T> = {
   notes: string[];
 };
 
-/**
- * Turn a raw SportyBet pool into a slip worth minting.
- * Faster path: smaller shortlist, 28s research budget, lower bar when researched.
- */
 export async function researchPicks<T extends TicketPick>(
   picks: T[],
   want: number,
   opts: { target?: number } = {},
 ): Promise<ResearchResult<T>> {
-  await refreshKeys();
+  // Keys from env work even if the database is down.
+  try {
+    await refreshKeys();
+  } catch {
+    /* env keys still available */
+  }
+
   const clean = picks.filter((p) => !isJunk(p) && p.sport !== "other");
   const oneEach = bestPerEvent(clean);
 
@@ -127,52 +133,68 @@ export async function researchPicks<T extends TicketPick>(
   const canResearch = Boolean(geminiKeys().length || seekaiKeys().length || youKeys().length);
   let researched = false;
   if (canResearch && seeded.length) {
-    // Score only the strongest candidates — keeps Gemini latency under control.
     const shortlist = seeded
       .slice()
-      .sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0))
+      .sort((a, b) => {
+        const topA = isTop(a) ? 1 : 0;
+        const topB = isTop(b) ? 1 : 0;
+        return topB - topA || (b.probability ?? 0) - (a.probability ?? 0);
+      })
       .slice(0, Math.min(seeded.length, Math.max(want + 4, 10)));
-    const scored = await withTimeout(researchScores(shortlist), 28_000);
+    const scored = await withTimeout(researchScores(shortlist), 32_000);
     if (scored?.researched) {
       researched = true;
       const byId = new Map(scored.scored.map((row) => [row.id, row]));
       for (const p of seeded) {
         const row = byId.get(p.id);
         if (row && Number.isFinite(row.probability)) {
-          // Research leads hard when it answered.
           p.probability = clamp(Math.round(0.15 * p.probability + 0.85 * row.probability), 4, 96);
         }
       }
     }
   }
 
-  const lessoned = (await applyLessonScores(seeded)) as Array<T & { probability: number }>;
+  let lessoned: Array<T & { probability: number }>;
+  try {
+    lessoned = (await applyLessonScores(seeded)) as Array<T & { probability: number }>;
+  } catch {
+    lessoned = seeded;
+  }
 
-  // With research we trust mid-40s; without it only top leagues or strong scores.
-  const bar = researched ? 42 : 55;
-  const pool = lessoned.filter(
-    (p) => p.probability >= bar && (researched || isTop(p) || p.probability >= 64),
-  );
-  const candidates =
-    pool.length > 0
-      ? pool
+  // With live research: mid-40s is fine. Without it: ONLY top leagues, high bar.
+  const bar = researched ? 42 : 58;
+  let pool = lessoned.filter((p) => {
+    if (p.probability < bar) return false;
+    if (!researched && !isTop(p)) return false;
+    return true;
+  });
+
+  // If still empty and researched, relax slightly. If not researched, stay strict on top leagues.
+  if (!pool.length) {
+    pool = researched
+      ? lessoned.filter((p) => p.probability >= 40).sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0)).slice(0, want + 4)
       : lessoned
-          .filter((p) => isTop(p) || p.probability >= 50)
-          .slice()
+          .filter((p) => isTop(p))
           .sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0))
-          .slice(0, Math.max(want, 6));
+          .slice(0, Math.max(want, 4));
+  }
 
-  const slip: Slip = buildSlip(candidates as Leg[], {
+  const slip: Slip = buildSlip(pool as Leg[], {
     target: opts.target,
     maxLegs: Math.max(1, want),
-    minProb: Math.min(bar, 40),
+    minProb: researched ? 40 : 55,
     maxPerLeague: 4,
     maxPerSlot: 5,
   });
 
   const keep = (slip.legs.length
     ? slip.legs
-    : rankByValue(candidates as Leg[]).slice(0, Math.max(1, want))) as T[];
+    : rankByValue(pool as Leg[]).slice(0, Math.max(1, want))) as T[];
+
+  const notes = [...slip.notes];
+  if (!researched) {
+    notes.unshift("desk read only — Gemini no answer this round, so only big leagues.");
+  }
 
   return {
     keep,
@@ -180,7 +202,7 @@ export async function researchPicks<T extends TicketPick>(
     researched,
     trueChance: Math.round(slip.trueChance * 100),
     ev: slip.ev,
-    notes: slip.notes,
+    notes,
   };
 }
 
