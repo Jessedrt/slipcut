@@ -9,7 +9,7 @@ import { seekaiReady } from "./seekai";
 import { geminiReady } from "./gemini";
 import { buildToOdds, combinedOdds, formatKickoff, formatOdds, keepTop, parseCommand, splitEven, trimToOdds, uniqueEvents } from "./workbench";
 import { pct } from "./format";
-import { accuracyFilter, loadAccuracy } from "./accuracy";
+import { accuracyFilter, loadAccuracy, pickFamily } from "./accuracy";
 import {
   MAX_LEGS,
   applyBand,
@@ -918,6 +918,39 @@ async function studyAndReply(chatId: number, code: string, picks?: TicketPick[])
   await tg("sendMessage", { chat_id: chatId, text: formatStudy(report) });
 }
 
+/** Human label for a market family, for the data-driven analysis card. */
+const FAM_LABEL: Record<string, string> = {
+  ou: "O/U",
+  ou1h: "1H O/U",
+  teamou: "Team",
+  gg: "GG",
+  dc: "DC",
+  dnb: "DNB",
+  win: "1X2",
+  hcp: "Hcp",
+};
+
+/** Real-time enrichment: live score/clock/status + market family hit-rate. */
+async function realTimeRead(picks: TicketPick[]) {
+  const ids = [...new Set(picks.map((p) => p.sporty?.eventId).filter(Boolean))] as string[];
+  const details = await Promise.all(ids.map((id) => getEventDetail(id)));
+  const byId = new Map(ids.map((id, i) => [id, details[i] ?? null]));
+  const acc = await loadAccuracy();
+  return picks.map((p) => {
+    const ev = p.sporty?.eventId ? byId.get(p.sporty.eventId) : null;
+    const score = eventScore(ev ?? null);
+    const fam = pickFamily(p);
+    const g = acc.groups[`${p.sport}|${fam}`];
+    const rate = g && g.won + g.lost >= 5 ? g.rate : null;
+    return {
+      live: score ? score.label : "",
+      finished: score?.finished ?? false,
+      family: fam,
+      rate,
+    };
+  });
+}
+
 async function analyzeAndReply(chatId: number, code: string, picks?: TicketPick[]) {
   const loaded = picks ? { picks } : await loadBookingCode(code, "ng");
   if ("error" in loaded) {
@@ -929,15 +962,20 @@ async function analyzeAndReply(chatId: number, code: string, picks?: TicketPick[
     await tg("sendMessage", { chat_id: chatId, text: "No football or basketball picks in that slip." });
     return;
   }
-  await withProgress(chatId, "Analyzing form, stats & H2H…", async () => {
+  await withProgress(chatId, "Analyzing form, stats, H2H & live data…", async () => {
     const result = await scorePlayable(base);
+    const rt = await realTimeRead(result.picks);
     const keepChance = result.combinedKeepChance != null ? ` · keep ${pct(result.combinedKeepChance)}` : "";
     const lines = result.picks.slice(0, 35).map((p, i) => {
       const verdict =
         p.verdict === "keep" ? "🟢" : p.verdict === "drop" ? "🔴" : "⚪";
       const prob = p.probability != null ? pct(p.probability) : "—";
+      const info = rt[i];
+      const live = info?.live ? ` · ${info.live}` : "";
+      const fam = info?.family ? ` · ${FAM_LABEL[info.family] ?? info.family}` : "";
+      const rate = info?.rate != null ? ` ${pct(info.rate * 100)}` : "";
       const summary = p.summary ? ` · ${p.summary}` : "";
-      return `${i + 1} ${verdict} ${p.home} vs ${p.away} · ${p.selection} · ${prob}${summary}`;
+      return `${i + 1} ${verdict} ${p.home} vs ${p.away} · ${p.selection} · ${prob}${live}${fam}${rate}${summary}`;
     });
     await tg("sendMessage", {
       chat_id: chatId,
@@ -1304,7 +1342,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "<code>/predict 8 basketball</code>",
         "⚡ accuracy-led: only markets whose settled record beats my average hit rate. No draws / straight wins.",
         "",
-        "<b>Analyze</b> — form, stats & H2H",
+        "<b>Analyze</b> — form, stats, H2H & live data",
         "<code>/analyze</code> · <code>/analyze TY87PV</code>",
         "",
         "<b>Optimize</b> — trim odds, cut risk",
