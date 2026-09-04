@@ -1308,9 +1308,15 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     return;
   }
   if (isCmd(raw, "predict")) {
-    const sport = parseSport(cmdArg(raw)) ?? "football";
-    const n = parseLegCount(raw) ?? 10;
-    await createSportSlip(msg.chat.id, sport, n, "today");
+    const arg = cmdArg(raw);
+    const sport = parseSport(arg) ?? "football";
+    const n = parseLegCount(arg) ?? 10;
+    // Default to the broad "soon" window (any upcoming game), like the
+    // natural-language cook. A specific window ("today", "weekend", ...) is
+    // only used when the user names one — "today" alone filters out almost
+    // everything late in the evening.
+    const window = parseCookWindow(arg) === "soon" ? "soon" : parseCookWindow(arg);
+    await createSportSlip(msg.chat.id, sport, n, window);
     return;
   }
   if (isCmd(raw, "analyze")) {
