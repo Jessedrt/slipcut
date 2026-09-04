@@ -19,7 +19,7 @@ function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
 }
 
-/** Seed rank only — never used as final pick scores without research. */
+/** Seed order only — shortlist preference before AI analysis. */
 export function deskScore(pick: TicketPick): number {
   const fam = marketFamily(pick.sporty?.marketId, pick.market);
   const market = fairProbFromOdds(pick.odds, fam, pick.sport);
@@ -111,8 +111,8 @@ export type ResearchResult<T> = {
 };
 
 /**
- * Research-only cook. If you.com does not answer, return empty keep —
- * no desk fallback slips.
+ * Cook from pure AI form/H2H analysis only.
+ * No rigid % score bar — rank by AI keep + confidence.
  */
 export async function researchPicks<T extends TicketPick>(
   picks: T[],
@@ -131,17 +131,16 @@ export async function researchPicks<T extends TicketPick>(
   const seeded = oneEach.map((p) => ({
     ...p,
     probability: deskScore(p),
-  })) as Array<T & { probability: number }>;
+  })) as Array<T & { probability: number; verdict?: string; confidence?: string; summary?: string }>;
 
-  const canResearch = Boolean(youKeys().length);
-  if (!canResearch) {
+  if (!youKeys().length) {
     return {
       keep: [],
       dropped: oneEach.length,
       researched: false,
       trueChance: 0,
       ev: null,
-      notes: ["no you.com key — cannot research. Add YDC_API_KEY on Vercel or /key you ydc-…"],
+      notes: ["no you.com key — cannot analyse. Add YDC_API_KEY or /key you ydc-…"],
     };
   }
 
@@ -165,7 +164,7 @@ export async function researchPicks<T extends TicketPick>(
     })
     .slice(0, Math.min(seeded.length, Math.max(want + 2, 6)));
 
-  const scored = await withTimeout(researchScores(shortlist), 55_000);
+  const scored = await withTimeout(researchScores(shortlist), 60_000);
   if (!scored?.researched) {
     return {
       keep: [],
@@ -174,8 +173,8 @@ export async function researchPicks<T extends TicketPick>(
       trueChance: 0,
       ev: null,
       notes: [
-        "you.com no answer this round — no slip (desk research removed).",
-        "Try again in a minute, or ask for fewer games (e.g. 2 games football today).",
+        "you.com no analysis this round — no slip.",
+        "Try again, or ask for fewer games (e.g. 2 games football today).",
       ],
     };
   }
@@ -183,22 +182,35 @@ export async function researchPicks<T extends TicketPick>(
   const byId = new Map(scored.scored.map((row) => [row.id, row]));
   for (const p of seeded) {
     const row = byId.get(p.id);
-    if (row && Number.isFinite(row.probability)) {
-      p.probability = clamp(Math.round(0.15 * p.probability + 0.85 * row.probability), 4, 96);
-    }
+    if (!row) continue;
+    if (Number.isFinite(row.probability)) p.probability = clamp(Math.round(row.probability), 4, 96);
+    p.verdict = row.verdict;
+    p.confidence = row.confidence;
+    p.summary = row.summary;
   }
 
-  let lessoned: Array<T & { probability: number }>;
+  let lessoned: Array<T & { probability: number; verdict?: string; confidence?: string }>;
   try {
-    lessoned = (await applyLessonScores(seeded)) as Array<T & { probability: number }>;
+    lessoned = (await applyLessonScores(seeded)) as Array<
+      T & { probability: number; verdict?: string; confidence?: string }
+    >;
   } catch {
     lessoned = seeded;
   }
 
-  let pool = lessoned.filter((p) => (p.probability ?? 0) >= 44);
+  // Prefer AI "keep" + high/medium confidence — no hard % bar.
+  const confRank = (c?: string) => (c === "high" ? 3 : c === "medium" ? 2 : 1);
+  let pool = lessoned
+    .filter((p) => p.verdict === "keep" || (p.probability ?? 0) >= 52)
+    .sort(
+      (a, b) =>
+        confRank(b.confidence) - confRank(a.confidence) ||
+        (b.probability ?? 0) - (a.probability ?? 0),
+    );
+
   if (!pool.length) {
     pool = lessoned
-      .filter((p) => (p.probability ?? 0) >= 40)
+      .slice()
       .sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0))
       .slice(0, want + 2);
   }
@@ -210,14 +222,14 @@ export async function researchPicks<T extends TicketPick>(
       researched: true,
       trueChance: 0,
       ev: null,
-      notes: ["researched, but no selection cleared the quality bar."],
+      notes: ["analysis done, but no selection the AI would back."],
     };
   }
 
   const slip: Slip = buildSlip(pool as Leg[], {
     target: opts.target,
     maxLegs: Math.max(1, want),
-    minProb: 42,
+    minProb: 35, // soft floor only — AI already filtered
     maxPerLeague: 3,
     maxPerSlot: 4,
   });
@@ -232,7 +244,7 @@ export async function researchPicks<T extends TicketPick>(
     researched: true,
     trueChance: Math.round(slip.trueChance * 100),
     ev: slip.ev,
-    notes: [...slip.notes],
+    notes: [...slip.notes, "form/H2H analysis"],
   };
 }
 

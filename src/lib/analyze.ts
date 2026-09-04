@@ -56,12 +56,19 @@ export function marketProbOf(pick: TicketPick): number | null {
   return fairProbFromOdds(pick.odds, familyOf(pick), pick.sport);
 }
 
+/** Pure match analysis — form, H2H, injuries, motivation. Not book-price inversion. */
 const SYSTEM = [
-  "You are a sports-book pricing analyst. Score each selection.",
+  "You are a football/basketball/tennis match analyst.",
+  "Judge each selection using: recent form, head-to-head, home/away record, injuries/suspensions, rest, motivation, and whether THIS market fits THIS match.",
+  "Do NOT invert the bookmaker odds. Form your own view from match facts.",
   "Reply with JSON only:",
-  '{"picks":[{"i":1,"probability":55,"fair_odds":1.82,"confidence":"medium","summary":"short reason","reasons":["a"],"risks":["b"]}]}',
-  "Rules: probability 0-100, fair_odds ≈ 100/probability, confidence high|medium|low.",
-  "Do not copy bookmaker price blindly. No markdown outside JSON.",
+  '{"picks":[{"i":1,"keep":true,"probability":62,"confidence":"high","summary":"one line H2H/form reason","reasons":["form","h2h"],"risks":["injury"]}]}',
+  "Rules:",
+  "- keep=true only if you would back it yourself from form/H2H analysis.",
+  "- probability is your true chance 0-100 from analysis (not the book price).",
+  "- confidence high|medium|low from how strong the evidence is.",
+  "- summary must mention form or H2H or a concrete match fact.",
+  "- No markdown, no text outside JSON.",
 ].join(" ");
 
 function pickLines(picks: TicketPick[]): string {
@@ -88,6 +95,7 @@ type EngineRow = {
   summary: string;
   reasons: string[];
   risks: string[];
+  keep?: boolean;
 };
 
 type EngineReading = Map<string, EngineRow>;
@@ -101,7 +109,16 @@ function rowFrom(rec: Record<string, unknown>): EngineRow | null {
     const pct = String(rec.summary ?? "").match(/\b(\d{1,2}|100)\s*%/);
     probability = pct ? Number(pct[1]) : NaN;
   }
-  if (!Number.isFinite(probability)) return null;
+  // If model only gave keep/drop, map confidence to a soft chance.
+  if (!Number.isFinite(probability)) {
+    const keep =
+      rec.keep === true ||
+      String(rec.verdict ?? "").toLowerCase() === "keep" ||
+      String(rec.pick ?? "").toLowerCase() === "yes";
+    const conf = String(rec.confidence ?? "medium").toLowerCase();
+    if (keep) probability = conf === "high" ? 68 : conf === "low" ? 52 : 58;
+    else probability = conf === "high" ? 28 : conf === "low" ? 42 : 35;
+  }
   probability = Math.min(97, Math.max(3, Math.round(probability)));
   const fairOdds = Number.isFinite(fair) && fair > 1 ? Math.min(50, Math.max(1.01, fair)) : undefined;
   const confidence = CONFIDENCES.has(String(rec.confidence))
@@ -117,7 +134,11 @@ function rowFrom(rec: Record<string, unknown>): EngineRow | null {
     typeof rec.summary === "string" && rec.summary.trim()
       ? clip(rec.summary.replace(/[#*_]/g, ""), 150)
       : "";
-  return { probability, fairOdds, confidence, summary, reasons, risks };
+  const keep =
+    rec.keep === true ||
+    String(rec.verdict ?? "").toLowerCase() === "keep" ||
+    (rec.keep !== false && probability >= 52);
+  return { probability, fairOdds, confidence, summary, reasons, risks, keep };
 }
 
 function reconcile(row: EngineRow): EngineRow {
@@ -150,7 +171,6 @@ function matchRows(picks: TicketPick[], answer: string): EngineReading | null {
   return out.size ? out : null;
 }
 
-/** Fallback when model returns prose with percentages instead of JSON. */
 function matchProse(picks: TicketPick[], answer: string): EngineReading | null {
   const out: EngineReading = new Map();
   const lines = answer.split(/\n+/);
@@ -158,18 +178,23 @@ function matchProse(picks: TicketPick[], answer: string): EngineReading | null {
     const pick = picks[i]!;
     const needle = `${i + 1}`;
     const hit =
-      lines.find((ln) => new RegExp(`(?:^|\b)${needle}[\.\):\s]`).test(ln) && /\d{1,3}\s*%/.test(ln)) ??
-      lines.find((ln) => ln.toLowerCase().includes(pick.home.slice(0, 8).toLowerCase()) && /\d{1,3}\s*%/.test(ln));
+      lines.find((ln) => new RegExp(`(?:^|\b)${needle}[\.\):\s]`).test(ln)) ??
+      lines.find((ln) => ln.toLowerCase().includes(pick.home.slice(0, 8).toLowerCase()));
     if (!hit) continue;
     const m = hit.match(/(\d{1,2}|100)\s*%/);
-    if (!m) continue;
-    const probability = Math.min(97, Math.max(3, Number(m[1])));
+    const keep = /\b(keep|back|solid|strong|yes)\b/i.test(hit) && !/\b(drop|avoid|skip|no)\b/i.test(hit);
+    const probability = m
+      ? Math.min(97, Math.max(3, Number(m[1])))
+      : keep
+        ? 60
+        : 40;
     out.set(pick.id, {
       probability,
-      confidence: "low",
+      confidence: keep ? "medium" : "low",
       summary: clip(hit, 120),
       reasons: [],
-      risks: ["Parsed from prose — not structured JSON."],
+      risks: [],
+      keep,
     });
   }
   return out.size ? out : null;
@@ -199,15 +224,14 @@ async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
 
 type Reading = Map<string, EngineRow & { engine: string }>;
 
-/** One small chunk at a time — you.com is more reliable sequential. */
 async function readChunk(picks: TicketPick[]): Promise<Reading> {
   const lines = pickLines(picks);
   const user = [
-    "Score each selection. JSON only.",
+    "Analyse each selection from form and H2H. JSON only.",
     lines,
   ].join("\n");
 
-  const answer = await withTimeout(youAnswer(`${SYSTEM}\n\n${user}`, 22_000), 24_000);
+  const answer = await withTimeout(youAnswer(`${SYSTEM}\n\n${user}`, 24_000), 26_000);
   if (!answer) return new Map();
   const reading = matchRows(picks, answer) ?? matchProse(picks, answer);
   if (!reading?.size) return new Map();
@@ -259,7 +283,6 @@ export type ScoredPick = {
 async function readAll(picks: TicketPick[]): Promise<Reading> {
   const playable = picks.filter((p) => p.sport !== "other");
   if (!playable.length) return new Map();
-  // 2 picks per call, 1 worker — avoids you.com rate-limit bursts.
   const groups = chunk(playable, 2);
   const parts = await mapPool(groups, 1, (group) => readChunk(group));
   const merged: Reading = new Map();
@@ -295,7 +318,7 @@ export async function scorePick(
     ...pick,
     probability: 50,
     confidence: "low",
-    summary: "Not enough to score this pick cleanly.",
+    summary: "Not enough analysis on this pick.",
     reasons: [],
     risks: [],
     verdict: "drop",
@@ -319,44 +342,39 @@ export async function scorePick(
     };
   }
 
+  // Pure analysis path: trust model view, light market blend only for edge display.
   let final01: number;
   let model01: number | null = null;
   let confidence: "high" | "medium" | "low" = "low";
   const reasons: string[] = [];
   const risks: string[] = [];
   let summary = base.summary;
+  let verdict: "keep" | "drop" | "ignore" = "drop";
 
-  if (consensus && marketP != null) {
+  if (consensus) {
     model01 = consensus.probability;
-    const trust = confidenceWeight(consensus.confidence) * (1 - 0.5 * consensus.disagreement);
-    final01 = blendWithMarket(model01, marketP, trust);
+    // Prefer analysis over market — only 20% market pull when we have research.
+    final01 =
+      marketP != null
+        ? blendWithMarket(model01, marketP, confidenceWeight(consensus.confidence) * 0.35)
+        : model01;
     confidence = consensus.confidence;
     for (const row of rows) {
       for (const r of row.reasons) if (!reasons.includes(r)) reasons.push(r);
       for (const r of row.risks) if (!risks.includes(r)) risks.push(r);
+      if (row.keep) verdict = "keep";
     }
-    summary =
-      rows.find((r) => r.summary)?.summary ||
-      `Rated ${Math.round(final01 * 100)}% against a market price of ${Math.round(marketP * 100)}%.`;
-  } else if (consensus) {
-    model01 = consensus.probability;
-    final01 = consensus.probability;
-    confidence = consensus.confidence;
-    for (const row of rows) {
-      for (const r of row.reasons) if (!reasons.includes(r)) reasons.push(r);
-      for (const r of row.risks) if (!risks.includes(r)) risks.push(r);
-    }
+    if (verdict !== "keep" && final01 >= 0.55 && confidence !== "low") verdict = "keep";
     summary = rows.find((r) => r.summary)?.summary || summary;
-    risks.push("No price on this leg - the market could not anchor the read.");
   } else if (marketP != null) {
     final01 = marketP;
     confidence = "low";
-    summary = `No research on this one, so this is the book's own price with the margin taken off.`;
-    risks.push("Desk read only - no live research behind this number.");
+    summary = "No analysis returned for this leg.";
+    risks.push("No live form/H2H read.");
   } else {
     final01 = 0.5;
     confidence = "low";
-    summary = "No price and no research - treating it as a coin flip.";
+    summary = "No analysis and no price.";
     risks.push("Nothing to score this pick with.");
   }
 
@@ -364,13 +382,6 @@ export async function scorePick(
 
   const edgePts = marketP == null ? null : Math.round((final01 - marketP) * 100);
   const ev = evPerStake(final01, pick.odds);
-  if (pick.odds && pick.odds > 1) {
-    if (edgePts != null && edgePts >= 4) {
-      reasons.unshift(`Value: desk ${Math.round(final01 * 100)}% vs market ${Math.round(marketP! * 100)}%.`);
-    } else if (edgePts != null && edgePts <= -4) {
-      risks.unshift(`Short price: desk ${Math.round(final01 * 100)}% vs market ${Math.round(marketP! * 100)}%.`);
-    }
-  }
 
   return {
     ...base,
@@ -379,6 +390,7 @@ export async function scorePick(
     summary: clip(summary, 220),
     reasons: reasons.slice(0, 4),
     risks: risks.slice(0, 3),
+    verdict,
     modelProb: model01 == null ? null : Math.round(model01 * 100),
     marketProb: marketP == null ? null : Math.round(marketP * 100),
     fairOdds: fairOddsFromProb(final01),
@@ -417,9 +429,9 @@ export async function analyzePicks(picks: TicketPick[], threshold = 45) {
   await refreshKeys();
   const { picks: scored, engines } = await scorePicks(picks);
   const merged = toAnalyzed(scored, clampThreshold(threshold));
-  const engineLabel = engines.length ? engines.join(" + ") : "market only";
+  const engineLabel = engines.length ? engines.join(" + ") : "no analysis";
   return {
-    desk: `🧠 ${engineLabel} · market-anchored read of ${picks.length} selection${picks.length === 1 ? "" : "s"}.`,
+    desk: `🧠 ${engineLabel} · form/H2H read of ${picks.length} selection${picks.length === 1 ? "" : "s"}.`,
     ...merged,
   };
 }
@@ -427,7 +439,16 @@ export async function analyzePicks(picks: TicketPick[], threshold = 45) {
 export async function researchScores<T extends TicketPick>(
   picks: T[],
   calibration?: Platt,
-): Promise<{ scored: (T & { probability: number; confidence: string; edge: number | null })[]; researched: boolean }> {
+): Promise<{
+  scored: (T & {
+    probability: number;
+    confidence: string;
+    edge: number | null;
+    verdict?: string;
+    summary?: string;
+  })[];
+  researched: boolean;
+}> {
   if (!picks.length) return { scored: [], researched: false };
   const cal = calibration ?? (await loadCalibration());
   const sample = picks.slice(0, 8);
@@ -436,20 +457,34 @@ export async function researchScores<T extends TicketPick>(
   const merged = picks.map((pick) => {
     const row = byId.get(pick.id);
     if (!row) {
-      const marketP = marketProbOf(pick);
       return {
         ...pick,
-        probability: Math.round((marketP ?? 0.5) * 100),
+        probability: 40,
         confidence: "low",
         edge: null,
-      } as T & { probability: number; confidence: string; edge: number | null };
+        verdict: "drop",
+      } as T & {
+        probability: number;
+        confidence: string;
+        edge: number | null;
+        verdict?: string;
+        summary?: string;
+      };
     }
     return {
       ...pick,
       probability: row.probability,
       confidence: row.confidence,
       edge: row.edge,
-    } as T & { probability: number; confidence: string; edge: number | null };
+      verdict: row.verdict,
+      summary: row.summary,
+    } as T & {
+      probability: number;
+      confidence: string;
+      edge: number | null;
+      verdict?: string;
+      summary?: string;
+    };
   });
   return { scored: merged, researched: engines.length > 0 };
 }
