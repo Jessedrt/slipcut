@@ -587,6 +587,7 @@ async function cookSportSlip(
       ? `${take.length} games ${sport}${market ? ` · ${market}` : ""}${span ? ` · ${span}` : ""} · ${tag}${accTag}${gatedNote} — na only ${take.length} pass`
       : `${take.length} games ${sport}${market ? ` · ${market}` : ""}${span ? ` · ${span}` : ""} · ${tag}${accTag}${gatedNote}${researched.dropped ? ` · dropped ${researched.dropped}` : ""}`;
   await mintAndReply(chatId, take, "ng", title, n);
+  await analyzeCard(chatId, take, `<b>Predict · ${take.length} games</b>`);
 }
 
 async function createOddsSlip(
@@ -824,6 +825,7 @@ async function cookMixSlip(
     "ng",
     `Mix ${fc} football + ${bc} basketball + ${tc} tennis${actual ? ` · ${formatOdds(actual)}` : ""}${span ? ` · ${span}` : ""}${accStats.sampleCount > 0 ? " · accuracy" : ""}${gated.dropped > 0 ? ` · gate −${gated.dropped}` : ""} · ${researched.researched ? researchTag(true) : "desk read"}`,
   );
+  await analyzeCard(chatId, take, `<b>Predict · Mix ${take.length} games</b>`);
 }
 
 async function liveScoreAndReply(chatId: number, code: string, picks: TicketPick[]) {
@@ -951,19 +953,15 @@ async function realTimeRead(picks: TicketPick[]) {
   });
 }
 
-async function analyzeAndReply(chatId: number, code: string, picks?: TicketPick[]) {
-  const loaded = picks ? { picks } : await loadBookingCode(code, "ng");
-  if ("error" in loaded) {
-    await tg("sendMessage", { chat_id: chatId, text: loaded.error });
-    return;
-  }
-  const base = playable(loaded.picks);
-  if (!base.length) {
-    await tg("sendMessage", { chat_id: chatId, text: "No football or basketball picks in that slip." });
-    return;
-  }
-  await withProgress(chatId, "Analyzing form, stats, H2H & live data…", async () => {
-    const result = await scorePlayable(base);
+/** Render the AI analysis card for a set of playable picks (prob + live + market hit-rate). */
+async function analyzeCard(
+  chatId: number,
+  picks: TicketPick[],
+  label: string,
+  progress: string | false = "Analyzing form, stats, H2H & live data…",
+) {
+  const render = async () => {
+    const result = await scorePlayable(picks);
     const rt = await realTimeRead(result.picks);
     const keepChance = result.combinedKeepChance != null ? ` · keep ${pct(result.combinedKeepChance)}` : "";
     const lines = result.picks.slice(0, 35).map((p, i) => {
@@ -981,12 +979,34 @@ async function analyzeAndReply(chatId: number, code: string, picks?: TicketPick[
       chat_id: chatId,
       parse_mode: "HTML",
       text: [
-        `🧠 <code>${esc(code)}</code> · ${result.kept.length}/${result.picks.length} keep${keepChance}`,
+        `🧠 ${label} · ${result.kept.length}/${result.picks.length} keep${keepChance}`,
         "",
         ...lines,
       ].join("\n").slice(0, 3900),
     });
-  });
+  };
+  if (progress === false) {
+    // Used inside the cook after minting: no separate progress line, and we do
+    // NOT re-enter withProgress (the cook already holds the per-chat busy slot),
+    // so it wouldn't trip the busy guard.
+    await render();
+    return;
+  }
+  await withProgress(chatId, progress, render);
+}
+
+async function analyzeAndReply(chatId: number, code: string, picks?: TicketPick[]) {
+  const loaded = picks ? { picks } : await loadBookingCode(code, "ng");
+  if ("error" in loaded) {
+    await tg("sendMessage", { chat_id: chatId, text: loaded.error });
+    return;
+  }
+  const base = playable(loaded.picks);
+  if (!base.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "No football or basketball picks in that slip." });
+    return;
+  }
+  await analyzeCard(chatId, base, `<code>${esc(code)}</code>`);
 }
 
 async function maybeStudyLast(chatId: number) {
