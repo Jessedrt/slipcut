@@ -174,6 +174,43 @@ export function Dashboard() {
               </div>
             </Panel>
 
+            <Panel
+              label="database"
+              note={data.database.ok ? `ping ${data.database.ms} ms` : "not answering"}
+            >
+              <div>
+                <Row label="backend" value={data.database.backend} />
+                <Row
+                  label="state"
+                  value={data.database.ok ? "ok" : "down"}
+                  tone={data.database.ok ? "text-keep" : "text-drop"}
+                />
+                {data.database.ok ? (
+                  <>
+                    <Row label="migrations" value={String(data.database.migrations)} />
+                    <Row label="slips" value={String(data.database.slips)} />
+                    <Row label="reads" value={String(data.database.reads)} />
+                    <Row
+                      label="last read"
+                      value={
+                        data.database.latestReadAt
+                          ? new Date(data.database.latestReadAt).toLocaleString("en-GB", {
+                              day: "numeric",
+                              month: "short",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              timeZone: "Africa/Lagos",
+                            })
+                          : "—"
+                      }
+                    />
+                  </>
+                ) : (
+                  <Empty>Everything else on this page lives in the database.</Empty>
+                )}
+              </div>
+            </Panel>
+
             <Panel label="calibration" note={cal?.n ? `${cal.n} settled legs` : undefined} className="sm:col-span-2">
               {cal && cal.n ? (
                 <div>
