@@ -8,6 +8,7 @@ import { addDeskKey, delDeskKey, detectKey, formatKeyList, refreshKeys } from ".
 import { seekaiReady } from "./seekai";
 import { geminiReady } from "./gemini";
 import { buildToOdds, combinedOdds, formatKickoff, formatOdds, keepTop, parseCommand, splitEven, trimToOdds, uniqueEvents } from "./workbench";
+import { pct } from "./format";
 import {
   MAX_LEGS,
   applyBand,
@@ -43,17 +44,14 @@ function researchTag(researched: boolean) {
 }
 const MENU = [
   { command: "start", description: "Welcome" },
-  { command: "today", description: "Today football" },
-  { command: "weekend", description: "Weekend slip" },
-  { command: "mix", description: "Mix all sports" },
-  { command: "draw", description: "Draw-only football" },
-  { command: "stake", description: "Stake.com daily 2 odds" },
-  { command: "daily2", description: "SportyBet daily 2 odds" },
-  { command: "score", description: "Live score of last slip" },
-  { command: "study", description: "Settle the last slip" },
-  { command: "book", description: "Slips and bankroll" },
-  { command: "recap", description: "This week" },
-  { command: "filter", description: "only EPL ATP" },
+  { command: "predict", description: "AI picks — cook a slip" },
+  { command: "analyze", description: "Form, stats & H2H" },
+  { command: "optimize", description: "Trim odds (cut risk)" },
+  { command: "split", description: "Split a slip" },
+  { command: "edit", description: "Change games / markets" },
+  { command: "convert", description: "Convert market type" },
+  { command: "book", description: "Mint a SportyBet code" },
+  { command: "live", description: "Live results" },
   { command: "help", description: "How to talk to me" },
 ];
 
@@ -389,9 +387,9 @@ function sportFromFlag(code: string): BookSport {
 function deskKeyboard() {
   return {
     keyboard: [
-      [{ text: "Today" }, { text: "Weekend" }, { text: "Draw" }],
-      [{ text: "2 odds" }, { text: "Mix" }, { text: "Score" }],
-      [{ text: "Book" }, { text: "Stake 2" }, { text: "Help" }],
+      [{ text: "Predict" }, { text: "Analyze" }, { text: "Optimize" }],
+      [{ text: "Split" }, { text: "Edit" }, { text: "Live" }],
+      [{ text: "Book" }, { text: "Convert" }, { text: "Help" }],
     ],
     resize_keyboard: true,
     is_persistent: true,
@@ -898,6 +896,39 @@ async function studyAndReply(chatId: number, code: string, picks?: TicketPick[])
   await tg("sendMessage", { chat_id: chatId, text: formatStudy(report) });
 }
 
+async function analyzeAndReply(chatId: number, code: string, picks?: TicketPick[]) {
+  const loaded = picks ? { picks } : await loadBookingCode(code, "ng");
+  if ("error" in loaded) {
+    await tg("sendMessage", { chat_id: chatId, text: loaded.error });
+    return;
+  }
+  const base = playable(loaded.picks);
+  if (!base.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "No football or basketball picks in that slip." });
+    return;
+  }
+  await withProgress(chatId, "Analyzing form, stats & H2H…", async () => {
+    const result = await scorePlayable(base);
+    const keepChance = result.combinedKeepChance != null ? ` · keep ${pct(result.combinedKeepChance)}` : "";
+    const lines = result.picks.slice(0, 35).map((p, i) => {
+      const verdict =
+        p.verdict === "keep" ? "🟢" : p.verdict === "drop" ? "🔴" : "⚪";
+      const prob = p.probability != null ? pct(p.probability) : "—";
+      const summary = p.summary ? ` · ${p.summary}` : "";
+      return `${i + 1} ${verdict} ${p.home} vs ${p.away} · ${p.selection} · ${prob}${summary}`;
+    });
+    await tg("sendMessage", {
+      chat_id: chatId,
+      parse_mode: "HTML",
+      text: [
+        `🧠 <code>${esc(code)}</code> · ${result.kept.length}/${result.picks.length} keep${keepChance}`,
+        "",
+        ...lines,
+      ].join("\n").slice(0, 3900),
+    });
+  });
+}
+
 async function maybeStudyLast(chatId: number) {
   const code = await latestUnstudiedCode();
   if (!code) return;
@@ -1231,7 +1262,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     await tg("sendPhoto", {
       chat_id: msg.chat.id,
       photo: BANNER_URL,
-      caption: "<b>SlipCut</b>\n\nPaste a booking code.\nOr tap the menu.",
+      caption: "<b>SportyClaw</b>\n\nPaste a booking code.\nOr tap the menu.",
       parse_mode: "HTML",
       reply_markup: deskKeyboard(),
     });
@@ -1242,24 +1273,31 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       chat_id: msg.chat.id,
       parse_mode: "HTML",
       text: [
-        "<b>SlipCut</b>",
+        "<b>SportyClaw</b>",
         "",
-        "Paste a booking code.",
+        "Type what you want, or tap the menu.",
         "",
-        "<b>Cook</b>",
-        "<code>10 games football over 1.5</code>",
-        "<code>cook over 2 football</code>",
-        "<code>12 games football 1st half overs</code>",
-        "<code>cook basketball full time overs and 1st half overs</code>",
-        "<code>12 games tennis</code>",
-        "<code>weekend mix</code>",
-        "<code>stake 2</code>",
-        "<code>2 odds</code>",
-        "<code>8 draw</code>",
-        "<code>20 draw football</code>",
+        "<b>Predict</b> — cook an AI slip",
+        "<code>/predict 12 football</code>",
+        "<code>/predict 8 basketball</code>",
         "",
-        "<b>On a slip</b>",
-        "trim  ·  study  ·  stake 2000",
+        "<b>Analyze</b> — form, stats & H2H",
+        "<code>/analyze</code> · <code>/analyze TY87PV</code>",
+        "",
+        "<b>Optimize</b> — trim odds, cut risk",
+        "<code>/optimize 50</code> · <code>trim TY87PV to 50</code>",
+        "",
+        "<b>Split</b> — split a big slip",
+        "<code>/split 3</code> · <code>split TY87PV into 2</code>",
+        "",
+        "<b>Edit / Convert</b> — change markets",
+        "<code>/convert over 2.5</code> · <code>make TY87PV gg</code>",
+        "",
+        "<b>Book</b> — mint a fresh SportyBet code",
+        "<code>/book</code> · <code>book TY87PV</code>",
+        "",
+        "<b>Live</b> — live scores & results",
+        "<code>/live</code> · <code>score</code> · <code>study</code>",
       ].join("\n"),
       reply_markup: deskKeyboard(),
     });
@@ -1267,6 +1305,103 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   }
   if (raw === "/slang") {
     await tg("sendMessage", { chat_id: msg.chat.id, text: slangHelp() });
+    return;
+  }
+  if (isCmd(raw, "predict")) {
+    const sport = parseSport(cmdArg(raw)) ?? "football";
+    const n = parseLegCount(raw) ?? 10;
+    await createSportSlip(msg.chat.id, sport, n, "today");
+    return;
+  }
+  if (isCmd(raw, "analyze")) {
+    const code =
+      codeFromText(cmdArg(raw)) ||
+      codeFromText(msg.reply_to_message?.text) ||
+      (await latestCode());
+    if (!code) {
+      await tg("sendMessage", { chat_id: msg.chat.id, text: "Send a booking code first, then say analyze." });
+      return;
+    }
+    await analyzeAndReply(msg.chat.id, code);
+    return;
+  }
+  if (isCmd(raw, "optimize")) {
+    const code = codeFromText(cmdArg(raw)) || (await latestCode());
+    if (!code) {
+      await tg("sendMessage", { chat_id: msg.chat.id, text: "Send a booking code first, then say optimize." });
+      return;
+    }
+    const target = parseOddsTarget(cmdArg(raw)) ?? 50;
+    const loaded = await loadBookingCode(code, "ng");
+    if ("error" in loaded) {
+      await tg("sendMessage", { chat_id: msg.chat.id, text: loaded.error });
+      return;
+    }
+    const scored = playable(loaded.picks).map((p) => ({
+      ...p,
+      probability: p.odds ? Math.max(8, Math.min(90, Math.round(100 / p.odds))) : 50,
+      confidence: "medium" as const,
+      summary: "",
+      reasons: [] as string[],
+      risks: [] as string[],
+      verdict: "keep" as const,
+    }));
+    const trimmed = trimToOdds(scored, clampOddsTarget(target));
+    await mintAndReply(
+      msg.chat.id,
+      trimmed,
+      "ng",
+      `Optimized to ${formatOdds(clampOddsTarget(target))} · ${trimmed.length} games`,
+    );
+    return;
+  }
+  if (isCmd(raw, "split")) {
+    const code = codeFromText(cmdArg(raw)) || (await latestCode());
+    if (!code) {
+      await tg("sendMessage", { chat_id: msg.chat.id, text: "Send a booking code first, then say split." });
+      return;
+    }
+    const parts = parseLegCount(cmdArg(raw)) ?? 2;
+    const loaded = await loadBookingCode(code, "ng");
+    if ("error" in loaded) {
+      await tg("sendMessage", { chat_id: msg.chat.id, text: loaded.error });
+      return;
+    }
+    const slips = splitEven(playable(loaded.picks), parts);
+    for (let i = 0; i < slips.length; i++) {
+      await mintAndReply(msg.chat.id, slips[i] ?? [], "ng", `Slip ${i + 1} · ${slips[i]?.length ?? 0} games`);
+    }
+    return;
+  }
+  if (isCmd(raw, "edit") || isCmd(raw, "convert")) {
+    const code = codeFromText(cmdArg(raw)) || (await latestCode());
+    if (!code) {
+      await tg("sendMessage", { chat_id: msg.chat.id, text: "Send a booking code first, then say the market." });
+      return;
+    }
+    const target = parseMarketTarget(cmdArg(raw)) ?? "ou25";
+    const loaded = await loadBookingCode(code, "ng");
+    if ("error" in loaded) {
+      await tg("sendMessage", { chat_id: msg.chat.id, text: loaded.error });
+      return;
+    }
+    await tg("sendMessage", { chat_id: msg.chat.id, text: `⚡ I dey change market for ${code}.` });
+    const next = playable(await retargetPicks(playable(loaded.picks), target));
+    await mintAndReply(msg.chat.id, next, "ng", `⚡ Market don change · ${next.length} games`);
+    return;
+  }
+  if (isCmd(raw, "live")) {
+    const code = codeFromText(cmdArg(raw)) || (await latestCode());
+    if (!code) {
+      await tg("sendMessage", { chat_id: msg.chat.id, text: "Send a booking code first, then say live." });
+      return;
+    }
+    const loaded = await loadBookingCode(code, "ng");
+    if ("error" in loaded) {
+      await tg("sendMessage", { chat_id: msg.chat.id, text: loaded.error });
+      return;
+    }
+    await liveScoreAndReply(msg.chat.id, code, playable(loaded.picks));
     return;
   }
   if (isCmd(raw, "keys") || isCmd(raw, "key")) {
@@ -1444,6 +1579,15 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     return;
   }
   if (isCmd(raw, "book") || /^(my book|my slips|book|bankroll)\s*$/i.test(raw)) {
+    const bookCode = codeFromText(cmdArg(raw)) || codeFromText(msg.reply_to_message?.text) || (await latestCode());
+    if (bookCode) {
+      const loaded = await loadBookingCode(bookCode, "ng");
+      if (!("error" in loaded)) {
+        const base = playable(loaded.picks);
+        await mintAndReply(msg.chat.id, base, "ng", `🎫 SportyBet code · ${base.length} games`);
+        return;
+      }
+    }
     await tg("sendMessage", { chat_id: msg.chat.id, text: await formatBook() });
     return;
   }
