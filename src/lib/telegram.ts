@@ -9,6 +9,7 @@ import { seekaiReady } from "./seekai";
 import { geminiReady } from "./gemini";
 import { buildToOdds, combinedOdds, formatKickoff, formatOdds, keepTop, parseCommand, splitEven, trimToOdds, uniqueEvents } from "./workbench";
 import { pct } from "./format";
+import { accuracyFilter, loadAccuracy } from "./accuracy";
 import {
   MAX_LEGS,
   applyBand,
@@ -559,7 +560,19 @@ async function cookSportSlip(
     });
     return;
   }
-  const pool = await cookPool(wanted, useBand);
+  // Accuracy-led gate: only keep sports/prediction types whose settled record
+  // beats the engine's own average hit rate. Draws and straight home wins
+  // (the `win`/1X2 family) never make the cut; double chance and goal lines do.
+  const accStats = await loadAccuracy();
+  const gated = accuracyFilter(wanted, accStats);
+  if (!gated.kept.length) {
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `No ${sport} market wey pass the accuracy gate (${accStats.sampleCount} settled). Try another line or later.`,
+    });
+    return;
+  }
+  const pool = await cookPool(gated.kept, useBand);
   const researched = await researchPicks(pool, n);
   const take = uniqueEvents(researched.keep.filter((p) => p.sport === sport)).picks.slice(0, n);
   if (!take.length) {
@@ -567,10 +580,12 @@ async function cookSportSlip(
     return;
   }
   const tag = researchTag(researched.researched);
+  const accTag = accStats.sampleCount > 0 ? ` · accuracy` : "";
+  const gatedNote = gated.dropped > 0 ? ` · gate −${gated.dropped}` : "";
   const title =
     take.length < n
-      ? `${take.length} games ${sport}${market ? ` · ${market}` : ""}${span ? ` · ${span}` : ""} · ${tag} — na only ${take.length} pass`
-      : `${take.length} games ${sport}${market ? ` · ${market}` : ""}${span ? ` · ${span}` : ""} · ${tag}${researched.dropped ? ` · dropped ${researched.dropped}` : ""}`;
+      ? `${take.length} games ${sport}${market ? ` · ${market}` : ""}${span ? ` · ${span}` : ""} · ${tag}${accTag}${gatedNote} — na only ${take.length} pass`
+      : `${take.length} games ${sport}${market ? ` · ${market}` : ""}${span ? ` · ${span}` : ""} · ${tag}${accTag}${gatedNote}${researched.dropped ? ` · dropped ${researched.dropped}` : ""}`;
   await mintAndReply(chatId, take, "ng", title, n);
 }
 
@@ -783,7 +798,14 @@ async function cookMixSlip(
   }
   await maybeStudyLast(chatId);
   const stacked = interleave(pools[0] ?? [], interleave(pools[1] ?? [], pools[2] ?? []));
-  const mixed = await cookPool(stacked, useBand);
+  // Accuracy-led gate shared with the single-sport cook.
+  const accStats = await loadAccuracy();
+  const gated = accuracyFilter(stacked, accStats);
+  if (!gated.kept.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "No market wey pass the accuracy gate right now. Try another line or later." });
+    return;
+  }
+  const mixed = await cookPool(gated.kept, useBand);
   const researched = await researchPicks(mixed, opts.odds ? 24 : n);
   const take = opts.odds
     ? uniqueEvents(buildToOdds(researched.keep, clampOddsTarget(opts.odds))).picks.slice(0, MAX_LEGS)
@@ -800,7 +822,7 @@ async function cookMixSlip(
     chatId,
     take,
     "ng",
-    `Mix ${fc} football + ${bc} basketball + ${tc} tennis${actual ? ` · ${formatOdds(actual)}` : ""}${span ? ` · ${span}` : ""} · ${researched.researched ? researchTag(true) : "desk read"}`,
+    `Mix ${fc} football + ${bc} basketball + ${tc} tennis${actual ? ` · ${formatOdds(actual)}` : ""}${span ? ` · ${span}` : ""}${accStats.sampleCount > 0 ? " · accuracy" : ""}${gated.dropped > 0 ? ` · gate −${gated.dropped}` : ""} · ${researched.researched ? researchTag(true) : "desk read"}`,
   );
 }
 
@@ -1280,6 +1302,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "<b>Predict</b> — cook an AI slip",
         "<code>/predict 12 football</code>",
         "<code>/predict 8 basketball</code>",
+        "⚡ accuracy-led: only markets whose settled record beats my average hit rate. No draws / straight wins.",
         "",
         "<b>Analyze</b> — form, stats & H2H",
         "<code>/analyze</code> · <code>/analyze TY87PV</code>",
