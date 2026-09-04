@@ -19,6 +19,7 @@ function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
 }
 
+/** Seed rank only — never used as final pick scores without research. */
 export function deskScore(pick: TicketPick): number {
   const fam = marketFamily(pick.sporty?.marketId, pick.market);
   const market = fairProbFromOdds(pick.odds, fam, pick.sport);
@@ -109,6 +110,10 @@ export type ResearchResult<T> = {
   notes: string[];
 };
 
+/**
+ * Research-only cook. If you.com does not answer, return empty keep —
+ * no desk fallback slips.
+ */
 export async function researchPicks<T extends TicketPick>(
   picks: T[],
   want: number,
@@ -129,27 +134,57 @@ export async function researchPicks<T extends TicketPick>(
   })) as Array<T & { probability: number }>;
 
   const canResearch = Boolean(youKeys().length);
-  let researched = false;
-  if (canResearch && seeded.length) {
-    // Prefer top leagues, keep shortlist small so you.com can finish.
-    const shortlist = seeded
-      .slice()
-      .sort((a, b) => {
-        const topA = isTop(a) ? 1 : 0;
-        const topB = isTop(b) ? 1 : 0;
-        return topB - topA || (b.probability ?? 0) - (a.probability ?? 0);
-      })
-      .slice(0, Math.min(seeded.length, Math.max(want + 2, 6)));
-    const scored = await withTimeout(researchScores(shortlist), 55_000);
-    if (scored?.researched) {
-      researched = true;
-      const byId = new Map(scored.scored.map((row) => [row.id, row]));
-      for (const p of seeded) {
-        const row = byId.get(p.id);
-        if (row && Number.isFinite(row.probability)) {
-          p.probability = clamp(Math.round(0.15 * p.probability + 0.85 * row.probability), 4, 96);
-        }
-      }
+  if (!canResearch) {
+    return {
+      keep: [],
+      dropped: oneEach.length,
+      researched: false,
+      trueChance: 0,
+      ev: null,
+      notes: ["no you.com key — cannot research. Add YDC_API_KEY on Vercel or /key you ydc-…"],
+    };
+  }
+
+  if (!seeded.length) {
+    return {
+      keep: [],
+      dropped: 0,
+      researched: false,
+      trueChance: 0,
+      ev: null,
+      notes: ["no playable games after filters."],
+    };
+  }
+
+  const shortlist = seeded
+    .slice()
+    .sort((a, b) => {
+      const topA = isTop(a) ? 1 : 0;
+      const topB = isTop(b) ? 1 : 0;
+      return topB - topA || (b.probability ?? 0) - (a.probability ?? 0);
+    })
+    .slice(0, Math.min(seeded.length, Math.max(want + 2, 6)));
+
+  const scored = await withTimeout(researchScores(shortlist), 55_000);
+  if (!scored?.researched) {
+    return {
+      keep: [],
+      dropped: oneEach.length,
+      researched: false,
+      trueChance: 0,
+      ev: null,
+      notes: [
+        "you.com no answer this round — no slip (desk research removed).",
+        "Try again in a minute, or ask for fewer games (e.g. 2 games football today).",
+      ],
+    };
+  }
+
+  const byId = new Map(scored.scored.map((row) => [row.id, row]));
+  for (const p of seeded) {
+    const row = byId.get(p.id);
+    if (row && Number.isFinite(row.probability)) {
+      p.probability = clamp(Math.round(0.15 * p.probability + 0.85 * row.probability), 4, 96);
     }
   }
 
@@ -160,30 +195,29 @@ export async function researchPicks<T extends TicketPick>(
     lessoned = seeded;
   }
 
-  // Desk-only must stay strict — never fill with random weak leagues.
-  const bar = researched ? 44 : 62;
-  let pool = lessoned.filter((p) => {
-    if (p.probability < bar) return false;
-    if (!researched && !isTop(p)) return false;
-    return true;
-  });
+  let pool = lessoned.filter((p) => (p.probability ?? 0) >= 44);
+  if (!pool.length) {
+    pool = lessoned
+      .filter((p) => (p.probability ?? 0) >= 40)
+      .sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0))
+      .slice(0, want + 2);
+  }
 
   if (!pool.length) {
-    pool = researched
-      ? lessoned
-          .filter((p) => p.probability >= 42)
-          .sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0))
-          .slice(0, want + 2)
-      : lessoned
-          .filter((p) => isTop(p) && (p.probability ?? 0) >= 55)
-          .sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0))
-          .slice(0, Math.max(want, 3));
+    return {
+      keep: [],
+      dropped: oneEach.length,
+      researched: true,
+      trueChance: 0,
+      ev: null,
+      notes: ["researched, but no selection cleared the quality bar."],
+    };
   }
 
   const slip: Slip = buildSlip(pool as Leg[], {
     target: opts.target,
     maxLegs: Math.max(1, want),
-    minProb: researched ? 42 : 58,
+    minProb: 42,
     maxPerLeague: 3,
     maxPerSlot: 4,
   });
@@ -192,18 +226,13 @@ export async function researchPicks<T extends TicketPick>(
     ? slip.legs
     : rankByValue(pool as Leg[]).slice(0, Math.max(1, Math.min(want, 4)))) as T[];
 
-  const notes = [...slip.notes];
-  if (!researched) {
-    notes.unshift("desk read only — you.com no answer this round, so only big leagues.");
-  }
-
   return {
     keep,
     dropped: Math.max(0, oneEach.length - keep.length),
-    researched,
+    researched: true,
     trueChance: Math.round(slip.trueChance * 100),
     ev: slip.ev,
-    notes,
+    notes: [...slip.notes],
   };
 }
 
