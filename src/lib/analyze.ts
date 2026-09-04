@@ -13,7 +13,8 @@ import {
   type Platt,
 } from "./odds.ts";
 import { marketFamily } from "./sportybet.ts";
-import { geminiReady, geminiChat } from "./gemini.ts";
+import { youAnswer } from "./you.ts";
+import { seekaiReady, seekChat } from "./seekai.ts";
 import { refreshKeys } from "./keys.ts";
 import { loadCalibration } from "./study.ts";
 import type { AnalyzedPick, CutResponse, SportKind, TicketPick } from "./types.ts";
@@ -183,9 +184,8 @@ async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
 
 type Reading = Map<string, EngineRow & { engine: string }>;
 
+/** SeekAI first, then you.com. Gemini removed (free tier rate limits). */
 async function readChunk(picks: TicketPick[], _brief: string): Promise<Reading> {
-  // Gemini only - opus and you.com removed from the cook path.
-  if (!geminiReady()) return new Map();
   const lines = pickLines(picks);
   const user = [
     "Score each selection independently.",
@@ -194,11 +194,29 @@ async function readChunk(picks: TicketPick[], _brief: string): Promise<Reading> 
     lines,
   ].join("\n");
 
-  const answer = await withTimeout(geminiChat(SYSTEM, user, 18_000), 20_000);
-  if (!answer) return new Map();
-  const reading = matchRows(picks, answer);
-  if (!reading?.size) return new Map();
-  return tagReading(reading, "gemini");
+  if (seekaiReady()) {
+    const answer = await withTimeout(
+      seekChat(
+        [
+          { role: "system", content: SYSTEM },
+          { role: "user", content: user },
+        ],
+        22_000,
+      ),
+      24_000,
+    );
+    if (answer) {
+      const reading = matchRows(picks, answer);
+      if (reading?.size) return tagReading(reading, "opus");
+    }
+  }
+
+  const answer = await withTimeout(youAnswer(`${SYSTEM}\n\n${user}`, 14_000), 16_000);
+  if (answer) {
+    const reading = matchRows(picks, answer);
+    if (reading?.size) return tagReading(reading, "you.com");
+  }
+  return new Map();
 }
 
 async function scoreChunk(picks: TicketPick[]): Promise<Reading> {

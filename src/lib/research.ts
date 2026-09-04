@@ -3,7 +3,8 @@ import { evPerStake, fairProbFromOdds } from "./odds.ts";
 import { buildSlip, rankByValue, type Leg, type Slip } from "./optimizer.ts";
 import { marketFamily } from "./sportybet.ts";
 import { applyLessonScores } from "./study.ts";
-import { refreshKeys, geminiKeys } from "./keys.ts";
+import { youKeys } from "./you.ts";
+import { refreshKeys, seekaiKeys } from "./keys.ts";
 import type { TicketPick } from "./types.ts";
 
 const WEAK_FB =
@@ -126,8 +127,8 @@ export async function researchPicks<T extends TicketPick>(
     probability: deskScore(p),
   })) as Array<T & { probability: number }>;
 
-  // Gemini only.
-  const canResearch = Boolean(geminiKeys().length);
+  // SeekAI + you.com only (Gemini removed).
+  const canResearch = Boolean(seekaiKeys().length || youKeys().length);
   let researched = false;
   if (canResearch && seeded.length) {
     const shortlist = seeded
@@ -138,7 +139,7 @@ export async function researchPicks<T extends TicketPick>(
         return topB - topA || (b.probability ?? 0) - (a.probability ?? 0);
       })
       .slice(0, Math.min(seeded.length, Math.max(want + 4, 10)));
-    const scored = await withTimeout(researchScores(shortlist), 32_000);
+    const scored = await withTimeout(researchScores(shortlist), 40_000);
     if (scored?.researched) {
       researched = true;
       const byId = new Map(scored.scored.map((row) => [row.id, row]));
@@ -191,7 +192,7 @@ export async function researchPicks<T extends TicketPick>(
 
   const notes = [...slip.notes];
   if (!researched) {
-    notes.unshift("desk read only — Gemini no answer this round, so only big leagues.");
+    notes.unshift("desk read only — SeekAI/you.com no answer this round, so only big leagues.");
   }
 
   return {
