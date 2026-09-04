@@ -67,10 +67,20 @@ score it and tell you what to cut.
 
 Vercel → Settings → Environment Variables → Production, then Redeploy:
 
+- `GEMINI_API_KEY` — Google Gemini reasoning (the lead engine; a free key from
+  [AI Studio](https://aistudio.google.com/apikey) is enough to start)
+  - also read: `GOOGLE_API_KEY`, `GOOGLE_AI_API_KEY`, `GEMINI_API_KEY_2`,
+    `GEMINI_API_KEYS` (comma-separated, rotated per call)
+  - `GEMINI_MODEL=gemini-3.1-pro-preview` pins a model; without it the desk
+    walks `gemini-3.8-flash → gemini-3.7-flash → gemini-2.5-flash →
+    gemini-2.5-flash-lite` and uses the first that answers
 - `YDC_API_KEY` — You.com live search (add `YDC_API_KEY_2` for a second)
 - `SEEKAI_API_KEY` — SeekAI Claude Opus reasoning
-- `GEMINI_API_KEY` — Google Gemini reasoning
 - `TELEGRAM_BOT_TOKEN` — the bot
+
+Any one of the three research keys is enough. All three are queried and
+combined, so more keys means a tighter number — but Gemini alone is a working
+desk.
 
 You can also paste a key in Telegram (`/keys`). Vercel env is the reliable path.
 

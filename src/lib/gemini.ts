@@ -1,11 +1,13 @@
 import { geminiKeys } from "./keys.ts";
+import { geminiModels } from "./gemini-models.ts";
 
-const MODELS = [
-  process.env.GEMINI_MODEL?.trim(),
-  "gemini-2.5-flash",
-  "gemini-2.0-flash",
-  "gemini-1.5-flash",
-].filter((m): m is string => Boolean(m));
+/**
+ * Thinking models spend part of the output budget on reasoning before they emit
+ * a token of JSON. The old 1400 cap could therefore truncate a reply
+ * mid-object, which the parser turned into "no answer" — indistinguishable from
+ * the engine being down. Leave room for the thinking plus the scored legs.
+ */
+const MAX_OUTPUT_TOKENS = 4096;
 
 let seq = 0;
 
@@ -29,7 +31,7 @@ export async function geminiChat(
   let last = "Gemini unavailable.";
   for (let attempt = 0; attempt < keys.length; attempt++) {
     const apiKey = takeKey(keys);
-    for (const model of MODELS) {
+    for (const model of geminiModels()) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
@@ -42,7 +44,13 @@ export async function geminiChat(
             body: JSON.stringify({
               systemInstruction: { parts: [{ text: system }] },
               contents: [{ role: "user", parts: [{ text: user }] }],
-              generationConfig: { temperature: 0.15, maxOutputTokens: 1400 },
+              generationConfig: {
+                temperature: 0.15,
+                maxOutputTokens: MAX_OUTPUT_TOKENS,
+                // We always want the JSON object and nothing else — no preamble,
+                // no ```json fences for the parser to strip.
+                responseMimeType: "application/json",
+              },
             }),
           },
         );
