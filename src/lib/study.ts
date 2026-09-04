@@ -446,6 +446,25 @@ export async function loadOddsBand(): Promise<{ min: number; max: number } | nul
   }
 }
 
+export async function markUpdateSeen(updateId: number): Promise<boolean> {
+  try {
+    const sql = await getSql();
+    const rows = await sql<{ update_id: number }>`
+      insert into desk_updates (update_id) values (${updateId})
+      on conflict (update_id) do nothing
+      returning update_id
+    `;
+    if (!rows.length) return false;
+    if (updateId % 50 === 0) {
+      await sql`delete from desk_updates where seen_at < now() - interval '1 day'`;
+    }
+    return true;
+  } catch {
+    // Database down: fall back to the in-memory set rather than drop updates.
+    return true;
+  }
+}
+
 export function blockedBy<T extends TicketPick>(picks: T[], blocks: string[]): T[] {
   if (!blocks.length) return picks;
   return picks.filter((p) => {
