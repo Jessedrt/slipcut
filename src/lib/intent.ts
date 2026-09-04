@@ -12,7 +12,7 @@ export type OddsBand = { min: number; max: number };
 
 /** Strip zero-width characters Telegram clients sometimes inject. */
 export function cleanText(raw: string) {
-  return raw.replace(/[\u200b\u200c\u200d\u2060\ufeff]/g, "").trim();
+  return raw.replace(/[\u200b\u200c\u2060\ufeff\u200d]/g, "").trim();
 }
 
 /** `/name`, `/name@BotName`, or the bare word `name`. */

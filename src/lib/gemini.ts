@@ -1,4 +1,4 @@
-import { geminiKeys } from "./keys";
+import { geminiKeys } from "./keys.ts";
 
 const MODELS = [
   process.env.GEMINI_MODEL?.trim(),

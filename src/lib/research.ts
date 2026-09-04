@@ -1,15 +1,15 @@
-import { analyzePicks } from "./analyze";
-import { marketFamily } from "./sportybet";
-import { applyLessonScores } from "./study";
-import { youKeys } from "./you";
-import { refreshKeys, seekaiKeys, geminiKeys } from "./keys";
-import type { TicketPick } from "./types";
+import { researchScores } from "./analyze.ts";
+import { evPerStake, fairProbFromOdds } from "./odds.ts";
+import { buildSlip, rankByValue, type Leg, type Slip } from "./optimizer.ts";
+import { marketFamily } from "./sportybet.ts";
+import { applyLessonScores } from "./study.ts";
+import { youKeys } from "./you.ts";
+import { refreshKeys, seekaiKeys, geminiKeys } from "./keys.ts";
+import type { TicketPick } from "./types.ts";
 
 const WEAK_FB =
   /friendly|women|womens|u-?1[789]|u-?2[013]|reserve|\bii\b|amateur|virtual|esport|simulat|youth|qualification play-off/i;
 const WEAK_BB = /friendly|club friendly|virtual|esport|simulat|u-?1[89]/i;
-const WEAK =
-  /friendly|u-?1[789]|u-?2[013]|reserve|\bii\b|amateur|virtual|esport|simulat|youth|qualification play-off/i;
 const TOP_FB =
   /premier league|la liga|laliga|serie a|bundesliga|ligue 1|champions league|europa league|conference league|eredivisie|primeira|championship|mls|copa libertadores|nations league|saudi|super lig|liga portugal|pro league/i;
 const TOP_BB = /euroleague|ncaa|wnba|acb|nbl|eurocup|bbl/i;
@@ -19,31 +19,33 @@ function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
 }
 
+/**
+ * Desk-only fallback score, used when no research engine is configured.
+ *
+ * It is deliberately modest: with no live information the honest read is the
+ * market price with the margin off, nudged for league quality and for red
+ * flags (friendlies, youth fixtures, games about to kick off).
+ */
 export function deskScore(pick: TicketPick): number {
-  const odds = pick.odds ?? 9;
-  let s = 50;
+  const fam = marketFamily(pick.sporty?.marketId, pick.market);
+  const market = fairProbFromOdds(pick.odds, fam, pick.sport);
   const league = pick.league ?? "";
   const blob = `${league} ${pick.home} ${pick.away}`;
-  if (WEAK.test(blob) && !TOP_FB.test(league) && !TOP_BB.test(league) && !TOP_TN.test(league)) s -= 28;
-  if (pick.sport === "football" && TOP_FB.test(league)) s += 8;
-  else if (pick.sport === "basketball" && TOP_BB.test(league)) s += 8;
-  else if (pick.sport === "tennis" && TOP_TN.test(league)) s += 6;
-  else s -= 4;
+  const weak =
+    (pick.sport === "football" ? WEAK_FB.test(blob) : pick.sport === "basketball" ? WEAK_BB.test(blob) : false) &&
+    !TOP_FB.test(league) &&
+    !TOP_BB.test(league) &&
+    !TOP_TN.test(league);
+  const top =
+    pick.sport === "football" ? TOP_FB.test(league) : pick.sport === "basketball" ? TOP_BB.test(league) : TOP_TN.test(league);
 
-  if (odds >= 1.4 && odds <= 2.15) s += 12;
-  else if (odds < 1.32) s -= 12;
-  else if (odds > 2.25) s -= 8;
-
-  const fam = marketFamily(pick.sporty?.marketId, pick.market);
-  const sel = (pick.selection ?? "").toLowerCase();
-  if (pick.sport === "football" && fam === "win" && !/\bdraw\b/.test(sel) && odds > 2.05) s -= 6;
-  if (pick.sport === "basketball") {
-    if (odds > 1.85) s -= 14;
-    const total = Number((pick.sporty?.specifier ?? pick.market).match(/([\d.]+)/)?.[1] ?? NaN);
-    if ((fam === "ou" || pick.sporty?.marketId === "225") && Number.isFinite(total) && total >= 220) s -= 8;
-  }
-  if (pick.kickoff && pick.kickoff < Date.now() + 8 * 60_000) s -= 22;
-  return clamp(Math.round(s), 4, 96);
+  // Start from the de-vigged market read, or a coin flip when there is no price.
+  let p = market ?? 0.5;
+  if (weak) p -= 0.12;
+  if (top) p += 0.015; // top leagues are simply better priced/modelled
+  if (pick.kickoff && pick.kickoff < Date.now() + 8 * 60_000) p -= 0.18;
+  if (pick.odds && pick.odds > 4) p -= 0.02; // long shots need real justification
+  return clamp(Math.round(p * 100), 4, 96);
 }
 
 function isJunk(pick: TicketPick) {
@@ -65,91 +67,12 @@ function eventKey(p: TicketPick) {
   return p.sporty?.eventId || `${p.home}|${p.away}|${p.kickoff ?? ""}`;
 }
 
-function familyOf(p: TicketPick) {
-  return marketFamily(p.sporty?.marketId, p.market);
-}
-
-function bias(sel: string) {
-  const s = sel.toLowerCase();
-  if (s.includes("under")) return "under";
-  if (s.includes("over")) return "over";
-  if (s.includes("home") && s.includes("away")) return "12";
-  if (s.includes("home") && s.includes("draw")) return "1x";
-  if (s.includes("draw") && s.includes("away")) return "x2";
-  if (s.includes("home")) return "home";
-  if (s.includes("away")) return "away";
-  if (s.includes("draw")) return "draw";
-  if (s === "yes" || /\bgg\b/.test(s)) return "yes";
-  if (s === "no" || /\bng\b/.test(s)) return "no";
-  return "other";
-}
-
-function findOdds(arr: TicketPick[], pred: (p: TicketPick) => boolean) {
-  return arr.find(pred)?.odds;
-}
-
-function footballMarketScore(pick: TicketPick, all: TicketPick[], used: Record<string, number>) {
-  let s = deskScore(pick);
-  const fam = familyOf(pick);
-  const side = bias(pick.selection);
-  const home = findOdds(all, (p) => p.sporty?.marketId === "1" && bias(p.selection) === "home");
-  const away = findOdds(all, (p) => p.sporty?.marketId === "1" && bias(p.selection) === "away");
-  const over15 = findOdds(all, (p) => /1\.5/.test(p.market) && bias(p.selection) === "over");
-  const over25 = findOdds(all, (p) => /2\.5/.test(p.market) && bias(p.selection) === "over");
-  const over35 = findOdds(all, (p) => /3\.5/.test(p.market) && bias(p.selection) === "over");
-  const ggYes = findOdds(all, (p) => familyOf(p) === "gg" && bias(p.selection) === "yes");
-  const fav = home && away ? (home <= away ? "home" : "away") : home ? "home" : away ? "away" : null;
-  const favOdds = fav === "home" ? home : fav === "away" ? away : undefined;
-  const open = Boolean(home && away && home >= 1.72 && away >= 1.72);
-  const onFav =
-    Boolean(fav) &&
-    (side === fav ||
-      (side === "1x" && fav === "home") ||
-      (side === "x2" && fav === "away"));
-
-  if (over25 && over25 >= 1.48 && over25 <= 1.92 && fam === "ou" && side === "over" && /2\.5/.test(pick.market)) s += 18;
-  if (over15 && over15 >= 1.36 && over15 <= 1.62 && fam === "ou" && side === "over" && /1\.5/.test(pick.market)) s += 12;
-  if (over35 && over35 >= 1.55 && over35 <= 2.05 && fam === "ou" && side === "over" && /3\.5/.test(pick.market)) s += 8;
-  if (over25 && over25 >= 2.08 && fam === "ou" && side === "over") s -= 12;
-  if (over25 && over25 >= 2.05 && fam === "ou" && side === "under" && /2\.5/.test(pick.market)) s += 14;
-  if (over15 && over15 >= 1.85 && fam === "ou" && side === "under" && /1\.5/.test(pick.market)) s += 8;
-
-  if (favOdds && favOdds <= 1.48 && onFav && (fam === "dnb" || fam === "dc")) s += 16;
-  if (favOdds && favOdds <= 1.42 && onFav && fam === "win" && (pick.odds ?? 9) >= 1.32 && (pick.odds ?? 9) <= 1.7) s += 11;
-  if (fav && side !== fav && side !== "1x" && side !== "x2" && side !== "12" && fam === "win") s -= 16;
-  if (open && fam === "dc" && side === "12") s += 15;
-  if (open && over25 && over25 <= 1.78 && fam === "gg" && side === "yes") s += 11;
-  if (fam === "hcp" && onFav && (pick.odds ?? 9) >= 1.48 && (pick.odds ?? 9) <= 2.05) s += 13;
-  if (fam === "hcp" && !onFav && favOdds && favOdds <= 1.55) s -= 10;
-  if (ggYes && ggYes >= 1.48 && ggYes <= 1.9 && fam === "gg" && side === "yes" && over25 && over25 <= 1.85) s += 9;
-
-  s -= (used[fam] ?? 0) * 8;
-  return s;
-}
-
-function footballShapePick<T extends TicketPick>(picks: T[]): T[] {
-  const groups = new Map<string, T[]>();
-  for (const p of picks) {
-    const key = eventKey(p);
-    const arr = groups.get(key) ?? [];
-    arr.push(p);
-    groups.set(key, arr);
-  }
-  const used: Record<string, number> = {};
-  const best: T[] = [];
-  for (const arr of groups.values()) {
-    const ranked = arr
-      .map((p) => ({ p, s: footballMarketScore(p, arr, used) }))
-      .sort((a, b) => b.s - a.s);
-    const hit = ranked[0];
-    if (!hit || hit.s < 38) continue;
-    best.push(hit.p);
-    const fam = familyOf(hit.p);
-    used[fam] = (used[fam] ?? 0) + 1;
-  }
-  return best;
-}
-
+/**
+ * One selection per event, chosen for value.
+ *
+ * Two legs from the same match are not two bets — they share a scoreline, and
+ * stacking them doubles the variance without doubling the edge.
+ */
 function bestPerEvent<T extends TicketPick>(picks: T[]): T[] {
   const groups = new Map<string, T[]>();
   for (const p of picks) {
@@ -158,46 +81,19 @@ function bestPerEvent<T extends TicketPick>(picks: T[]): T[] {
     arr.push(p);
     groups.set(key, arr);
   }
-  const used: Record<string, number> = {};
-  const best: T[] = [];
+  const out: T[] = [];
   for (const arr of groups.values()) {
-    const families = [...new Set(arr.map(familyOf))];
-    families.sort((a, b) => (used[a] ?? 0) - (used[b] ?? 0));
-    const fam = families[0];
-    const pool = fam ? arr.filter((p) => familyOf(p) === fam) : arr;
-    const hit = pool.slice().sort((a, b) => deskScore(b) - deskScore(a))[0];
-    if (!hit) continue;
-    best.push(hit);
-    used[familyOf(hit)] = (used[familyOf(hit)] ?? 0) + 1;
+    const scored = arr as Array<T & { probability?: number }>;
+    const ranked = scored
+      .slice()
+      .sort((a, b) => {
+        const av = evPerStake((a.probability ?? 50) / 100, a.odds) ?? (a.probability ?? 50) / 100 - 1;
+        const bv = evPerStake((b.probability ?? 50) / 100, b.odds) ?? (b.probability ?? 50) / 100 - 1;
+        return bv - av;
+      });
+    out.push(ranked[0]!);
   }
-  return best;
-}
-
-function mixFamilies<T extends TicketPick>(ranked: T[], want: number): T[] {
-  const buckets = new Map<string, T[]>();
-  for (const p of ranked) {
-    const f = familyOf(p);
-    const arr = buckets.get(f) ?? [];
-    arr.push(p);
-    buckets.set(f, arr);
-  }
-  const keys = [...buckets.keys()];
-  const idx: Record<string, number> = {};
-  const keep: T[] = [];
-  while (keep.length < want) {
-    let added = false;
-    for (const k of keys) {
-      const i = idx[k] ?? 0;
-      const arr = buckets.get(k) ?? [];
-      if (i >= arr.length) continue;
-      keep.push(arr[i]);
-      idx[k] = i + 1;
-      added = true;
-      if (keep.length >= want) break;
-    }
-    if (!added) break;
-  }
-  return keep;
+  return out;
 }
 
 async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
@@ -214,47 +110,106 @@ async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
   }
 }
 
+export type ResearchResult<T> = {
+  /** Legs to mint, best first. */
+  keep: T[];
+  /** How many candidates the pool lost along the way. */
+  dropped: number;
+  /** True when at least one research engine answered. */
+  researched: boolean;
+  /** Combined true chance of the returned slip (0-100). */
+  trueChance: number;
+  /** Expected value of the returned slip, per 1 staked. */
+  ev: number | null;
+  notes: string[];
+};
+
+/**
+ * Turn a raw SportyBet pool into a slip worth minting.
+ *
+ * Pipeline: drop junk → one leg per event → research (blended with the
+ * de-vigged market) → learned bias from settled history → value ranking with
+ * concentration caps → slip built to the requested size or price.
+ */
 export async function researchPicks<T extends TicketPick>(
   picks: T[],
   want: number,
-): Promise<{ keep: T[]; dropped: number; researched: boolean }> {
+  opts: { target?: number } = {},
+): Promise<ResearchResult<T>> {
   await refreshKeys();
-  const clean = picks.filter((p) => !isJunk(p));
-  const football = footballShapePick(clean.filter((p) => p.sport === "football"));
-  const other = bestPerEvent(clean.filter((p) => p.sport !== "football"));
-  const unique = [...football, ...other];
-  const seeded = unique.map((p) => ({
+  const clean = picks.filter((p) => !isJunk(p) && p.sport !== "other");
+  const oneEach = bestPerEvent(clean);
+
+  // Seed with the market read so a research timeout still leaves us with an
+  // honest number rather than a coin flip.
+  const seeded = oneEach.map((p) => ({
     ...p,
-    probability: deskScore(p) + (isTop(p) ? 6 : 0),
-  }));
-  const lessoned = await applyLessonScores(seeded);
-  lessoned.sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0) || Number(isTop(b)) - Number(isTop(a)));
+    probability: deskScore(p),
+  })) as Array<T & { probability: number }>;
 
-  const shortlist = lessoned.slice(0, Math.min(lessoned.length, Math.max(want + 12, want * 2)));
+  const canResearch = Boolean(geminiKeys().length || seekaiKeys().length || youKeys().length);
   let researched = false;
-
-  if ((geminiKeys().length || seekaiKeys().length || youKeys().length) && shortlist.length) {
-    const sample = shortlist.slice(0, Math.min(14, shortlist.length));
-    const ai = await withTimeout(analyzePicks(sample, 45), 55_000);
-    if (ai?.picks?.length) {
+  if (canResearch && seeded.length) {
+    // Research is the expensive part; score the most promising candidates only.
+    const shortlist = seeded
+      .slice()
+      .sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0))
+      .slice(0, Math.min(seeded.length, Math.max(want + 10, 18)));
+    const scored = await withTimeout(researchScores(shortlist), 55_000);
+    if (scored?.researched) {
       researched = true;
-      const byId = new Map(ai.picks.map((row) => [row.id, row]));
-      for (const p of shortlist) {
-        const live = byId.get(p.id);
-        if (typeof live?.probability !== "number") continue;
-        const conf = live.confidence === "high" ? 5 : live.confidence === "low" ? -8 : 0;
-        p.probability = clamp(Math.round(0.15 * (p.probability ?? 50) + 0.85 * live.probability + conf), 4, 96);
+      const byId = new Map(scored.scored.map((row) => [row.id, row]));
+      for (const p of seeded) {
+        const row = byId.get(p.id);
+        // Research and the market each get a say; research leads when we have it.
+        if (row && Number.isFinite(row.probability)) {
+          p.probability = clamp(Math.round(0.25 * p.probability + 0.75 * row.probability), 4, 96);
+        }
       }
-      shortlist.sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0));
     }
   }
 
-  const bar = researched ? 45 : isTop(shortlist[0] ?? ({} as T)) ? 58 : 62;
-  const strong = shortlist.filter((p) => (p.probability ?? 0) >= bar && (researched || isTop(p) || (p.probability ?? 0) >= 66));
-  const keep = strong.slice(0, Math.max(1, want)) as T[];
-  if (!keep.length && shortlist.length) {
-    const fallback = shortlist.filter((p) => isTop(p)).slice(0, Math.max(1, Math.min(want, 8))) as T[];
-    return { keep: fallback.length ? fallback : (shortlist.slice(0, 1) as T[]), dropped: unique.length - 1, researched };
+  const lessoned = (await applyLessonScores(seeded)) as Array<T & { probability: number }>;
+
+  // Quality bar: with research we trust the blended number; without it we only
+  // trust selections from leagues we can actually read.
+  const bar = researched ? 45 : 58;
+  const pool = lessoned.filter(
+    (p) => p.probability >= bar && (researched || isTop(p) || p.probability >= 66),
+  );
+  const candidates = pool.length ? pool : lessoned.filter((p) => isTop(p)).slice(0, Math.max(1, Math.min(want, 8)));
+
+  // The builder's floor matches the bar the pool already passed, so a leg is
+  // never accepted by one filter and quietly dropped by the other.
+  const slip: Slip = buildSlip(candidates as Leg[], {
+    target: opts.target,
+    maxLegs: Math.max(1, want),
+    minProb: bar,
+  });
+
+  const keep = (slip.legs.length ? slip.legs : rankByValue(candidates as Leg[]).slice(0, Math.max(1, want))) as T[];
+  return {
+    keep,
+    dropped: Math.max(0, oneEach.length - keep.length),
+    researched,
+    trueChance: Math.round(slip.trueChance * 100),
+    ev: slip.ev,
+    notes: slip.notes,
+  };
+}
+
+/** How concentrated a slip is, for the "this is one bet, not ten" warning. */
+export function concentrationNote(picks: TicketPick[]): string | null {
+  if (picks.length < 4) return null;
+  const leagues = new Map<string, number>();
+  for (const p of picks) {
+    const key = (p.league ?? "").toLowerCase();
+    if (!key) continue;
+    leagues.set(key, (leagues.get(key) ?? 0) + 1);
   }
-  return { keep, dropped: unique.length - keep.length, researched };
+  const top = [...leagues.entries()].sort((a, b) => b[1] - a[1])[0];
+  if (top && top[1] >= 4 && top[1] / picks.length > 0.5) {
+    return `${top[1]} of ${picks.length} legs na ${top[0]} — dem dey move together o.`;
+  }
+  return null;
 }

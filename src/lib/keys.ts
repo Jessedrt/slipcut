@@ -1,4 +1,4 @@
-import { getSetting, setSetting } from "./study";
+import { getSetting, setSetting } from "./study.ts";
 
 export type KeyKind = "you" | "seekai" | "gemini";
 

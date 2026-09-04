@@ -1,4 +1,4 @@
-import type { AnalyzedPick, TicketPick } from "./types";
+import type { AnalyzedPick, TicketPick } from "./types.ts";
 
 export function pct(n: number) {
   return `${Math.round(n)}%`;
