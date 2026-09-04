@@ -57,21 +57,12 @@ export function marketProbOf(pick: TicketPick): number | null {
 }
 
 const SYSTEM = [
-  "You are a sports-book pricing analyst, not a tipster. Your job is to say what each selection is really worth.",
-  "",
-  "Think about: league quality and how predictable it is, team style, recent form, injuries and rotation, rest and travel, head-to-head, motivation, and whether this specific MARKET fits this specific match.",
-  "",
-  "Reply with JSON only, one object per selection:",
-  '{"picks":[{"i":<index from the list>,"probability":<true chance 0-100>,"fair_odds":<decimal price you believe is fair, e.g. 1.72>,"confidence":"high|medium|low","summary":"one short line","reasons":["...","..."],"risks":["..."]}]}',
-  "",
-  "Rules:",
-  "- The price in the list is the BOOKMAKER price and it includes their margin. Read it as context, never just invert it. Form your own view.",
-  "- probability and fair_odds must agree: fair_odds is about 100 / probability.",
-  "- 50 means a coin flip. Only go above 68 if you would put your own money on it. Big favourites in chaotic leagues still bust.",
-  "- If you do not have current information on a match, set confidence to \"low\" and keep probability near the market price.",
-  "- Judge the selection as it stands: a weak pick is a weak pick, but do not refuse to score it - score it low and say why.",
-  "- No preamble, no markdown, no commentary outside the JSON.",
-].join("\n");
+  "You are a sports-book pricing analyst. Score each selection.",
+  "Reply with JSON only:",
+  '{"picks":[{"i":1,"probability":55,"fair_odds":1.82,"confidence":"medium","summary":"short reason","reasons":["a"],"risks":["b"]}]}',
+  "Rules: probability 0-100, fair_odds ≈ 100/probability, confidence high|medium|low.",
+  "Do not copy bookmaker price blindly. No markdown outside JSON.",
+].join(" ");
 
 function pickLines(picks: TicketPick[]): string {
   return picks
@@ -80,9 +71,9 @@ function pickLines(picks: TicketPick[]): string {
       return [
         `${i + 1}.`,
         p.sport,
-        `| ${clip(p.league, 30)}`,
-        `| ${clip(p.home, 34)} vs ${clip(p.away, 34)}`,
-        `| ${clip(p.market, 30)} → ${clip(p.selection, 30)}`,
+        `| ${clip(p.league, 28)}`,
+        `| ${clip(p.home, 28)} vs ${clip(p.away, 28)}`,
+        `| ${clip(p.market, 24)} → ${clip(p.selection, 24)}`,
         `| book ${p.odds ?? "?"}`,
         `| KO ${when}`,
       ].join(" ");
@@ -159,6 +150,31 @@ function matchRows(picks: TicketPick[], answer: string): EngineReading | null {
   return out.size ? out : null;
 }
 
+/** Fallback when model returns prose with percentages instead of JSON. */
+function matchProse(picks: TicketPick[], answer: string): EngineReading | null {
+  const out: EngineReading = new Map();
+  const lines = answer.split(/\n+/);
+  for (let i = 0; i < picks.length; i++) {
+    const pick = picks[i]!;
+    const needle = `${i + 1}`;
+    const hit =
+      lines.find((ln) => new RegExp(`(?:^|\b)${needle}[\.\):\s]`).test(ln) && /\d{1,3}\s*%/.test(ln)) ??
+      lines.find((ln) => ln.toLowerCase().includes(pick.home.slice(0, 8).toLowerCase()) && /\d{1,3}\s*%/.test(ln));
+    if (!hit) continue;
+    const m = hit.match(/(\d{1,2}|100)\s*%/);
+    if (!m) continue;
+    const probability = Math.min(97, Math.max(3, Number(m[1])));
+    out.set(pick.id, {
+      probability,
+      confidence: "low",
+      summary: clip(hit, 120),
+      reasons: [],
+      risks: ["Parsed from prose — not structured JSON."],
+    });
+  }
+  return out.size ? out : null;
+}
+
 function tagReading(reading: EngineReading, engine: string): Map<string, EngineRow & { engine: string }> {
   const out = new Map<string, EngineRow & { engine: string }>();
   for (const [id, row] of reading) out.set(id, { ...row, engine });
@@ -183,25 +199,19 @@ async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
 
 type Reading = Map<string, EngineRow & { engine: string }>;
 
-/** you.com only — Gemini and SeekAI removed from the cook path. */
-async function readChunk(picks: TicketPick[], _brief: string): Promise<Reading> {
+/** One small chunk at a time — you.com is more reliable sequential. */
+async function readChunk(picks: TicketPick[]): Promise<Reading> {
   const lines = pickLines(picks);
   const user = [
-    "Score each selection independently.",
-    "Do not copy the same verdict across games; each matchup stands on its own.",
-    "",
+    "Score each selection. JSON only.",
     lines,
   ].join("\n");
 
-  const answer = await withTimeout(youAnswer(`${SYSTEM}\n\n${user}`, 16_000), 18_000);
+  const answer = await withTimeout(youAnswer(`${SYSTEM}\n\n${user}`, 22_000), 24_000);
   if (!answer) return new Map();
-  const reading = matchRows(picks, answer);
+  const reading = matchRows(picks, answer) ?? matchProse(picks, answer);
   if (!reading?.size) return new Map();
   return tagReading(reading, "you.com");
-}
-
-async function scoreChunk(picks: TicketPick[]): Promise<Reading> {
-  return readChunk(picks, "");
 }
 
 async function mapPool<T, R>(items: T[], n: number, fn: (item: T, i: number) => Promise<R>): Promise<R[]> {
@@ -249,8 +259,9 @@ export type ScoredPick = {
 async function readAll(picks: TicketPick[]): Promise<Reading> {
   const playable = picks.filter((p) => p.sport !== "other");
   if (!playable.length) return new Map();
-  const groups = chunk(playable, 4);
-  const parts = await mapPool(groups, 2, (group) => scoreChunk(group));
+  // 2 picks per call, 1 worker — avoids you.com rate-limit bursts.
+  const groups = chunk(playable, 2);
+  const parts = await mapPool(groups, 1, (group) => readChunk(group));
   const merged: Reading = new Map();
   for (const part of parts) for (const [id, row] of part) merged.set(id, row);
   return merged;
@@ -419,7 +430,7 @@ export async function researchScores<T extends TicketPick>(
 ): Promise<{ scored: (T & { probability: number; confidence: string; edge: number | null })[]; researched: boolean }> {
   if (!picks.length) return { scored: [], researched: false };
   const cal = calibration ?? (await loadCalibration());
-  const sample = picks.slice(0, 12);
+  const sample = picks.slice(0, 8);
   const { picks: scored, engines } = await scorePicks(sample, cal);
   const byId = new Map(scored.map((row) => [row.id, row]));
   const merged = picks.map((pick) => {

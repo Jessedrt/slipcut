@@ -11,7 +11,7 @@ const WEAK_FB =
   /friendly|women|womens|u-?1[789]|u-?2[013]|reserve|\bii\b|amateur|virtual|esport|simulat|youth|qualification play-off/i;
 const WEAK_BB = /friendly|club friendly|virtual|esport|simulat|u-?1[89]/i;
 const TOP_FB =
-  /premier league|la liga|laliga|serie a|bundesliga|ligue 1|champions league|europa league|conference league|eredivisie|primeira|championship|mls|copa libertadores|nations league|saudi|super lig|liga portugal|pro league|belgian|jupiler|swiss|austrian|scottish|turkish/i;
+  /premier league|la liga|laliga|serie a|bundesliga|ligue 1|champions league|europa league|conference league|eredivisie|primeira|championship|mls|copa libertadores|nations league|saudi|super lig|liga portugal|pro league|belgian|jupiler|swiss|austrian|scottish premiership|turkish|serie b|liga mx|brasileirao|argentina|liga profesional/i;
 const TOP_BB = /euroleague|ncaa|wnba|acb|nbl|eurocup|bbl/i;
 const TOP_TN = /atp|wta|us open|australian open|wimbledon|roland|french open|masters|grand slam|challenger/i;
 
@@ -33,11 +33,12 @@ export function deskScore(pick: TicketPick): number {
     pick.sport === "football" ? TOP_FB.test(league) : pick.sport === "basketball" ? TOP_BB.test(league) : TOP_TN.test(league);
 
   let p = market ?? 0.5;
-  if (weak) p -= 0.18;
-  if (!top) p -= 0.08;
-  if (top) p += 0.03;
+  if (weak) p -= 0.22;
+  if (!top) p -= 0.12;
+  if (top) p += 0.05;
   if (pick.kickoff && pick.kickoff < Date.now() + 8 * 60_000) p -= 0.18;
-  if (pick.odds && pick.odds > 3.5) p -= 0.04;
+  if (pick.odds && pick.odds > 3.2) p -= 0.05;
+  if (pick.odds && pick.odds < 1.25) p -= 0.03;
   if (fam === "dc" || fam === "dnb") p += 0.02;
   if (fam === "ou" || fam === "ou1h") p += 0.01;
   return clamp(Math.round(p * 100), 4, 96);
@@ -127,10 +128,10 @@ export async function researchPicks<T extends TicketPick>(
     probability: deskScore(p),
   })) as Array<T & { probability: number }>;
 
-  // you.com only.
   const canResearch = Boolean(youKeys().length);
   let researched = false;
   if (canResearch && seeded.length) {
+    // Prefer top leagues, keep shortlist small so you.com can finish.
     const shortlist = seeded
       .slice()
       .sort((a, b) => {
@@ -138,8 +139,8 @@ export async function researchPicks<T extends TicketPick>(
         const topB = isTop(b) ? 1 : 0;
         return topB - topA || (b.probability ?? 0) - (a.probability ?? 0);
       })
-      .slice(0, Math.min(seeded.length, Math.max(want + 4, 10)));
-    const scored = await withTimeout(researchScores(shortlist), 36_000);
+      .slice(0, Math.min(seeded.length, Math.max(want + 2, 6)));
+    const scored = await withTimeout(researchScores(shortlist), 55_000);
     if (scored?.researched) {
       researched = true;
       const byId = new Map(scored.scored.map((row) => [row.id, row]));
@@ -159,7 +160,8 @@ export async function researchPicks<T extends TicketPick>(
     lessoned = seeded;
   }
 
-  const bar = researched ? 42 : 58;
+  // Desk-only must stay strict — never fill with random weak leagues.
+  const bar = researched ? 44 : 62;
   let pool = lessoned.filter((p) => {
     if (p.probability < bar) return false;
     if (!researched && !isTop(p)) return false;
@@ -169,26 +171,26 @@ export async function researchPicks<T extends TicketPick>(
   if (!pool.length) {
     pool = researched
       ? lessoned
-          .filter((p) => p.probability >= 40)
+          .filter((p) => p.probability >= 42)
           .sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0))
-          .slice(0, want + 4)
+          .slice(0, want + 2)
       : lessoned
-          .filter((p) => isTop(p))
+          .filter((p) => isTop(p) && (p.probability ?? 0) >= 55)
           .sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0))
-          .slice(0, Math.max(want, 4));
+          .slice(0, Math.max(want, 3));
   }
 
   const slip: Slip = buildSlip(pool as Leg[], {
     target: opts.target,
     maxLegs: Math.max(1, want),
-    minProb: researched ? 40 : 55,
-    maxPerLeague: 4,
-    maxPerSlot: 5,
+    minProb: researched ? 42 : 58,
+    maxPerLeague: 3,
+    maxPerSlot: 4,
   });
 
   const keep = (slip.legs.length
     ? slip.legs
-    : rankByValue(pool as Leg[]).slice(0, Math.max(1, want))) as T[];
+    : rankByValue(pool as Leg[]).slice(0, Math.max(1, Math.min(want, 4)))) as T[];
 
   const notes = [...slip.notes];
   if (!researched) {
