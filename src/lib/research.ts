@@ -6,10 +6,10 @@ import { refreshKeys, seekaiKeys, geminiKeys } from "./keys";
 import type { TicketPick } from "./types";
 
 const WEAK_FB =
-  /friendly|women|womens|u-?1[789]|u-?2[013]|reserve|\bii\b|amateur|virtual|esport|simulat|youth|qualification play-off/i;
-const WEAK_BB = /friendly|club friendly|virtual|esport|simulat|u-?1[89]/i;
+  /friendly|women|womens|u-?1[789]|u-?2[013]|reserve|\bii\b|amateur|virtual|esport|simulat|simulation|\besoccer\b|e-?soccer|\bsrl\b|\bfifa\b|youth|qualification play-off/i;
+const WEAK_BB = /friendly|club friendly|virtual|esport|simulat|simulation|\besoccer\b|\bsrl\b|u-?1[89]/i;
 const WEAK =
-  /friendly|u-?1[789]|u-?2[013]|reserve|\bii\b|amateur|virtual|esport|simulat|youth|qualification play-off/i;
+  /friendly|u-?1[789]|u-?2[013]|reserve|\bii\b|amateur|virtual|esport|simulat|simulation|\besoccer\b|\bsrl\b|youth|qualification play-off/i;
 const TOP_FB =
   /premier league|la liga|laliga|serie a|bundesliga|ligue 1|champions league|europa league|conference league|eredivisie|primeira|championship|mls|copa libertadores|nations league|saudi|super lig|liga portugal|pro league/i;
 const TOP_BB = /euroleague|ncaa|wnba|acb|nbl|eurocup|bbl/i;

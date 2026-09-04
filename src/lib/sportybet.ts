@@ -192,6 +192,9 @@ const FOOTBALL_LEAGUES =
   /premier league|laliga|la liga|serie a|bundesliga|ligue 1|champions league|europa league|conference league|eredivisie|primeira|championship|mls|copa libertadores|nations league|pro league|saudi/i;
 const BASKETBALL_LEAGUES = /euroleague|eurocup|ncaa|wnba|nbl|acb|bbl/i;
 const TENNIS_LEAGUES = /atp|wta|us open|australian open|wimbledon|roland|french open|masters|challenger|grand slam/i;
+/** Simulated / virtual leagues — never real fixtures, always excluded. */
+const SIMULATED_LEAGUE =
+  /simulat|simulation|virtual|esoccer|e-?soccer|esport|\bsrl\b|fifa|\bpes\b|arcade|\bcrowd\b|robots?/i;
 
 type EventMarket = {
   id?: string;
@@ -602,6 +605,7 @@ export async function listUpcomingPicks(
           e.status === 0 &&
           !e.banned &&
           e.eventId &&
+          !SIMULATED_LEAGUE.test(e.leagueHint ?? "") &&
           inCookWindow(e.estimateStartTime ?? 0, window, now) &&
           (sport !== "basketball" || !/\bnba\b/i.test(e.leagueHint ?? "")),
       )
@@ -631,6 +635,7 @@ export async function listUpcomingPicks(
     });
     for (const ev of details) {
       if (!ev || ev.status !== 0 || ev.banned) continue;
+      if (SIMULATED_LEAGUE.test(leagueName(ev.sport))) continue;
       if (events >= want) break;
       if (mode === "draw") {
         if (sport !== "football") continue;
