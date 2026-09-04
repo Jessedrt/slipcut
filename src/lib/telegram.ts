@@ -1262,7 +1262,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     await tg("sendPhoto", {
       chat_id: msg.chat.id,
       photo: BANNER_URL,
-      caption: "<b>SportyClaw</b>\n\nPaste a booking code.\nOr tap the menu.",
+      caption: "<b>SlipCut</b>\n\nPaste a booking code.\nOr tap the menu.",
       parse_mode: "HTML",
       reply_markup: deskKeyboard(),
     });
@@ -1273,7 +1273,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       chat_id: msg.chat.id,
       parse_mode: "HTML",
       text: [
-        "<b>SportyClaw</b>",
+        "<b>SlipCut</b>",
         "",
         "Type what you want, or tap the menu.",
         "",
