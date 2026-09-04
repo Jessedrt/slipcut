@@ -56,18 +56,22 @@ export function marketProbOf(pick: TicketPick): number | null {
   return fairProbFromOdds(pick.odds, familyOf(pick), pick.sport);
 }
 
-/** Pure match analysis — form, H2H, injuries, motivation. Not book-price inversion. */
+/**
+ * Accuracy-led market selection: judge each leg by how often THIS market has
+ * actually won in this league/context — not by inverting the book price and
+ * not by free-form H2H chat. The book's odds are shown for context only.
+ */
 const SYSTEM = [
-  "You are a football/basketball/tennis match analyst.",
-  "Judge each selection using: recent form, head-to-head, home/away record, injuries/suspensions, rest, motivation, and whether THIS market fits THIS match.",
-  "Do NOT invert the bookmaker odds. Form your own view from match facts.",
+  "You are a betting-market accuracy analyst for football, basketball and tennis.",
+  "Judge each selection by HISTORICAL ACCURACY: how often this exact market has won in this league and for these teams — league scoring profile, the team's season record in this market (e.g. over 2.5 hit rate, BTTS rate, home-win rate), head-to-head trends, injuries and form only as they change that rate.",
+  "Do NOT invert the bookmaker odds; the book price is context, not your answer.",
   "Reply with JSON only:",
-  '{"picks":[{"i":1,"keep":true,"probability":62,"confidence":"high","summary":"one line H2H/form reason","reasons":["form","h2h"],"risks":["injury"]}]}',
+  '{"picks":[{"i":1,"keep":true,"probability":62,"confidence":"high","summary":"one line: the market-accuracy reason (e.g. 70% over 2.5 rate in this league)","reasons":["league rate","team trend"],"risks":["low-scoring sides"]}]}',
   "Rules:",
-  "- keep=true only if you would back it yourself from form/H2H analysis.",
-  "- probability is your true chance 0-100 from analysis (not the book price).",
-  "- confidence high|medium|low from how strong the evidence is.",
-  "- summary must mention form or H2H or a concrete match fact.",
+  "- keep=true only if this market historically wins more often than not for these sides (roughly 55%+).",
+  "- probability is your accuracy estimate 0-100 for this market in this match (not the book price).",
+  "- confidence high|medium|low from how much history backs it.",
+  "- summary must cite the concrete historical/market basis, not vague form talk.",
   "- No markdown, no text outside JSON.",
 ].join(" ");
 
@@ -178,7 +182,7 @@ function matchProse(picks: TicketPick[], answer: string): EngineReading | null {
     const pick = picks[i]!;
     const needle = `${i + 1}`;
     const hit =
-      lines.find((ln) => new RegExp(`(?:^|\b)${needle}[\.\):\s]`).test(ln)) ??
+      lines.find((ln) => new RegExp(`(?:^|\b)${needle}[.\\s):]`).test(ln)) ??
       lines.find((ln) => ln.toLowerCase().includes(pick.home.slice(0, 8).toLowerCase()));
     if (!hit) continue;
     const m = hit.match(/(\d{1,2}|100)\s*%/);
@@ -227,7 +231,7 @@ type Reading = Map<string, EngineRow & { engine: string }>;
 async function readChunk(picks: TicketPick[]): Promise<Reading> {
   const lines = pickLines(picks);
   const user = [
-    "Analyse each selection from form and H2H. JSON only.",
+    "Judge each selection by how often this market has actually won in this league and for these teams. JSON only.",
     lines,
   ].join("\n");
 
@@ -284,7 +288,12 @@ async function readAll(picks: TicketPick[]): Promise<Reading> {
   const playable = picks.filter((p) => p.sport !== "other");
   if (!playable.length) return new Map();
   const groups = chunk(playable, 2);
-  const parts = await mapPool(groups, 1, (group) => readChunk(group));
+  // Concurrency 2, not 1: a 6-leg cook is 3 chunks × up to 26s each — run
+  // strictly sequential that is ~78s worst case, past the 60s Vercel function
+  // budget, so multi-leg cooks used to time out and return "no research".
+  // Two at a time keeps worst case ~52s; youPost round-robins the you.com
+  // keys, so parallel chunks ride different keys.
+  const parts = await mapPool(groups, 2, (group) => readChunk(group));
   const merged: Reading = new Map();
   for (const part of parts) for (const [id, row] of part) merged.set(id, row);
   return merged;
@@ -431,7 +440,7 @@ export async function analyzePicks(picks: TicketPick[], threshold = 45) {
   const merged = toAnalyzed(scored, clampThreshold(threshold));
   const engineLabel = engines.length ? engines.join(" + ") : "no analysis";
   return {
-    desk: `🧠 ${engineLabel} · form/H2H read of ${picks.length} selection${picks.length === 1 ? "" : "s"}.`,
+    desk: `🧠 ${engineLabel} · market-accuracy read of ${picks.length} selection${picks.length === 1 ? "" : "s"}.`,
     ...merged,
   };
 }

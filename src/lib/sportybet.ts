@@ -193,7 +193,7 @@ const FOOTBALL_LEAGUES =
 const BASKETBALL_LEAGUES = /euroleague|eurocup|ncaa|wnba|nbl|acb|bbl/i;
 const TENNIS_LEAGUES = /atp|wta|us open|australian open|wimbledon|roland|french open|masters|challenger|grand slam/i;
 
-type EventMarket = {
+export type EventMarket = {
   id?: string;
   desc?: string;
   specifier?: string;
@@ -201,7 +201,7 @@ type EventMarket = {
   outcomes?: Array<{ id?: string; desc?: string; odds?: string; isActive?: number }>;
 };
 
-type EventDetail = {
+export type EventDetail = {
   eventId?: string;
   estimateStartTime?: number;
   status?: number;
@@ -889,12 +889,16 @@ function chooseOutcome(
   return hit ?? outs[0];
 }
 
-function marketForTarget(ev: EventDetail, sport: TicketPick["sport"], target: MarketTarget): EventMarket | null {
+export function marketForTarget(ev: EventDetail, sport: TicketPick["sport"], target: MarketTarget): EventMarket | null {
   const markets = (ev.markets ?? []).filter((m) => m.status === 0);
+  // 1X2 / straight win stays off the desk for football and basketball —
+  // the candidate builders already exclude those markets, and retargeting
+  // must not sneak them back in. Tennis keeps its winner (market 1).
+  if (target === "win") {
+    if (sport === "football" || sport === "basketball") return null;
+    return markets.find((m) => m.id === "1") ?? null;
+  }
   if (sport === "basketball") {
-    if (target === "win") {
-      return markets.find((m) => m.id === "219") ?? null;
-    }
     const line = target === "ou15" ? "1.5" : target === "ou35" ? "3.5" : "2.5";
     const totals = markets.filter((m) => m.id === "225");
     return (
@@ -907,7 +911,6 @@ function marketForTarget(ev: EventDetail, sport: TicketPick["sport"], target: Ma
       null
     );
   }
-  if (target === "win") return markets.find((m) => m.id === "1") ?? null;
   if (target === "dc") return markets.find((m) => m.id === "10") ?? null;
   if (target === "dnb") return markets.find((m) => m.id === "11") ?? null;
   if (target === "gg") return markets.find((m) => m.id === "29") ?? null;

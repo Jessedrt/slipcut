@@ -111,8 +111,10 @@ export type ResearchResult<T> = {
 };
 
 /**
- * Cook from pure AI form/H2H analysis only.
- * No rigid % score bar — rank by AI keep + confidence.
+ * Cook from AI market-accuracy analysis only (how often this market actually
+ * wins in this league/context — not book-price inversion, not free-form H2H
+ * chat). No rigid % score bar — rank by AI keep + confidence. If the AI
+ * backs nothing, refuse: no slip.
  */
 export async function researchPicks<T extends TicketPick>(
   picks: T[],
@@ -200,7 +202,7 @@ export async function researchPicks<T extends TicketPick>(
 
   // Prefer AI "keep" + high/medium confidence — no hard % bar.
   const confRank = (c?: string) => (c === "high" ? 3 : c === "medium" ? 2 : 1);
-  let pool = lessoned
+  const pool = lessoned
     .filter((p) => p.verdict === "keep" || (p.probability ?? 0) >= 52)
     .sort(
       (a, b) =>
@@ -209,20 +211,19 @@ export async function researchPicks<T extends TicketPick>(
     );
 
   if (!pool.length) {
-    pool = lessoned
-      .slice()
-      .sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0))
-      .slice(0, want + 2);
-  }
-
-  if (!pool.length) {
+    // Refuse, don't cook: the desk-fallback of "take the strongest-looking
+    // legs anyway" is how garbage slips (true ~2% at 180×) used to reach
+    // punters. No AI-backed leg means no slip.
     return {
       keep: [],
       dropped: oneEach.length,
       researched: true,
       trueChance: 0,
       ev: null,
-      notes: ["analysis done, but no selection the AI would back."],
+      notes: [
+        "analysis done, but no selection the AI would back.",
+        "Ask for fewer games, a lower odds, or a different window.",
+      ],
     };
   }
 
@@ -244,7 +245,7 @@ export async function researchPicks<T extends TicketPick>(
     researched: true,
     trueChance: Math.round(slip.trueChance * 100),
     ev: slip.ev,
-    notes: [...slip.notes, "form/H2H analysis"],
+    notes: [...slip.notes, "market-accuracy analysis"],
   };
 }
 

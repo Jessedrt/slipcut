@@ -109,6 +109,16 @@ async function createPgliteSql(): Promise<Sql> {
   // Embedded Postgres, imported on demand so it never loads on the Neon path.
   // One in-memory instance per process, shared across HMR module instances, so
   // data survives source edits (it resets on dev-server restart).
+  //
+  // In-memory is a PREVIEW convenience, not production storage: on Vercel each
+  // function invocation starts a fresh empty database, so study/settle/hit-rate
+  // records do not survive a cold start there. Set Neon DATABASE_URL in Vercel
+  // for a persistent DB — the rest of the app needs no changes.
+  if (typeof process !== "undefined" && process.env.VERCEL && !process.env.DATABASE_URL) {
+    console.warn(
+      "[db] no DATABASE_URL on Vercel — using in-memory PGLite; records reset on cold start. Set Neon DATABASE_URL for a persistent DB.",
+    );
+  }
   globalRef.__pgliteInstance__ ??= (async () => {
     const { PGlite } = await import("@electric-sql/pglite");
     const pg = new PGlite({
