@@ -50,6 +50,7 @@ Everything downstream uses the same numbers:
 | `/why [code] [n]` | Full reasoning on one leg (defaults to the weakest): reasons, risks, fair price, engine agreement |
 | `/kelly 50000` | Quarter-Kelly stake for the last slip, against your bankroll |
 | `/calibration` | Brier score and reliability buckets — how sharp the desk's numbers actually are |
+| `/keytest` | Probe every stored key for real and report which engine answers, on which model, in how long |
 | `/today`, `/weekend`, `/mix`, `/draw` | Cook a slip |
 | `/stake`, `/daily2` | Daily 2-odds slips (Stake.com / SportyBet) |
 | `/score` | Live scores for the last slip |
@@ -84,6 +85,14 @@ desk.
 
 You can also paste a key in Telegram (`/keys`). Vercel env is the reliable path.
 
+A stored key is not the same as a working key, so check with `/keytest`: it
+calls each engine through the same code the scorer uses and names the model
+that actually answered — that is how you learn a free-tier key landed on
+`gemini-2.5-flash` instead of `gemini-3.8-flash`. Research costs about six
+requests per engine per slip (the 18-pick shortlist, three to a call), so a
+free key handles a busy day; when it does hit its quota the reply just falls
+back to the market read and says so, it does not fail.
+
 Without any AI key the desk still works — it just quotes the de-vigged market
 and says so. That is honest, but it means no edge: add a key to get one.
 
@@ -93,6 +102,7 @@ and says so. That is honest, but it means no edge: add a key to get one.
 | --- | --- |
 | `src/lib/odds.ts` | Pure probability maths: de-vig, EV, Kelly, ensembles, calibration, correlation |
 | `src/lib/optimizer.ts` | Slip construction: value ranking, concentration caps, target-price building, staking |
+| `src/lib/gemini-models.ts` | The Gemini fallback chain, dependency-free so it stays testable |
 | `src/lib/settle.ts` | Settlement rules — scoreline to won/lost/void (pure, heavily tested) |
 | `src/lib/analyze.ts` | Research orchestration and the market-anchored blend |
 | `src/lib/research.ts` | Turns a SportyBet pool into a slip worth minting |
@@ -105,7 +115,7 @@ and says so. That is honest, but it means no edge: add a key to get one.
 ```bash
 npm run typecheck   # tsc --noEmit
 npm run lint        # eslint
-npm test            # 274 tests: platform scripts + the desk's pure logic
+npm test            # 293 tests: platform scripts + the desk's pure logic
 ```
 
 The reasoning, settlement and slip-building code is pure and unit tested, so a

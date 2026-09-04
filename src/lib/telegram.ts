@@ -6,6 +6,7 @@ import { concentrationNote, researchPicks } from "./research.ts";
 import { getEventDetail, eventScore, loadBookingCode, listUpcomingPicks, mintShare, parseCookAsks, parseMarketTarget, pickMatchesAsks, formatCookAsks, retargetPicks, sportyOf, windowLabel, type CookAsk, type CookWindow } from "./sportybet.ts";
 import { addAllow, addBlock, allowedBy, applyLessonScores, blockedBy, calibrationReport, clearAllows, formatBook, formatCalibration, formatRecap, formatStudy, latestCode, latestUnstudiedCode, listAllows, listBlocks, listChats, loadOddsBand, markUpdateSeen, recordPredictions, recordSlip, recordStake, rememberChat, removeBlock, saveOddsBand, studyCode } from "./study.ts";
 import { addDeskKey, delDeskKey, detectKey, formatKeyList, refreshKeys } from "./keys.ts";
+import { probeText } from "./keytest.ts";
 import { seekaiReady } from "./seekai.ts";
 import { geminiReady } from "./gemini.ts";
 import { combinedOdds, formatEv, formatKickoff, formatOdds, parseCommand, splitEven, uniqueEvents } from "./workbench.ts";
@@ -1538,6 +1539,28 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       chat_id: msg.chat.id,
       text: formatKeyList(),
     });
+    return;
+  }
+  if (isCmd(raw, "keytest") || isCmd(raw, "keycheck") || isCmd(raw, "engine")) {
+    const user = msg.from;
+    if (!user || !(await isOwner(user))) {
+      await tg("sendMessage", { chat_id: msg.chat.id, text: "Private desk." });
+      return;
+    }
+    const sent = (await tg("sendMessage", {
+      chat_id: msg.chat.id,
+      text: "🧪 Dey test engines…",
+    })) as { message_id?: number } | null;
+    const report = await probeText();
+    if (sent?.message_id) {
+      await tg("editMessageText", {
+        chat_id: msg.chat.id,
+        message_id: sent.message_id,
+        text: report,
+      });
+      return;
+    }
+    await tg("sendMessage", { chat_id: msg.chat.id, text: report });
     return;
   }
   {

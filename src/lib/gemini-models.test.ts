@@ -1,6 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { geminiModels } from "./gemini-models.ts";
+import {
+  geminiFailure,
+  geminiModels,
+  geminiStatusDetail,
+} from "./gemini-models.ts";
 
 /**
  * Gemini model selection is pure config; these tests guard it.
@@ -51,4 +55,36 @@ describe("gemini model chain", () => {
   it("never returns an empty chain", () => {
     assert.ok(geminiModels({}).length > 0);
   });
+});
+
+// ---- transport policy ----------------------------------------------------
+
+it("an invalid key is fatal, so the caller moves to the next key", () => {
+  assert.equal(geminiFailure(401, "API key not valid. Please pass a valid API key."), "key");
+  assert.equal(geminiFailure(403, "the caller does not have permission"), "key");
+});
+
+it("a model the key cannot use is not fatal — the next model may work", () => {
+  assert.equal(
+    geminiFailure(403, "models/gemini-3.8-flash is not found for API version v1beta"),
+    "model",
+  );
+  assert.equal(geminiFailure(404, "models/gemini-1.5-flash is not found"), "model");
+  assert.equal(geminiFailure(403, "models/gemini-3-pro-preview is not supported"), "model");
+});
+
+it("quota and outages are their own kind", () => {
+  assert.equal(geminiFailure(429, "Quota exceeded for quota metric"), "quota");
+  assert.equal(geminiFailure(503, "The model is overloaded."), "server");
+  assert.equal(geminiFailure(0, "fetch failed"), "network");
+});
+
+it("status text tells the desk user what to do", () => {
+  assert.equal(geminiStatusDetail(429, "gemini-3.8-flash", "quota"), "rate limited — free tier quota");
+  assert.equal(
+    geminiStatusDetail(403, "gemini-3.8-flash", "model"),
+    "gemini-3.8-flash: not served to this key",
+  );
+  assert.equal(geminiStatusDetail(401, "gemini-3.8-flash", "key"), "key rejected (401)");
+  assert.equal(geminiStatusDetail(0, "gemini-3.8-flash", "network"), "network error");
 });
