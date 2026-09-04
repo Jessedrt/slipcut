@@ -1,7 +1,22 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Mark } from "@/components/mark";
+import { Dashboard } from "@/components/dashboard";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
-export const Route = createFileRoute("/")({ component: Closed });
+export const Route = createFileRoute("/")({ component: Landing });
+
+/**
+ * Two states, one route.
+ *
+ * Signed in: the read-only desk. Signed out: the closed card pointing at the
+ * bot — the private desk stays private, and the site still answers the
+ * "what is this?" question instead of showing an empty shell.
+ */
+function Landing() {
+  const { user, isPending } = useCurrentUserState();
+  if (isPending) return null;
+  return user ? <Dashboard /> : <Closed />;
+}
 
 function Closed() {
   return (

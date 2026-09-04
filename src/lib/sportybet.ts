@@ -1,4 +1,4 @@
-import type { BookSport, SportKind, SportySelection, TicketPick } from "./types";
+import type { BookSport, SportKind, SportySelection, TicketPick } from "./types.ts";
 
 export type ShareOutcome = {
   eventId?: string;
@@ -829,7 +829,7 @@ export function eventScore(ev: {
 } | null): EventScore | null {
   if (!ev) return null;
   const raw = ev.setScore || ev.gameScore?.[0] || "";
-  const m = String(raw).match(/(\d+)\s*[:\-]\s*(\d+)/);
+  const m = String(raw).match(/(\d+)\s*[-:]\s*(\d+)/);
   if (!m) {
     const ms0 = String(ev.matchStatus ?? "").toUpperCase();
     if (ev.status === 0 || !ms0) return null;

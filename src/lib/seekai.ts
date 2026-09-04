@@ -1,4 +1,4 @@
-import { seekaiKeys } from "./keys";
+import { seekaiKeys } from "./keys.ts";
 
 const BASE = "https://seekai.cc/v1";
 const MODEL = process.env.SEEKAI_MODEL?.trim() || "claude-opus-4-8";

@@ -1,8 +1,20 @@
-import { getSql } from "./db";
-import { eventScore, getEventDetail, marketFamily } from "./sportybet";
-import type { TicketPick } from "./types";
+import { getSql } from "./db.ts";
+import {
+  brier,
+  fitPlatt,
+  historyBias,
+  reliability,
+  NEUTRAL_PLATT,
+  type Outcome,
+  type Platt,
+  type ReliabilityBin,
+} from "./odds.ts";
+import { eventScore, getEventDetail, marketFamily } from "./sportybet.ts";
+import { settleBasket, settleFootball, settleTennis, type LegResult, type StoredPick } from "./settle.ts";
+import type { TicketPick } from "./types.ts";
+import { RULE, cap, doc, esc, head, leg, stats, subhead, table, tail } from "./tg-format.ts";
 
-export type LegResult = "won" | "lost" | "void" | "pending";
+export type { LegResult, StoredPick };
 
 export type StudiedLeg = {
   home: string;
@@ -28,18 +40,6 @@ export type StudyReport = {
   lesson: string;
 };
 
-type StoredPick = {
-  home: string;
-  away: string;
-  market: string;
-  selection: string;
-  league: string;
-  sport: string;
-  eventId?: string;
-  family: string;
-  kickoff?: number;
-};
-
 function compactPicks(picks: TicketPick[]): StoredPick[] {
   return picks.map((p) => ({
     home: p.home,
@@ -52,169 +52,6 @@ function compactPicks(picks: TicketPick[]): StoredPick[] {
     family: marketFamily(p.sporty?.marketId, p.market),
     kickoff: p.kickoff,
   }));
-}
-
-function lineFromMarket(market: string, selection: string): number | null {
-  const fromSel = selection.match(/(\d+(?:\.\d+)?)/);
-  if (fromSel) return Number(fromSel[1]);
-  const fromMkt = market.match(/(\d+(?:\.\d+)?)/);
-  return fromMkt ? Number(fromMkt[1]) : null;
-}
-
-function settleFootball(pick: StoredPick, home: number, away: number, finished: boolean): { result: LegResult; note: string } {
-  const total = home + away;
-  const sel = pick.selection.toLowerCase();
-  const fam = pick.family;
-  const line = lineFromMarket(pick.market, pick.selection);
-
-  if (fam === "ou" && line != null) {
-    const over = !sel.includes("under");
-    if (over) {
-      if (total > line) return { result: "won", note: `${home}-${away} over ${line}` };
-      if (finished) return { result: "lost", note: `${home}-${away} died under ${line}` };
-      return { result: "pending", note: `${home}-${away} still under ${line}` };
-    }
-    if (total > line) return { result: "lost", note: `${home}-${away} busted under ${line}` };
-    if (finished) return { result: "won", note: `${home}-${away} held under ${line}` };
-    return { result: "pending", note: `${home}-${away} still under ${line}` };
-  }
-
-  if (fam === "gg") {
-    const yes = !/^no\b/.test(sel) && !sel.includes("ng");
-    const both = home > 0 && away > 0;
-    if (yes) {
-      if (both) return { result: "won", note: `${home}-${away} both scored` };
-      if (finished) return { result: "lost", note: `${home}-${away} no GG` };
-      return { result: "pending", note: `${home}-${away} waiting on GG` };
-    }
-    if (both) return { result: "lost", note: `${home}-${away} both scored` };
-    if (finished) return { result: "won", note: `${home}-${away} NG` };
-    return { result: "pending", note: `${home}-${away} NG so far` };
-  }
-
-  if (!finished) return { result: "pending", note: `${home}-${away} still in play` };
-
-  const homeWin = home > away;
-  const awayWin = away > home;
-  const draw = home === away;
-
-  if (fam === "dc") {
-    if (sel.includes("home") && sel.includes("away")) {
-      return homeWin || awayWin
-        ? { result: "won", note: `${home}-${away} 12` }
-        : { result: "lost", note: `${home}-${away} draw killed 12` };
-    }
-    if (sel.includes("home") && sel.includes("draw")) {
-      return homeWin || draw
-        ? { result: "won", note: `${home}-${away} 1X` }
-        : { result: "lost", note: `${home}-${away} away win` };
-    }
-    if (sel.includes("draw") && sel.includes("away")) {
-      return awayWin || draw
-        ? { result: "won", note: `${home}-${away} X2` }
-        : { result: "lost", note: `${home}-${away} home win` };
-    }
-  }
-
-  if (fam === "dnb") {
-    if (draw) return { result: "void", note: `${home}-${away} DNB void` };
-    if (sel.includes("away")) {
-      return awayWin ? { result: "won", note: `${home}-${away} away DNB` } : { result: "lost", note: `${home}-${away} home won` };
-    }
-    return homeWin ? { result: "won", note: `${home}-${away} home DNB` } : { result: "lost", note: `${home}-${away} away won` };
-  }
-
-  if (sel.includes("draw")) {
-    return draw ? { result: "won", note: `${home}-${away} draw` } : { result: "lost", note: `${home}-${away} no draw` };
-  }
-  if (sel.includes("away")) {
-    return awayWin ? { result: "won", note: `${home}-${away} away` } : { result: "lost", note: `${home}-${away} away lost` };
-  }
-  if (sel.includes("home")) {
-    return homeWin ? { result: "won", note: `${home}-${away} home` } : { result: "lost", note: `${home}-${away} home lost` };
-  }
-  return { result: "pending", note: `${home}-${away} could not map market` };
-}
-
-function settleBasket(pick: StoredPick, home: number, away: number, finished: boolean): { result: LegResult; note: string } {
-  const total = home + away;
-  const sel = pick.selection.toLowerCase();
-  const fam = pick.family;
-  const line = lineFromMarket(pick.market, pick.selection);
-  if (fam === "ou" && line != null) {
-    const over = !sel.includes("under");
-    if (!finished && ((over && total <= line) || (!over && total <= line))) {
-      return { result: "pending", note: `${home}-${away} live total ${total}` };
-    }
-    if (over) {
-      return total > line
-        ? { result: "won", note: `${home}-${away} over ${line}` }
-        : finished
-          ? { result: "lost", note: `${home}-${away} under ${line}` }
-          : { result: "pending", note: `${home}-${away} live` };
-    }
-    return total < line
-      ? finished
-        ? { result: "won", note: `${home}-${away} under ${line}` }
-        : { result: "pending", note: `${home}-${away} live` }
-      : { result: "lost", note: `${home}-${away} over ${line}` };
-  }
-  if (!finished) return { result: "pending", note: `${home}-${away} live` };
-  if (sel.includes("away")) {
-    return away > home ? { result: "won", note: `${home}-${away} away` } : { result: "lost", note: `${home}-${away} away lost` };
-  }
-  return home > away ? { result: "won", note: `${home}-${away} home` } : { result: "lost", note: `${home}-${away} home lost` };
-}
-
-function settleTennis(
-  pick: StoredPick,
-  home: number,
-  away: number,
-  finished: boolean,
-  setScore?: string,
-): { result: LegResult; note: string } {
-  const parts = [...String(setScore ?? "").matchAll(/(\d+)\s*[:\-]\s*(\d+)/g)].map((m) => [
-    Number(m[1]),
-    Number(m[2]),
-  ]);
-  let setsH = home;
-  let setsA = away;
-  let gamesH = 0;
-  let gamesA = 0;
-  if (parts.length >= 2) {
-    setsH = 0;
-    setsA = 0;
-    for (const [h, a] of parts) {
-      gamesH += h;
-      gamesA += a;
-      if (h > a) setsH += 1;
-      else if (a > h) setsA += 1;
-    }
-  }
-  const fam = pick.family;
-  const sel = pick.selection.toLowerCase();
-  const line = lineFromMarket(pick.market, pick.selection);
-  if (fam === "ou" && line != null && gamesH + gamesA > 0) {
-    const total = gamesH + gamesA;
-    const over = !sel.includes("under");
-    if (over) {
-      if (total > line) return { result: "won", note: `${total} games over ${line}` };
-      if (finished) return { result: "lost", note: `${total} games under ${line}` };
-      return { result: "pending", note: `${total} games so far` };
-    }
-    if (total > line) return { result: "lost", note: `${total} games busted under ${line}` };
-    if (finished) return { result: "won", note: `${total} games under ${line}` };
-    return { result: "pending", note: `${total} games so far` };
-  }
-  if (!finished) return { result: "pending", note: `${setsH}-${setsA} still on court` };
-  if (sel.includes("away")) {
-    return setsA > setsH
-      ? { result: "won", note: `${setsH}-${setsA} away` }
-      : { result: "lost", note: `${setsH}-${setsA} away lost` };
-  }
-  return setsH > setsA
-    ? { result: "won", note: `${setsH}-${setsA} home` }
-    : { result: "lost", note: `${setsH}-${setsA} home lost` };
 }
 
 export async function recordSlip(code: string, picks: TicketPick[]) {
@@ -330,6 +167,8 @@ export async function studyCode(code: string, picks?: TicketPick[]): Promise<Stu
   const cut = lost > 0;
   const hit = lost === 0 && pending === 0 && won > 0;
   if (pending === 0) await saveLessons(code, legs);
+  // Feed the calibration loop: what we predicted vs what actually landed.
+  await settlePredictions(code, legs);
   return {
     code,
     cut,
@@ -353,6 +192,33 @@ export async function rememberChat(chatId: number | string) {
     `;
   } catch {
     /* ignore */
+  }
+}
+
+/**
+ * Record a Telegram update_id as seen.
+ *
+ * Returns **true when this is the first time we have handled it**. Telegram
+ * retries a webhook until it gets a 200, and the bot's long cook jobs can
+ * outlast its retry window — without this the desk would cook the same slip
+ * twice and message the user twice.
+ */
+export async function markUpdateSeen(updateId: number): Promise<boolean> {
+  try {
+    const sql = await getSql();
+    const rows = await sql<{ update_id: number }>`
+      insert into desk_updates (update_id) values (${updateId})
+      on conflict (update_id) do nothing
+      returning update_id
+    `;
+    if (!rows.length) return false;
+    if (updateId % 50 === 0) {
+      await sql`delete from desk_updates where seen_at < now() - interval '1 day'`;
+    }
+    return true;
+  } catch {
+    // Database down: fall back to the in-memory set rather than drop updates.
+    return true;
   }
 }
 
@@ -630,30 +496,98 @@ export async function recordStake(code: string, stake: number, combo: number) {
   }
 }
 
-export async function formatBankroll(): Promise<string> {
+export type BookRow = {
+  code: string;
+  status: "hit" | "cut" | "open";
+  won: number | null;
+  lost: number | null;
+};
+
+export type BookSummary = {
+  rows: BookRow[];
+  hit: number;
+  cut: number;
+  open: number;
+};
+
+/** Settled and open slips, newest first. Also what `/book` renders. */
+export async function bookSummary(limit = 12): Promise<BookSummary> {
   try {
     const sql = await getSql();
-    const rows = await sql<{ stake: number; combo: number | null; returned: number | null }>`
-      select stake, combo, returned from desk_ledger order by created_at desc limit 40
+    const rows = await sql<{
+      code: string;
+      studied: number;
+      hit: number | null;
+      won: number | null;
+      lost: number | null;
+    }>`
+      select code, studied, hit, won, lost
+      from study_slips
+      order by created_at desc
+      limit ${limit}
     `;
-    if (!rows.length) return "No stakes yet. Say: stake 2000";
-    const inAmt = rows.reduce((s, r) => s + Number(r.stake || 0), 0);
-    const settled = rows.filter((r) => r.returned != null);
-    const outAmt = settled.reduce((s, r) => s + Number(r.returned || 0), 0);
-    const open = rows.length - settled.length;
-    const pl = outAmt - settled.reduce((s, r) => s + Number(r.stake || 0), 0);
-    const naira = (n: number) => `₦${Math.round(n).toLocaleString("en-NG")}`;
-    return [
-      `Staked ${naira(inAmt)}`,
-      `Returned ${naira(outAmt)}`,
-      settled.length ? `P/L ${naira(pl)} on settled` : "Nothing settled yet",
-      open ? `${open} still open` : "",
-    ]
-      .filter(Boolean)
-      .join("\n");
+    const out: BookRow[] = rows.map((r) => ({
+      code: r.code,
+      status: !r.studied ? "open" : r.hit === 1 ? "hit" : "cut",
+      won: r.won,
+      lost: r.lost,
+    }));
+    return {
+      rows: out,
+      hit: out.filter((r) => r.status === "hit").length,
+      cut: out.filter((r) => r.status === "cut").length,
+      open: out.filter((r) => r.status === "open").length,
+    };
   } catch {
-    return "Bankroll empty.";
+    return { rows: [], hit: 0, cut: 0, open: 0 };
   }
+}
+
+export type BankrollSummary = {
+  staked: number;
+  returned: number;
+  pl: number;
+  open: number;
+  settled: number;
+};
+
+/** Money in, money back, and what that nets. Null when nothing is recorded. */
+export async function bankrollSummary(): Promise<BankrollSummary | null> {
+  try {
+    const sql = await getSql();
+    const rows = await sql<{ stake: number; returned: number | null }>`
+      select stake, returned from desk_ledger order by created_at desc limit 200
+    `;
+    if (!rows.length) return null;
+    const settled = rows.filter((r) => r.returned != null);
+    const staked = rows.reduce((s, r) => s + Number(r.stake || 0), 0);
+    const returned = settled.reduce((s, r) => s + Number(r.returned || 0), 0);
+    return {
+      staked,
+      returned,
+      pl: returned - settled.reduce((s, r) => s + Number(r.stake || 0), 0),
+      open: rows.length - settled.length,
+      settled: settled.length,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function naira(n: number) {
+  return `\u20a6${Math.round(n).toLocaleString("en-NG")}`;
+}
+
+export async function formatBankroll(): Promise<string> {
+  const summary = await bankrollSummary();
+  if (!summary) return doc(head("bankroll"), "No stakes yet. Say: stake 2000");
+  const rows: Array<[string, string]> = [
+    ["staked", naira(summary.staked)],
+    ["returned", naira(summary.returned)],
+  ];
+  if (summary.settled) rows.push(["P/L", naira(summary.pl)]);
+  if (summary.open) rows.push(["open", String(summary.open)]);
+  return doc(head("bankroll"), stats(rows));
 }
 
 export async function formatRecap(): Promise<string> {
@@ -673,80 +607,83 @@ export async function formatRecap(): Promise<string> {
       limit 20
     `;
     const money = await formatBankroll();
-    if (!rows.length) return `This week empty.\n\n${money}`;
+    if (!rows.length) return doc(head("recap"), "This week empty.", money);
     const finished = rows.filter((r) => r.studied);
     const hits = finished.filter((r) => r.hit === 1).length;
     const cuts = finished.filter((r) => r.hit === 0).length;
-    const lines = rows.slice(0, 10).map((r) => {
-      const tag = !r.studied ? "open" : r.hit === 1 ? "HIT" : "CUT";
-      return `${r.code}  ·  ${tag}`;
-    });
-    return ["This week", `HIT ${hits}  ·  CUT ${cuts}  ·  ${rows.length - finished.length} open`, "", ...lines, "", money].join("\n");
+    const lines = rows.slice(0, 12).map((r, i) =>
+      leg(i + 1, r.code, !r.studied ? "open" : r.hit === 1 ? "hit" : "cut"),
+    );
+    return cap(
+      doc(
+        head("recap", "last 7 days"),
+        stats([
+          ["hit", String(hits)],
+          ["cut", String(cuts)],
+          ["open", String(rows.length - finished.length)],
+        ]),
+        RULE,
+        lines.join("\n"),
+        money,
+      ),
+    );
   } catch {
-    return "No recap yet.";
+    return doc(head("recap"), "No recap yet.");
   }
 }
 
 export async function formatBook(): Promise<string> {
+  const book = await bookSummary(12);
+  if (!book.rows.length) {
+    return doc(head("book"), "Your book empty.", "Cook a slip or send a code first.");
+  }
+  const worst = await worstFamilies();
+  const lines = book.rows.map((r, i) => {
+    const score = r.won != null && r.lost != null ? `${r.won}-${r.lost}` : "";
+    return leg(i + 1, r.code, r.status, undefined, score);
+  });
+  const cutNote = worst.length
+    ? `Markets wey dey cut you: ${worst.map((w) => `${w.label} (${w.n})`).join(", ")}`
+    : "";
+  return cap(
+    doc(
+      head("book", "last 12"),
+      stats([
+        ["hit", String(book.hit)],
+        ["cut", String(book.cut)],
+        ["open", String(book.open)],
+      ]),
+      RULE,
+      lines.join("\n"),
+      cutNote ? tail(cutNote) : null,
+      await formatBankroll(),
+    ),
+  );
+}
+
+/** The markets that have cut you most, for the warning under /book. */
+async function worstFamilies(): Promise<Array<{ label: string; n: number }>> {
+  const famLabel: Record<string, string> = {
+    hcp: "handicap",
+    ou1h: "1st half O/U",
+    ou: "over/under",
+    gg: "GG",
+    dc: "double chance",
+    dnb: "DNB",
+    win: "winner",
+  };
   try {
     const sql = await getSql();
-    const rows = await sql<{
-      code: string;
-      studied: number;
-      hit: number | null;
-      lost: number | null;
-      won: number | null;
-    }>`
-      select code, studied, hit, lost, won
-      from study_slips
-      order by created_at desc
-      limit 12
-    `;
-    if (!rows.length) return "Your book empty. Cook or load a code first.";
-    const finished = rows.filter((r) => r.studied);
-    const hits = finished.filter((r) => r.hit === 1).length;
-    const cuts = finished.filter((r) => r.hit === 0).length;
-    const pending = rows.length - finished.length;
-    const worst = await sql<{ family: string; n: number }>`
+    const rows = await sql<{ family: string; n: number }>`
       select family, count(*)::int as n from study_lessons
       where result = 'lost'
       group by family
       order by n desc
       limit 3
     `;
-    const famLabel: Record<string, string> = {
-      hcp: "handicap",
-      ou1h: "1st half O/U",
-      ou: "over/under",
-      gg: "GG",
-      dc: "double chance",
-      dnb: "DNB",
-      win: "winner",
-    };
-    const lines = rows.map((r, i) => {
-      const tag =
-        !r.studied ? "open" : r.hit === 1 ? "HIT" : "CUT";
-      const score =
-        r.studied && r.won != null && r.lost != null ? ` · ${r.won}-${r.lost}` : "";
-      return `${i + 1}. ${r.code} · ${tag}${score}`;
-    });
-    const cutNote = worst.length
-      ? `Markets wey dey cut you: ${worst.map((w) => `${famLabel[w.family] ?? w.family} (${w.n})`).join(", ")}`
-      : "";
-    const money = await formatBankroll();
-    return [
-      "Your book",
-      `HIT ${hits} · CUT ${cuts} · still dey ${pending}`,
-      "",
-      ...lines,
-      cutNote ? `\n${cutNote}` : "",
-      "",
-      money,
-    ]
-      .filter((l, i, arr) => l !== "" || arr[i - 1] !== "")
-      .join("\n");
+    return rows.map((r) => ({ label: famLabel[r.family] ?? r.family, n: r.n }));
   } catch {
-    return "I no fit open the book now. Try study a code first.";
+    return [];
   }
 }
 
@@ -755,22 +692,33 @@ type LessonRow = { result: string; family: string; league: string };
 function boostFromLessons(pick: TicketPick, rows: LessonRow[]): number {
   if (!rows.length) return 0;
   const family = marketFamily(pick.sporty?.marketId, pick.market);
-  const league = (pick.league ?? "").toLowerCase();
-  let n = 0;
+  const league = (pick.league ?? "").trim().toLowerCase();
+  let famWon = 0;
+  let famLost = 0;
+  let lgWon = 0;
+  let lgLost = 0;
   for (const row of rows) {
-    const lost = row.result === "lost";
-    const won = row.result === "won";
-    if (row.family === family) n += won ? 4 : lost ? -8 : 0;
-    if (league && row.league && league === row.league.toLowerCase()) n += won ? 2 : lost ? -6 : 0;
+    if (row.result !== "won" && row.result !== "lost") continue;
+    const won = row.result === "won" ? 1 : 0;
+    const lost = row.result === "lost" ? 1 : 0;
+    if (row.family === family) {
+      famWon += won;
+      famLost += lost;
+    }
+    if (league && row.league && league === row.league.trim().toLowerCase()) {
+      lgWon += won;
+      lgLost += lost;
+    }
   }
-  return Math.max(-30, Math.min(20, n));
+  const total = Math.max(-18, Math.min(14, historyBias(famWon, famLost) + historyBias(lgWon, lgLost, { k: 14, scale: 22 })));
+  return Math.round(total);
 }
 
 async function loadLessons(): Promise<LessonRow[]> {
   try {
     const sql = await getSql();
     return await sql<LessonRow>`
-      select result, family, league from study_lessons order by created_at desc limit 80
+      select result, family, league from study_lessons order by created_at desc limit 120
     `;
   } catch {
     return [];
@@ -788,6 +736,193 @@ export async function applyLessonScores<T extends TicketPick & { probability?: n
   }));
 }
 
+// ---- calibration: does a "70% leg" really land 70% of the time? ----------
+
+export function pickKey(pick: {
+  home?: string;
+  away?: string;
+  selection?: string;
+  market?: string;
+}): string {
+  return [pick.home, pick.away, pick.selection ?? "", pick.market ?? ""]
+    .map((s) => (s ?? "").toLowerCase().replace(/\s+/g, " ").trim())
+    .join("|");
+}
+
+/**
+ * Store what the desk believed when it minted a slip.
+ *
+ * Without this the bot has no memory of its own confidence — it can say a leg
+ * was 74% and never find out it lands 55% of the time. These rows are the
+ * training set for `loadCalibration()`.
+ */
+export async function recordPredictions(
+  code: string,
+  picks: Array<
+    TicketPick & {
+      probability?: number;
+      marketProb?: number | null;
+      modelProb?: number | null;
+    }
+  >,
+) {
+  const rows = picks.filter((p) => Number.isFinite(Number(p.probability)));
+  if (!rows.length) return;
+  try {
+    const sql = await getSql();
+    for (const p of rows) {
+      const finalP = Math.max(0.01, Math.min(0.99, Number(p.probability) / 100));
+      await sql`
+        insert into desk_predictions
+          (code, pick_key, family, league, sport, odds, market_p, model_p, final_p)
+        values (
+          ${code},
+          ${pickKey(p)},
+          ${marketFamily(p.sporty?.marketId, p.market)},
+          ${p.league ?? ""},
+          ${p.sport},
+          ${p.odds ?? null},
+          ${p.marketProb == null ? null : p.marketProb / 100},
+          ${p.modelProb == null ? null : p.modelProb / 100},
+          ${finalP}
+        )
+        on conflict (code, pick_key) do update set
+          final_p = excluded.final_p,
+          market_p = excluded.market_p,
+          model_p = excluded.model_p,
+          odds = excluded.odds
+      `;
+    }
+  } catch {
+    /* db unavailable — the desk still works, it just does not learn */
+  }
+}
+
+/** Mark stored predictions won/lost once a slip has been studied. */
+async function settlePredictions(code: string, legs: StudiedLeg[]) {
+  try {
+    const sql = await getSql();
+    for (const leg of legs) {
+      if (leg.result === "pending") continue;
+      const key = pickKey(leg);
+      await sql`
+        update desk_predictions set result = ${leg.result}
+        where code = ${code} and pick_key = ${key} and result is null
+      `;
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+type PredictionRow = { final_p: number; result: string | null; odds: number | null };
+
+/**
+ * Fit the desk's own calibration curve from settled predictions.
+ *
+ * Every probability the bot prints is passed through this scaler, so a desk
+ * that has been over-confident automatically starts quoting tighter numbers.
+ */
+export async function loadCalibration(): Promise<Platt> {
+  try {
+    const sql = await getSql();
+    const rows = await sql<PredictionRow>`
+      select final_p, result, odds from desk_predictions
+      where result is not null
+      order by created_at desc
+      limit 400
+    `;
+    const outcomes: Outcome[] = rows
+      .filter((r) => r.result === "won" || r.result === "lost")
+      .map((r) => ({ p: Number(r.final_p), won: r.result === "won" }));
+    return fitPlatt(outcomes);
+  } catch {
+    return NEUTRAL_PLATT;
+  }
+}
+
+export type CalibrationReport = {
+  n: number;
+  brier: number | null;
+  bins: ReliabilityBin[];
+  platt: Platt;
+  verdict: string;
+};
+
+/** Human-readable calibration, for the /calibration command. */
+export async function calibrationReport(): Promise<CalibrationReport> {
+  const empty: CalibrationReport = {
+    n: 0,
+    brier: null,
+    bins: [],
+    platt: NEUTRAL_PLATT,
+    verdict: "No settled legs yet. Study a few slips and I go show you how sharp I really be.",
+  };
+  try {
+    const sql = await getSql();
+    const rows = await sql<PredictionRow>`
+      select final_p, result, odds from desk_predictions
+      where result is not null
+      order by created_at desc
+      limit 400
+    `;
+    const outcomes: Outcome[] = rows
+      .filter((r) => (r.result === "won" || r.result === "lost") && Number.isFinite(Number(r.final_p)))
+      .map((r) => ({ p: Number(r.final_p), won: r.result === "won" }));
+    if (outcomes.length < 10) {
+      return {
+        ...empty,
+        n: outcomes.length,
+        verdict: `${outcomes.length} settled legs so far. I need about 25 before I fit my own curve.`,
+      };
+    }
+    const platt = fitPlatt(outcomes);
+    const score = brier(outcomes);
+    const bins = reliability(outcomes, 4);
+    const optimistic = bins
+      .filter((b) => b.n >= 5)
+      .some((b) => b.meanP - b.hitRate > 0.12);
+    const pessimistic = bins
+      .filter((b) => b.n >= 5)
+      .some((b) => b.hitRate - b.meanP > 0.12);
+    const verdict = optimistic
+      ? "I dey overconfident — I don pull my numbers back toward the market."
+      : pessimistic
+        ? "I dey too shy — I don let my numbers breathe small."
+        : "Calibration dey hold. My numbers match how the legs dey land.";
+    return { n: outcomes.length, brier: score, bins, platt, verdict };
+  } catch {
+    return empty;
+  }
+}
+
+export function formatCalibration(report: CalibrationReport): string {
+  if (!report.n) return doc(head("calibration"), report.verdict);
+  const rows: Array<[string, string]> = [["legs", String(report.n)]];
+  if (report.brier != null) rows.push(["brier", report.brier.toFixed(3)]);
+  rows.push(["scale", `a=${report.platt.a.toFixed(2)} b=${report.platt.b.toFixed(2)}`]);
+  const buckets = report.bins.length
+    ? table(
+        ["bucket", "said", "landed", "legs"],
+        report.bins.map((b) => [
+          `${Math.round(b.low * 100)}-${Math.round(b.high * 100)}%`,
+          `${Math.round(b.meanP * 100)}%`,
+          `${Math.round(b.hitRate * 100)}%`,
+          String(b.n),
+        ]),
+      )
+    : null;
+  return cap(
+    doc(
+      head("calibration", `${report.n} settled legs`),
+      stats(rows),
+      tail("brier 0.25 = coin flip"),
+      buckets,
+      report.verdict,
+    ),
+  );
+}
+
 export async function improvePicks<T extends TicketPick>(picks: T[]): Promise<T[]> {
   const rows = await loadLessons();
   if (!rows.length) return picks;
@@ -799,31 +934,35 @@ export async function improvePicks<T extends TicketPick>(picks: T[]): Promise<T[
 }
 
 export function formatStudy(report: StudyReport): string {
-  const head = report.cut
-    ? `📉 ${report.code} CUT — e no hit`
-    : report.hit
-      ? `✅ ${report.code} HIT — we good`
-      : `⏳ ${report.code} still dey play`;
-  const lostLines = report.legs
-    .filter((l) => l.result === "lost")
-    .slice(0, 12)
-    .map((l, i) => `${i + 1}. ❌ ${l.home} vs ${l.away}\n   ${l.market} — ${l.selection}\n   ${l.note}`);
-  const wonLines = report.legs
-    .filter((l) => l.result === "won")
-    .slice(0, 6)
-    .map((l) => `✅ ${l.home} vs ${l.away} — ${l.selection}`);
-  return [
-    head,
-    `Win ${report.won} · Cut ${report.lost} · Still dey ${report.pending}${report.voided ? ` · Void ${report.voided}` : ""}`,
-    "",
-    lostLines.length ? "The ones wey cut:" : "",
-    ...lostLines,
-    wonLines.length ? "\nThe ones wey hit:" : "",
-    ...wonLines,
-    "",
-    `📓 ${report.lesson}`,
-  ]
-    .filter((line, i, arr) => line !== "" || arr[i - 1] !== "")
-    .join("\n")
-    .slice(0, 3900);
+  const verdict = report.cut ? "cut" : report.hit ? "hit" : "still open";
+  const lost = report.legs.filter((l) => l.result === "lost").slice(0, 10);
+  const won = report.legs.filter((l) => l.result === "won").slice(0, 6);
+  const rows: Array<[string, string]> = [
+    ["won", String(report.won)],
+    ["cut", String(report.lost)],
+    ["open", String(report.pending)],
+  ];
+  if (report.voided) rows.push(["void", String(report.voided)]);
+  const lostLines = lost.map(
+    (l, i) =>
+      `${leg(i + 1, `${l.home} v ${l.away}`, `${l.market} \u2014 ${l.selection}`, "\u00d7")}\n     ${esc(l.note)}`,
+  );
+  return cap(
+    doc(
+      head("settle", report.code, verdict),
+      stats(rows),
+      lostLines.length ? doc(RULE, subhead("cut am"), lostLines.join("\n")) : null,
+      won.length
+        ? doc(
+            RULE,
+            subhead("hit"),
+            won
+              .map((l) => `\u2013 ${esc(l.home)} v ${esc(l.away)} \u2014 ${esc(l.selection)}`)
+              .join("\n"),
+          )
+        : null,
+      RULE,
+      tail(report.lesson),
+    ),
+  );
 }

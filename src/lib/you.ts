@@ -1,4 +1,4 @@
-import { youKeys as deskYouKeys } from "./keys";
+import { youKeys as deskYouKeys } from "./keys.ts";
 
 export function youKeys(): string[] {
   return deskYouKeys();

@@ -211,7 +211,9 @@ function tokenIdentityKey(token: string): string {
             .digest("base64url");
         }
       }
-    } catch {}
+    } catch {
+      // A missing/unreadable cert is not fatal — fall back to hashing the token.
+    }
   }
   return createHash("sha256").update(token).digest("base64url");
 }

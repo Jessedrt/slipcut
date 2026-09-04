@@ -1,4 +1,4 @@
-import { getSetting, setSetting } from "./study";
+import { getSetting, setSetting } from "./study.ts";
 
 export type KeyKind = "you" | "seekai" | "gemini";
 
@@ -142,5 +142,7 @@ export function formatKeyList() {
   lines.push("GEMINI_API_KEY");
   lines.push("");
   lines.push("Or paste here: /key gemini AQ.…");
+  lines.push("");
+  lines.push("/keytest — confirm which engine really answers, not just which one is stored.");
   return lines.join("\n");
 }

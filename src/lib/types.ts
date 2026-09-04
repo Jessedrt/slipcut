@@ -29,6 +29,19 @@ export type AnalyzedPick = TicketPick & {
   reasons: string[];
   risks: string[];
   verdict: "keep" | "drop" | "ignore";
+  /**
+   * Reasoning trail. `marketProb` is the book's price with the margin removed,
+   * `modelProb` is what research alone said, and `probability` is the blend.
+   * `edge` is probability − marketProb in percentage points; `ev` is the
+   * expected return per 1 unit staked at the quoted price.
+   */
+  marketProb?: number | null;
+  modelProb?: number | null;
+  fairOdds?: number | null;
+  edge?: number | null;
+  ev?: number | null;
+  engine?: string | null;
+  agreement?: number | null;
 };
 
 export type CutResult = {
