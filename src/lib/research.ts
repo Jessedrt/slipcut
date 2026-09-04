@@ -19,13 +19,7 @@ function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
 }
 
-/**
- * Desk-only fallback score, used when no research engine is configured.
- *
- * It is deliberately modest: with no live information the honest read is the
- * market price with the margin off, nudged for league quality and for red
- * flags (friendlies, youth fixtures, games about to kick off).
- */
+/** Desk-only fallback when no engine answers. Anchored on de-vigged price. */
 export function deskScore(pick: TicketPick): number {
   const fam = marketFamily(pick.sporty?.marketId, pick.market);
   const market = fairProbFromOdds(pick.odds, fam, pick.sport);
@@ -39,12 +33,11 @@ export function deskScore(pick: TicketPick): number {
   const top =
     pick.sport === "football" ? TOP_FB.test(league) : pick.sport === "basketball" ? TOP_BB.test(league) : TOP_TN.test(league);
 
-  // Start from the de-vigged market read, or a coin flip when there is no price.
   let p = market ?? 0.5;
   if (weak) p -= 0.12;
-  if (top) p += 0.015; // top leagues are simply better priced/modelled
+  if (top) p += 0.02;
   if (pick.kickoff && pick.kickoff < Date.now() + 8 * 60_000) p -= 0.18;
-  if (pick.odds && pick.odds > 4) p -= 0.02; // long shots need real justification
+  if (pick.odds && pick.odds > 4) p -= 0.02;
   return clamp(Math.round(p * 100), 4, 96);
 }
 
@@ -67,12 +60,6 @@ function eventKey(p: TicketPick) {
   return p.sporty?.eventId || `${p.home}|${p.away}|${p.kickoff ?? ""}`;
 }
 
-/**
- * One selection per event, chosen for value.
- *
- * Two legs from the same match are not two bets — they share a scoreline, and
- * stacking them doubles the variance without doubling the edge.
- */
 function bestPerEvent<T extends TicketPick>(picks: T[]): T[] {
   const groups = new Map<string, T[]>();
   for (const p of picks) {
@@ -111,25 +98,17 @@ async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
 }
 
 export type ResearchResult<T> = {
-  /** Legs to mint, best first. */
   keep: T[];
-  /** How many candidates the pool lost along the way. */
   dropped: number;
-  /** True when at least one research engine answered. */
   researched: boolean;
-  /** Combined true chance of the returned slip (0-100). */
   trueChance: number;
-  /** Expected value of the returned slip, per 1 staked. */
   ev: number | null;
   notes: string[];
 };
 
 /**
  * Turn a raw SportyBet pool into a slip worth minting.
- *
- * Pipeline: drop junk → one leg per event → research (blended with the
- * de-vigged market) → learned bias from settled history → value ranking with
- * concentration caps → slip built to the requested size or price.
+ * Faster path: smaller shortlist, 28s research budget, lower bar when researched.
  */
 export async function researchPicks<T extends TicketPick>(
   picks: T[],
@@ -140,8 +119,6 @@ export async function researchPicks<T extends TicketPick>(
   const clean = picks.filter((p) => !isJunk(p) && p.sport !== "other");
   const oneEach = bestPerEvent(clean);
 
-  // Seed with the market read so a research timeout still leaves us with an
-  // honest number rather than a coin flip.
   const seeded = oneEach.map((p) => ({
     ...p,
     probability: deskScore(p),
@@ -150,20 +127,20 @@ export async function researchPicks<T extends TicketPick>(
   const canResearch = Boolean(geminiKeys().length || seekaiKeys().length || youKeys().length);
   let researched = false;
   if (canResearch && seeded.length) {
-    // Research is the expensive part; score the most promising candidates only.
+    // Score only the strongest candidates — keeps Gemini latency under control.
     const shortlist = seeded
       .slice()
       .sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0))
-      .slice(0, Math.min(seeded.length, Math.max(want + 10, 18)));
-    const scored = await withTimeout(researchScores(shortlist), 55_000);
+      .slice(0, Math.min(seeded.length, Math.max(want + 4, 10)));
+    const scored = await withTimeout(researchScores(shortlist), 28_000);
     if (scored?.researched) {
       researched = true;
       const byId = new Map(scored.scored.map((row) => [row.id, row]));
       for (const p of seeded) {
         const row = byId.get(p.id);
-        // Research and the market each get a say; research leads when we have it.
         if (row && Number.isFinite(row.probability)) {
-          p.probability = clamp(Math.round(0.25 * p.probability + 0.75 * row.probability), 4, 96);
+          // Research leads hard when it answered.
+          p.probability = clamp(Math.round(0.15 * p.probability + 0.85 * row.probability), 4, 96);
         }
       }
     }
@@ -171,23 +148,32 @@ export async function researchPicks<T extends TicketPick>(
 
   const lessoned = (await applyLessonScores(seeded)) as Array<T & { probability: number }>;
 
-  // Quality bar: with research we trust the blended number; without it we only
-  // trust selections from leagues we can actually read.
-  const bar = researched ? 45 : 58;
+  // With research we trust mid-40s; without it only top leagues or strong scores.
+  const bar = researched ? 42 : 55;
   const pool = lessoned.filter(
-    (p) => p.probability >= bar && (researched || isTop(p) || p.probability >= 66),
+    (p) => p.probability >= bar && (researched || isTop(p) || p.probability >= 64),
   );
-  const candidates = pool.length ? pool : lessoned.filter((p) => isTop(p)).slice(0, Math.max(1, Math.min(want, 8)));
+  const candidates =
+    pool.length > 0
+      ? pool
+      : lessoned
+          .filter((p) => isTop(p) || p.probability >= 50)
+          .slice()
+          .sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0))
+          .slice(0, Math.max(want, 6));
 
-  // The builder's floor matches the bar the pool already passed, so a leg is
-  // never accepted by one filter and quietly dropped by the other.
   const slip: Slip = buildSlip(candidates as Leg[], {
     target: opts.target,
     maxLegs: Math.max(1, want),
-    minProb: bar,
+    minProb: Math.min(bar, 40),
+    maxPerLeague: 4,
+    maxPerSlot: 5,
   });
 
-  const keep = (slip.legs.length ? slip.legs : rankByValue(candidates as Leg[]).slice(0, Math.max(1, want))) as T[];
+  const keep = (slip.legs.length
+    ? slip.legs
+    : rankByValue(candidates as Leg[]).slice(0, Math.max(1, want))) as T[];
+
   return {
     keep,
     dropped: Math.max(0, oneEach.length - keep.length),
@@ -198,7 +184,6 @@ export async function researchPicks<T extends TicketPick>(
   };
 }
 
-/** How concentrated a slip is, for the "this is one bet, not ten" warning. */
 export function concentrationNote(picks: TicketPick[]): string | null {
   if (picks.length < 4) return null;
   const leagues = new Map<string, number>();
