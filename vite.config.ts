@@ -150,6 +150,11 @@ export default defineConfig(({ command, isPreview }) => ({
     host: "0.0.0.0",
     port: 8080,
     strictPort: true,
+    // The live preview reaches the dev server through a generated
+    // `https://{port}-{sandbox}.e2b.app` host, which Vite would otherwise
+    // reject with "Blocked request". Preview hosts are ephemeral by design,
+    // so allow any of them rather than pinning one.
+    allowedHosts: true,
   },
   preview: {
     host: "127.0.0.1",

@@ -96,6 +96,27 @@ back to the market read and says so, it does not fail.
 Without any AI key the desk still works — it just quotes the de-vigged market
 and says so. That is honest, but it means no edge: add a key to get one.
 
+## Interface
+
+One visual language, in both places the desk shows up.
+
+**Telegram.** A bold label, a rule, aligned numbers in monospace, and a footer
+naming where the number came from. The only glyphs are `✓ · ×` — hold, watch,
+cut. Every leg is two lines: the fixture, then what is actually being judged.
+Failures are a label plus a next step (`no go · nothing cleared the bar` /
+`Lower the game count, or cook a different window.`), because "error" is not
+actionable. Slip messages carry `Value · Why · Score · Settle` buttons and
+`/keytest` reports which engine really answered.
+
+`src/lib/tg-format.ts` is that language as pure string work — it is unit
+tested, and `tg()` retries a rejected message as plain text rather than losing
+a slip to a stray `<`.
+
+**Web.** `src/routes/index.tsx` is read-only: signed in, you get the desk —
+record, money, calibration buckets, the last twelve slips, engine status.
+Signed out, you get the closed card. It cannot cut, mint or book anything;
+those stay on Telegram.
+
 ## Layout
 
 | Path | What lives there |
@@ -107,7 +128,10 @@ and says so. That is honest, but it means no edge: add a key to get one.
 | `src/lib/analyze.ts` | Research orchestration and the market-anchored blend |
 | `src/lib/research.ts` | Turns a SportyBet pool into a slip worth minting |
 | `src/lib/study.ts` | Settle slips, record predictions, fit calibration, lessons |
+| `src/lib/tg-format.ts` | The desk's visual language: labels, rules, aligned numbers, footers |
 | `src/lib/telegram.ts` | The bot: commands, keyboards, replies |
+| `src/lib/dashboard.ts` | Read-only server snapshot of the desk, for the website |
+| `src/components/dashboard.tsx` | The web desk: record, money, calibration, book, engines |
 | `migrations/` | Schema. `0007_calibration.sql` adds the prediction log and webhook de-dupe |
 
 ## Checks
@@ -115,7 +139,7 @@ and says so. That is honest, but it means no edge: add a key to get one.
 ```bash
 npm run typecheck   # tsc --noEmit
 npm run lint        # eslint
-npm test            # 293 tests: platform scripts + the desk's pure logic
+npm test            # 311 tests: platform scripts + the desk's pure logic
 ```
 
 The reasoning, settlement and slip-building code is pure and unit tested, so a

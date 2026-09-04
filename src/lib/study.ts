@@ -12,6 +12,7 @@ import {
 import { eventScore, getEventDetail, marketFamily } from "./sportybet.ts";
 import { settleBasket, settleFootball, settleTennis, type LegResult, type StoredPick } from "./settle.ts";
 import type { TicketPick } from "./types.ts";
+import { RULE, cap, doc, esc, head, leg, stats, subhead, table, tail } from "./tg-format.ts";
 
 export type { LegResult, StoredPick };
 
@@ -495,30 +496,98 @@ export async function recordStake(code: string, stake: number, combo: number) {
   }
 }
 
-export async function formatBankroll(): Promise<string> {
+export type BookRow = {
+  code: string;
+  status: "hit" | "cut" | "open";
+  won: number | null;
+  lost: number | null;
+};
+
+export type BookSummary = {
+  rows: BookRow[];
+  hit: number;
+  cut: number;
+  open: number;
+};
+
+/** Settled and open slips, newest first. Also what `/book` renders. */
+export async function bookSummary(limit = 12): Promise<BookSummary> {
   try {
     const sql = await getSql();
-    const rows = await sql<{ stake: number; combo: number | null; returned: number | null }>`
-      select stake, combo, returned from desk_ledger order by created_at desc limit 40
+    const rows = await sql<{
+      code: string;
+      studied: number;
+      hit: number | null;
+      won: number | null;
+      lost: number | null;
+    }>`
+      select code, studied, hit, won, lost
+      from study_slips
+      order by created_at desc
+      limit ${limit}
     `;
-    if (!rows.length) return "No stakes yet. Say: stake 2000";
-    const inAmt = rows.reduce((s, r) => s + Number(r.stake || 0), 0);
-    const settled = rows.filter((r) => r.returned != null);
-    const outAmt = settled.reduce((s, r) => s + Number(r.returned || 0), 0);
-    const open = rows.length - settled.length;
-    const pl = outAmt - settled.reduce((s, r) => s + Number(r.stake || 0), 0);
-    const naira = (n: number) => `₦${Math.round(n).toLocaleString("en-NG")}`;
-    return [
-      `Staked ${naira(inAmt)}`,
-      `Returned ${naira(outAmt)}`,
-      settled.length ? `P/L ${naira(pl)} on settled` : "Nothing settled yet",
-      open ? `${open} still open` : "",
-    ]
-      .filter(Boolean)
-      .join("\n");
+    const out: BookRow[] = rows.map((r) => ({
+      code: r.code,
+      status: !r.studied ? "open" : r.hit === 1 ? "hit" : "cut",
+      won: r.won,
+      lost: r.lost,
+    }));
+    return {
+      rows: out,
+      hit: out.filter((r) => r.status === "hit").length,
+      cut: out.filter((r) => r.status === "cut").length,
+      open: out.filter((r) => r.status === "open").length,
+    };
   } catch {
-    return "Bankroll empty.";
+    return { rows: [], hit: 0, cut: 0, open: 0 };
   }
+}
+
+export type BankrollSummary = {
+  staked: number;
+  returned: number;
+  pl: number;
+  open: number;
+  settled: number;
+};
+
+/** Money in, money back, and what that nets. Null when nothing is recorded. */
+export async function bankrollSummary(): Promise<BankrollSummary | null> {
+  try {
+    const sql = await getSql();
+    const rows = await sql<{ stake: number; returned: number | null }>`
+      select stake, returned from desk_ledger order by created_at desc limit 200
+    `;
+    if (!rows.length) return null;
+    const settled = rows.filter((r) => r.returned != null);
+    const staked = rows.reduce((s, r) => s + Number(r.stake || 0), 0);
+    const returned = settled.reduce((s, r) => s + Number(r.returned || 0), 0);
+    return {
+      staked,
+      returned,
+      pl: returned - settled.reduce((s, r) => s + Number(r.stake || 0), 0),
+      open: rows.length - settled.length,
+      settled: settled.length,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function naira(n: number) {
+  return `\u20a6${Math.round(n).toLocaleString("en-NG")}`;
+}
+
+export async function formatBankroll(): Promise<string> {
+  const summary = await bankrollSummary();
+  if (!summary) return doc(head("bankroll"), "No stakes yet. Say: stake 2000");
+  const rows: Array<[string, string]> = [
+    ["staked", naira(summary.staked)],
+    ["returned", naira(summary.returned)],
+  ];
+  if (summary.settled) rows.push(["P/L", naira(summary.pl)]);
+  if (summary.open) rows.push(["open", String(summary.open)]);
+  return doc(head("bankroll"), stats(rows));
 }
 
 export async function formatRecap(): Promise<string> {
@@ -538,80 +607,83 @@ export async function formatRecap(): Promise<string> {
       limit 20
     `;
     const money = await formatBankroll();
-    if (!rows.length) return `This week empty.\n\n${money}`;
+    if (!rows.length) return doc(head("recap"), "This week empty.", money);
     const finished = rows.filter((r) => r.studied);
     const hits = finished.filter((r) => r.hit === 1).length;
     const cuts = finished.filter((r) => r.hit === 0).length;
-    const lines = rows.slice(0, 10).map((r) => {
-      const tag = !r.studied ? "open" : r.hit === 1 ? "HIT" : "CUT";
-      return `${r.code}  ·  ${tag}`;
-    });
-    return ["This week", `HIT ${hits}  ·  CUT ${cuts}  ·  ${rows.length - finished.length} open`, "", ...lines, "", money].join("\n");
+    const lines = rows.slice(0, 12).map((r, i) =>
+      leg(i + 1, r.code, !r.studied ? "open" : r.hit === 1 ? "hit" : "cut"),
+    );
+    return cap(
+      doc(
+        head("recap", "last 7 days"),
+        stats([
+          ["hit", String(hits)],
+          ["cut", String(cuts)],
+          ["open", String(rows.length - finished.length)],
+        ]),
+        RULE,
+        lines.join("\n"),
+        money,
+      ),
+    );
   } catch {
-    return "No recap yet.";
+    return doc(head("recap"), "No recap yet.");
   }
 }
 
 export async function formatBook(): Promise<string> {
+  const book = await bookSummary(12);
+  if (!book.rows.length) {
+    return doc(head("book"), "Your book empty.", "Cook a slip or send a code first.");
+  }
+  const worst = await worstFamilies();
+  const lines = book.rows.map((r, i) => {
+    const score = r.won != null && r.lost != null ? `${r.won}-${r.lost}` : "";
+    return leg(i + 1, r.code, r.status, undefined, score);
+  });
+  const cutNote = worst.length
+    ? `Markets wey dey cut you: ${worst.map((w) => `${w.label} (${w.n})`).join(", ")}`
+    : "";
+  return cap(
+    doc(
+      head("book", "last 12"),
+      stats([
+        ["hit", String(book.hit)],
+        ["cut", String(book.cut)],
+        ["open", String(book.open)],
+      ]),
+      RULE,
+      lines.join("\n"),
+      cutNote ? tail(cutNote) : null,
+      await formatBankroll(),
+    ),
+  );
+}
+
+/** The markets that have cut you most, for the warning under /book. */
+async function worstFamilies(): Promise<Array<{ label: string; n: number }>> {
+  const famLabel: Record<string, string> = {
+    hcp: "handicap",
+    ou1h: "1st half O/U",
+    ou: "over/under",
+    gg: "GG",
+    dc: "double chance",
+    dnb: "DNB",
+    win: "winner",
+  };
   try {
     const sql = await getSql();
-    const rows = await sql<{
-      code: string;
-      studied: number;
-      hit: number | null;
-      lost: number | null;
-      won: number | null;
-    }>`
-      select code, studied, hit, lost, won
-      from study_slips
-      order by created_at desc
-      limit 12
-    `;
-    if (!rows.length) return "Your book empty. Cook or load a code first.";
-    const finished = rows.filter((r) => r.studied);
-    const hits = finished.filter((r) => r.hit === 1).length;
-    const cuts = finished.filter((r) => r.hit === 0).length;
-    const pending = rows.length - finished.length;
-    const worst = await sql<{ family: string; n: number }>`
+    const rows = await sql<{ family: string; n: number }>`
       select family, count(*)::int as n from study_lessons
       where result = 'lost'
       group by family
       order by n desc
       limit 3
     `;
-    const famLabel: Record<string, string> = {
-      hcp: "handicap",
-      ou1h: "1st half O/U",
-      ou: "over/under",
-      gg: "GG",
-      dc: "double chance",
-      dnb: "DNB",
-      win: "winner",
-    };
-    const lines = rows.map((r, i) => {
-      const tag =
-        !r.studied ? "open" : r.hit === 1 ? "HIT" : "CUT";
-      const score =
-        r.studied && r.won != null && r.lost != null ? ` · ${r.won}-${r.lost}` : "";
-      return `${i + 1}. ${r.code} · ${tag}${score}`;
-    });
-    const cutNote = worst.length
-      ? `Markets wey dey cut you: ${worst.map((w) => `${famLabel[w.family] ?? w.family} (${w.n})`).join(", ")}`
-      : "";
-    const money = await formatBankroll();
-    return [
-      "Your book",
-      `HIT ${hits} · CUT ${cuts} · still dey ${pending}`,
-      "",
-      ...lines,
-      cutNote ? `\n${cutNote}` : "",
-      "",
-      money,
-    ]
-      .filter((l, i, arr) => l !== "" || arr[i - 1] !== "")
-      .join("\n");
+    return rows.map((r) => ({ label: famLabel[r.family] ?? r.family, n: r.n }));
   } catch {
-    return "I no fit open the book now. Try study a code first.";
+    return [];
   }
 }
 
@@ -825,27 +897,30 @@ export async function calibrationReport(): Promise<CalibrationReport> {
 }
 
 export function formatCalibration(report: CalibrationReport): string {
-  const lines: string[] = ["Calibration", ""];
-  if (!report.n) return [lines[0]!, "", report.verdict].join("\n");
-  lines.push(`${report.n} settled legs`);
-  if (report.brier != null) {
-    lines.push(`Brier ${report.brier.toFixed(3)} (lower better · 0.25 = coin flip)`);
-  }
-  lines.push(
-    `Scale a=${report.platt.a.toFixed(2)} b=${report.platt.b.toFixed(2)}${report.platt.a < 1 ? " (I don dey pull back)" : ""}`,
+  if (!report.n) return doc(head("calibration"), report.verdict);
+  const rows: Array<[string, string]> = [["legs", String(report.n)]];
+  if (report.brier != null) rows.push(["brier", report.brier.toFixed(3)]);
+  rows.push(["scale", `a=${report.platt.a.toFixed(2)} b=${report.platt.b.toFixed(2)}`]);
+  const buckets = report.bins.length
+    ? table(
+        ["bucket", "said", "landed", "legs"],
+        report.bins.map((b) => [
+          `${Math.round(b.low * 100)}-${Math.round(b.high * 100)}%`,
+          `${Math.round(b.meanP * 100)}%`,
+          `${Math.round(b.hitRate * 100)}%`,
+          String(b.n),
+        ]),
+      )
+    : null;
+  return cap(
+    doc(
+      head("calibration", `${report.n} settled legs`),
+      stats(rows),
+      tail("brier 0.25 = coin flip"),
+      buckets,
+      report.verdict,
+    ),
   );
-  if (report.bins.length) {
-    lines.push("");
-    lines.push("Bucket · said · landed · legs");
-    for (const b of report.bins) {
-      lines.push(
-        `${Math.round(b.low * 100)}–${Math.round(b.high * 100)}%  ·  ${Math.round(b.meanP * 100)}%  ·  ${Math.round(b.hitRate * 100)}%  ·  ${b.n}`,
-      );
-    }
-  }
-  lines.push("");
-  lines.push(report.verdict);
-  return lines.join("\n");
 }
 
 export async function improvePicks<T extends TicketPick>(picks: T[]): Promise<T[]> {
@@ -859,31 +934,35 @@ export async function improvePicks<T extends TicketPick>(picks: T[]): Promise<T[
 }
 
 export function formatStudy(report: StudyReport): string {
-  const head = report.cut
-    ? `📉 ${report.code} CUT — e no hit`
-    : report.hit
-      ? `✅ ${report.code} HIT — we good`
-      : `⏳ ${report.code} still dey play`;
-  const lostLines = report.legs
-    .filter((l) => l.result === "lost")
-    .slice(0, 12)
-    .map((l, i) => `${i + 1}. ❌ ${l.home} vs ${l.away}\n   ${l.market} — ${l.selection}\n   ${l.note}`);
-  const wonLines = report.legs
-    .filter((l) => l.result === "won")
-    .slice(0, 6)
-    .map((l) => `✅ ${l.home} vs ${l.away} — ${l.selection}`);
-  return [
-    head,
-    `Win ${report.won} · Cut ${report.lost} · Still dey ${report.pending}${report.voided ? ` · Void ${report.voided}` : ""}`,
-    "",
-    lostLines.length ? "The ones wey cut:" : "",
-    ...lostLines,
-    wonLines.length ? "\nThe ones wey hit:" : "",
-    ...wonLines,
-    "",
-    `📓 ${report.lesson}`,
-  ]
-    .filter((line, i, arr) => line !== "" || arr[i - 1] !== "")
-    .join("\n")
-    .slice(0, 3900);
+  const verdict = report.cut ? "cut" : report.hit ? "hit" : "still open";
+  const lost = report.legs.filter((l) => l.result === "lost").slice(0, 10);
+  const won = report.legs.filter((l) => l.result === "won").slice(0, 6);
+  const rows: Array<[string, string]> = [
+    ["won", String(report.won)],
+    ["cut", String(report.lost)],
+    ["open", String(report.pending)],
+  ];
+  if (report.voided) rows.push(["void", String(report.voided)]);
+  const lostLines = lost.map(
+    (l, i) =>
+      `${leg(i + 1, `${l.home} v ${l.away}`, `${l.market} \u2014 ${l.selection}`, "\u00d7")}\n     ${esc(l.note)}`,
+  );
+  return cap(
+    doc(
+      head("settle", report.code, verdict),
+      stats(rows),
+      lostLines.length ? doc(RULE, subhead("cut am"), lostLines.join("\n")) : null,
+      won.length
+        ? doc(
+            RULE,
+            subhead("hit"),
+            won
+              .map((l) => `\u2013 ${esc(l.home)} v ${esc(l.away)} \u2014 ${esc(l.selection)}`)
+              .join("\n"),
+          )
+        : null,
+      RULE,
+      tail(report.lesson),
+    ),
+  );
 }
