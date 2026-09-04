@@ -22,7 +22,6 @@ import { addAllow, addBlock, allowedBy, applyLessonScores, blockedBy, calibratio
 import { addDeskKey, delDeskKey, detectKey, formatKeyList, refreshKeys } from "./keys.ts";
 import { probeText } from "./keytest.ts";
 import { seekaiReady } from "./seekai.ts";
-import { youKeys } from "./keys.ts";
 import { geminiReady } from "./gemini.ts";
 import { combinedOdds, formatEv, formatKickoff, formatOdds, parseCommand, splitEven, uniqueEvents } from "./workbench.ts";
 import { bestLegs, buildSlip, planStake } from "./optimizer.ts";
@@ -106,16 +105,6 @@ function stamp() {
     minute: "2-digit",
     timeZone: "Africa/Lagos",
   });
-}
-
-/** Where a number came from. Every desk reply ends with this. */
-function readBy() {
-  const engines = [
-    geminiReady() ? "gemini" : null,
-    seekaiReady() ? "opus" : null,
-    youKeys().length ? "you.com" : null,
-  ].filter((e): e is string => Boolean(e));
-  return engines.length ? `${engines.join(" + ")} + market` : "market only";
 }
 
 /** Send a desk reply: HTML, length-capped, plain-text fallback on rejection. */
@@ -617,7 +606,7 @@ async function mintAndReply(chatId: number, picks: TicketPick[], country: string
       slipBody(work),
       crowded ? tail(crowded) : null,
       codeBlock(code),
-      tail(readBy(), stamp()),
+      tail(stamp()),
     ),
     { reply_markup: mintedKeyboard(code, minted.shareURL) },
   );
@@ -1134,7 +1123,7 @@ async function evAndReply(chatId: number, code: string) {
         RULE,
         lines.join("\n"),
         verdict,
-        tail("edge = desk chance − what the price implies, margin removed", readBy(), stamp()),
+        tail("edge = desk chance − what the price implies, margin removed", stamp()),
       ),
     );
   });
@@ -1185,7 +1174,7 @@ async function whyAndReply(chatId: number, code: string, which?: number) {
       pick.summary,
       pick.reasons.length ? doc(subhead("why"), bullets(pick.reasons)) : null,
       pick.risks.length ? doc(subhead("wahala"), bullets(pick.risks)) : null,
-      tail(`read by ${pick.engine || readBy()}`, stamp()),
+      tail(stamp()),
     ),
   );
 }
@@ -1232,7 +1221,7 @@ async function kellyAndReply(chatId: number, code: string, bankroll: number) {
         ["quarter kelly", `${(plan.fraction * 100).toFixed(2)}%`],
         ["stake", naira(plan.stake)],
       ]),
-      tail("kelly cuts for accumulators: more legs, more variance, smaller stake", readBy(), stamp()),
+      tail("kelly cuts for accumulators: more legs, more variance, smaller stake", stamp()),
     ),
   );
 }

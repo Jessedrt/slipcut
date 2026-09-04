@@ -2,7 +2,8 @@
  * How the desk talks.
  *
  * One visual language for every Telegram reply: a bold label, a rule, aligned
- * numbers in monospace, and a quiet footer saying where the number came from.
+ * numbers in monospace, and a quiet footer with the note and the time. It never
+ * names engines — which model spoke is plumbing, not something to read.
  * No emoji soup — the only glyphs are ✓ · ×, and they mean hold / watch / cut.
  *
  * Everything here is pure string work and returns Telegram-safe HTML. Parse
