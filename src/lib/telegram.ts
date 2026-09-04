@@ -2,7 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { scorePicks } from "./analyze.ts";
 import { parseTicketText } from "./parse-ticket.ts";
 import { normalizePidgin, pidginSmallTalk, slangHelp, splitChat, wantsCreate } from "./pidgin.ts";
-import { concentrationNote, researchPicks } from "./research.ts";
+import { cookLadder, concentrationNote, researchPicks } from "./research.ts";
+import { LADDER_TARGETS, familyGate, formatMarketStats, loadMarketStats } from "./accuracy.ts";
 import {
   RULE,
   bullets,
@@ -17,7 +18,7 @@ import {
   subhead,
   tail,
 } from "./tg-format.ts";
-import { getEventDetail, eventScore, loadBookingCode, listUpcomingPicks, mintShare, parseCookAsks, parseMarketTarget, pickMatchesAsks, formatCookAsks, retargetPicks, sportyOf, windowLabel, type CookAsk, type CookWindow, type MarketTarget } from "./sportybet.ts";
+import { getEventDetail, eventScore, loadBookingCode, listUpcomingPicks, marketFamily, mintShare, parseCookAsks, parseMarketTarget, pickMatchesAsks, formatCookAsks, retargetPicks, sportyOf, windowLabel, type CookAsk, type CookWindow, type MarketTarget } from "./sportybet.ts";
 import { addAllow, addBlock, allowedBy, applyLessonScores, blockedBy, calibrationReport, clearAllows, formatBook, formatCalibration, formatRecap, formatStudy, latestCode, latestUnstudiedCode, listAllows, listBlocks, listChats, loadOddsBand, markUpdateSeen, recordPredictions, recordSlip, recordStake, rememberChat, removeBlock, saveOddsBand, studyCode } from "./study.ts";
 import { addDeskKey, delDeskKey, detectKey, formatKeyList, refreshKeys, type KeyKind } from "./keys.ts";
 import { probeText } from "./keytest.ts";
@@ -63,8 +64,8 @@ function researchTag(researched: boolean) {
 }
 /** Shown in Telegram's menu button, so it is the desk's real navigation. */
 const MENU = [
-  { command: "today", description: "Cook today's football" },
-  { command: "weekend", description: "Cook the weekend" },
+  { command: "today", description: "Today's ladder cards" },
+  { command: "weekend", description: "Weekend ladder cards" },
   { command: "mix", description: "Mix football, basketball, tennis" },
   { command: "draw", description: "Draw-only football" },
   { command: "stake", description: "Stake.com daily 2 odds" },
@@ -182,9 +183,27 @@ async function alreadySeen(updateId?: number): Promise<boolean> {
   return !(await markUpdateSeen(id));
 }
 
-async function cookPool<T extends TicketPick>(picks: T[], band: OddsBand | null): Promise<T[]> {
-  const [blocks, allows] = await Promise.all([listBlocks(), listAllows()]);
-  return applyBand(allowedBy(blockedBy(picks, blocks), allows), band);
+/**
+ * The shared cook filter: user blocks/allows, the odds band, and — the
+ * primary gate — the market-family accuracy bar. A leg only enters the pool
+ * if its market family passes (see accuracy.ts). `gate: false` is for
+ * dedicated products that are a different thing (the draw cook).
+ */
+async function cookPool<T extends TicketPick>(
+  picks: T[],
+  band: OddsBand | null,
+  opts: { gate?: boolean } = {},
+): Promise<T[]> {
+  const [blocks, allows, stats] = await Promise.all([
+    listBlocks(),
+    listAllows(),
+    opts.gate === false ? [] : loadMarketStats(),
+  ]);
+  const filtered = applyBand(allowedBy(blockedBy(picks, blocks), allows), band);
+  if (opts.gate === false) return filtered;
+  return filtered.filter(
+    (p) => familyGate(stats, marketFamily(p.sporty?.marketId, p.market), p.sport).allowed,
+  );
 }
 
 async function resolveBand(text: string): Promise<OddsBand | null> {
@@ -741,6 +760,63 @@ async function cookSportSlip(
   await mintAndReply(chatId, take, "ng", title, n);
 }
 
+async function cookLadderAndReply(
+  chatId: number,
+  picks: TicketPick[],
+  targets: number[],
+  label: string,
+) {
+  const result = await cookLadder(picks, targets);
+  if (result.emptyReason || !result.cards.length) {
+    const reason = result.emptyReason ?? "no card cleared the market bar";
+    await sorry(chatId, reason, "Try another window, or check /accuracy for the bar.");
+    return;
+  }
+  const barPct = Math.round(result.bar * 100);
+  const famLabel: Record<string, string> = {
+    dc: "DC",
+    ou: "O/U",
+    ou1h: "1H O/U",
+    gg: "GG",
+    dnb: "DNB",
+    win: "winner",
+  };
+  const markets = result.families.map((f) => famLabel[f] ?? f).join("+");
+  for (let i = 0; i < result.cards.length; i++) {
+    const card = result.cards[i]!;
+    const take = uniqueEvents(card.legs).picks;
+    if (!take.length) continue;
+    const actual = combinedOdds(take);
+    const shortNote = card.short ? ` — ${card.notes[0]}` : "";
+    const title = `🏆 ${label} · Card ${i + 1} ~${card.target}×${actual ? ` → ${formatOdds(actual)}` : ""} · ${markets} · bar ${barPct}% · history-led${shortNote}`;
+    await mintAndReply(chatId, take, "ng", title);
+  }
+  if (result.skipped.length) {
+    const skipped = result.skipped.map((s) => `${s.target}×`).join(", ");
+    await say(chatId, tail(`No reach ${skipped} from this pool — I no pad am with long shots.`));
+  }
+}
+
+async function createLadderCook(
+  chatId: number,
+  sport: BookSport,
+  window: CookWindow,
+  band: OddsBand | null | undefined,
+) {
+  const span = windowLabel(window) || "today";
+  const useBand = band ?? (await loadOddsBand());
+  await withProgress(chatId, `Cooking the ${span} ladder · ${sport}…`, async () => {
+    const listed = await listUpcomingPicks(sport, 40, window);
+    if ("error" in listed) {
+      await sorry(chatId, listed.error, "Try again in a moment.");
+      return;
+    }
+    await maybeStudyLast(chatId);
+    const pool = await cookPool(listed, useBand);
+    await cookLadderAndReply(chatId, playable(pool), LADDER_TARGETS, `${sport} · ${span}`);
+  });
+}
+
 async function createOddsSlip(
   chatId: number,
   sport: BookSport,
@@ -770,26 +846,9 @@ async function cookOddsSlip(
   }
   await maybeStudyLast(chatId);
   const pool = await cookPool(listed, useBand);
-  // Let the builder pick the legs: it ranks by value and stops at the target,
-  // so a 30× slip is not just "the 24 safest legs" trimmed after the fact.
-  const researched = await researchPicks(pool, 20, { target });
-  const take = uniqueEvents(researched.keep.filter((p) => p.sport === sport)).picks.slice(0, MAX_LEGS);
-  if (!take.length) {
-    await sorry(
-      chatId,
-      `cannot reach ${formatOdds(target)} from today's ${sport}`,
-      "Ask for a lower price.",
-    );
-    return;
-  }
-  const actual = combinedOdds(take);
-  const tag = researchTag(researched.researched);
-  const notes = researched.notes.length ? ` · ${researched.notes.join(" ")}` : "";
-  const title =
-    actual && actual < target * 0.75
-      ? `${take.length} games ${sport}${span ? ` · ${span}` : ""} · ${formatOdds(actual)} · ${tag} — pool no reach ${formatOdds(target)}${notes}`
-      : `${take.length} games ${sport}${span ? ` · ${span}` : ""} · ${actual ? formatOdds(actual) : "—"} · ${tag}${notes}`;
-  await mintAndReply(chatId, take, "ng", title);
+  // History-led single card: the market bar gates the pool, legs rank
+  // short-odds-first, and the card is honest about what the pool can hold.
+  await cookLadderAndReply(chatId, playable(pool), [target], `${sport} · ${span}`);
 }
 
 async function createStakeDaily(chatId: number) {
@@ -888,7 +947,7 @@ async function cookDrawSlip(chatId: number, n: number, window: CookWindow) {
     await sorry(chatId, listed.error, "Try again in a moment.");
     return;
   }
-  const pool = await cookPool(uniqueEvents(listed).picks, null);
+  const pool = await cookPool(uniqueEvents(listed).picks, null, { gate: false });
   const researched = await researchPicks(pool, n);
   const take = uniqueEvents(researched.keep).picks;
   if (!take.length) {
@@ -1827,7 +1886,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     return;
   }
   if (isCmd(raw, "today")) {
-    await createSportSlip(msg.chat.id, parseSport(cmdArg(raw)) ?? "football", 10, "today");
+    await createLadderCook(msg.chat.id, parseSport(cmdArg(raw)) ?? "football", "today", await resolveBand(raw));
     return;
   }
   if (
@@ -1853,7 +1912,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     return;
   }
   if (isCmd(raw, "weekend")) {
-    await createSportSlip(msg.chat.id, parseSport(cmdArg(raw)) ?? "football", 12, "weekend");
+    await createLadderCook(msg.chat.id, parseSport(cmdArg(raw)) ?? "football", "weekend", await resolveBand(raw));
     return;
   }
   if (isCmd(raw, "mix")) {
@@ -1927,6 +1986,10 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       chat_id: msg.chat.id,
       text: formatCalibration(await calibrationReport()),
     });
+    return;
+  }
+  if (isCmd(raw, "accuracy") || isCmd(raw, "bar") || isCmd(raw, "stats")) {
+    await say(msg.chat.id, formatMarketStats(await loadMarketStats()));
     return;
   }
   if (isCmd(raw, "filter")) {

@@ -20,6 +20,7 @@ import {
   slipTrueChance,
   toUnit,
 } from "./odds.ts";
+import { SHORT_ODDS } from "./accuracy.ts";
 import type { AnalyzedPick, TicketPick } from "./types.ts";
 
 export type Leg = TicketPick & { probability?: number };
@@ -42,6 +43,12 @@ export type BuildOptions = {
   maxPerSlot?: number;
   /** Require positive expected value on every leg. */
   valueOnly?: boolean;
+  /**
+   * When the pool cannot fill the slip, return what is there instead of
+   * relaxing the quality bar. The desk-cook path sets this: a slip padded
+   * with weak long-shot legs is worse than no slip.
+   */
+  strict?: boolean;
 };
 
 /**
@@ -196,6 +203,11 @@ export function bestLegs(picks: Leg[], count: number, opts: BuildOptions = {}): 
   const pool = diversify(rankBySafety(eligiblePool(picks, opts)), opts);
   const take = pool.slice(0, Math.min(wanted, opts.maxLegs ?? DEFAULT_BUILD.maxLegs));
   if (!take.length) {
+    // Strict mode: a thin pool is an empty slip, never a padded one.
+    if (opts.strict) {
+      notes.push("Pool thin — nothing cleared the bar, so no slip.");
+      return summarise([], true, notes);
+    }
     const relaxed = diversify(rankBySafety(picks.filter((p) => p.sport !== "other")), {
       ...opts,
       minProb: 0,
@@ -224,6 +236,12 @@ export function buildToTarget(picks: Leg[], target: number, opts: BuildOptions =
   const pool = diversify(rankByValue(eligiblePool(picks, opts)), opts);
 
   if (!pool.length) {
+    // Strict mode: never reach for the unfiltered pool to "make a card".
+    if (opts.strict) {
+      return summarise([], true, [
+        `Pool no reach ${cap.toFixed(2)}× — no leg cleared the market bar.`,
+      ]);
+    }
     const relaxed = diversify(rankByValue(picks.filter((p) => p.sport !== "other")), {
       ...opts,
       minProb: 0,
@@ -312,4 +330,91 @@ export function weakestFirst(picks: AnalyzedPick[]): AnalyzedPick[] {
   return picks
     .slice()
     .sort((a, b) => Number(a.probability) - Number(b.probability) || legValue(b) - legValue(a));
+}
+
+// ---- ladder cards ----------------------------------------------------------
+
+
+/**
+ * Ladder card limits. The caps are what keep a "1000× card" honest: a hard
+ * leg count, a hard price cap per leg (beyond this it is a long shot, not a
+ * leg), and concentration caps so one league or one kickoff slot cannot carry
+ * the whole card.
+ */
+export const LADDER_LIMITS = {
+  maxLegs: 15,
+  /** Longest single price a ladder leg may carry. */
+  maxOdds: 4.0,
+  maxPerLeague: 3,
+  maxPerSlot: 4,
+} as const;
+
+/**
+ * Short-odds first (the desk's default style), then the safest leg (its
+ * probability is the market family's own settled hit rate), then the shortest
+ * price. This ordering is what makes 20×/50×/100× cards land on short DC/O/U
+ * legs without any separate "band" filter.
+ */
+export function rankLadder(legs: Leg[]): Leg[] {
+  const inBand = (p: Leg) =>
+    p.odds != null && p.odds >= SHORT_ODDS.min && p.odds <= SHORT_ODDS.max ? 0 : 1;
+  const prob = (p: Leg) => toUnit(p.probability ?? 50) ?? 0;
+  return legs
+    .slice()
+    .sort(
+      (a, b) =>
+        inBand(a) - inBand(b) || // short-odds band first
+        prob(b) - prob(a) || // then the safest
+        (a.odds ?? 9) - (b.odds ?? 9), // then the shortest price
+    );
+}
+
+export type LadderCardSpec = {
+  legs: Leg[];
+  price: number | null;
+  /** 0-1, from the leg probabilities (family hit rates — never inflated). */
+  trueChance: number;
+  ev: number | null;
+  /** True when the pool could not reach the target. */
+  short: boolean;
+  notes: string[];
+};
+
+/**
+ * Build one ladder card toward `target`.
+ *
+ * Walks the short-odds-ranked, diversified pool adding legs until the product
+ * reaches the target. When the pool runs out first, the card is **short** (or
+ * empty) and says so — it never reaches past the pool for weak long-shot
+ * legs to "make a card". That padding is exactly what the old desk did to
+ * fill 100× slips from thin leagues.
+ */
+export function buildLadderCard(
+  legs: Leg[],
+  target: number,
+  limits: Partial<typeof LADDER_LIMITS> = {},
+): LadderCardSpec {
+  const maxLegs = limits.maxLegs ?? LADDER_LIMITS.maxLegs;
+  const maxOdds = limits.maxOdds ?? LADDER_LIMITS.maxOdds;
+  const capPrice = clamp(target, 1.05, 5000);
+  const ranked = diversify(rankLadder(legs), {
+    maxPerLeague: limits.maxPerLeague ?? LADDER_LIMITS.maxPerLeague,
+    maxPerSlot: limits.maxPerSlot ?? LADDER_LIMITS.maxPerSlot,
+  });
+  const pool = ranked.filter((p) => (p.odds ?? 9) <= maxOdds);
+  const kept: Leg[] = [];
+  let product = 1;
+  for (const pick of pool) {
+    if (kept.length >= maxLegs) break;
+    kept.push(pick);
+    product *= pick.odds ?? 1;
+    if (product >= capPrice) break;
+  }
+  const price = combinedPrice(kept);
+  const trueChance = slipTrueChance(kept);
+  const ev = price != null ? trueChance * price - 1 : null;
+  const short = kept.length > 0 && product < capPrice * 0.75;
+  const notes: string[] = [];
+  if (short) notes.push(`pool no reach ${target}× — best is ${product.toFixed(1)}×`);
+  return { legs: kept, price, trueChance, ev, short, notes };
 }

@@ -1,10 +1,17 @@
 import { researchScores } from "./analyze.ts";
 import { evPerStake, fairProbFromOdds } from "./odds.ts";
-import { buildSlip, rankByValue, type Leg, type Slip } from "./optimizer.ts";
+import { buildLadderCard, buildSlip, rankByValue, type Leg, type Slip } from "./optimizer.ts";
 import { marketFamily } from "./sportybet.ts";
 import { applyLessonScores } from "./study.ts";
 import { youKeys } from "./you.ts";
 import { refreshKeys } from "./keys.ts";
+import {
+  QUALIFYING_BAR,
+  engineAverage,
+  familyGate,
+  legProbability,
+  loadMarketStats,
+} from "./accuracy.ts";
 import type { TicketPick } from "./types.ts";
 
 const WEAK_FB =
@@ -262,4 +269,127 @@ export function concentrationNote(picks: TicketPick[]): string | null {
     return `${top[1]} of ${picks.length} legs na ${top[0]} — dem dey move together o.`;
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Ladder cook — history-led.
+//
+// The old cook was AI-first: it asked you.com to rate every leg, then kept the
+// ones the model called "keep". That made the whole slip depend on one flaky
+// free-tier API, and when it failed the desk either cooked nothing or (before
+// the fallback was removed) cooked garbage.
+//
+// Now the gate is HISTORY: a leg's market family may enter the pool only if
+// that family has settled enough legs and hits above the qualifying bar
+// (see accuracy.ts). The book price is context; the family's own record is
+// the filter. Short odds are preferred, legs are diversified, and cards are
+// built to ladder targets. A target the pool cannot reach is skipped or held
+// at its best — never padded with weak long-shot legs.
+// ---------------------------------------------------------------------------
+
+export type LadderCard = {
+  target: number;
+  legs: Leg[];
+  price: number | null;
+  /** 0-100, from the family hit rates (honest, never inflated). */
+  trueChance: number;
+  ev: number | null;
+  /** True when the pool could not reach the target. */
+  short: boolean;
+  notes: string[];
+};
+
+export type LadderResult = {
+  cards: LadderCard[];
+  /** Targets the pool could not build, with the honest reason. */
+  skipped: Array<{ target: number; reason: string }>;
+  /** Set when the whole pool was empty — the message to show instead of cards. */
+  emptyReason: string | null;
+  /** max(engine average, QUALIFYING_BAR) at cook time, 0-1. */
+  bar: number;
+  /** The engine's overall settled hit rate, 0-1 (0 = no history yet). */
+  engineAvg: number;
+  /** Families that actually entered the pool. */
+  families: string[];
+};
+
+/**
+ * Cook ladder cards from the historical market bar.
+ *
+ * 1. junk/other/no-price filter → 2. one leg per event → 3. market-family
+ * qualifying bar (the primary gate) → 4. long-shot price cap → 5. rank
+ * short-odds-first, safety-second → 6. build each target, skipping what the
+ * pool cannot hold.
+ */
+export async function cookLadder(
+  picks: TicketPick[],
+  targets: number[],
+): Promise<LadderResult> {
+  const stats = await loadMarketStats();
+  const engineAvg = engineAverage(stats);
+  const bar = Math.max(engineAvg, QUALIFYING_BAR);
+  const fail = (emptyReason: string): LadderResult => ({
+    cards: [],
+    skipped: targets.map((t) => ({ target: t, reason: emptyReason })),
+    emptyReason,
+    bar,
+    engineAvg,
+    families: [],
+  });
+
+  const clean = picks.filter(
+    (p) =>
+      p.sport !== "other" &&
+      !isJunk(p) &&
+      p.odds != null &&
+      Number.isFinite(p.odds) &&
+      p.odds > 1,
+  );
+  const oneEach = bestPerEvent(clean);
+  if (!oneEach.length) {
+    return fail("no playable games in the window after the filters");
+  }
+
+  const gatedRows = oneEach.map((p) => {
+    const fam = marketFamily(p.sporty?.marketId, p.market);
+    return { pick: p, fam, gate: familyGate(stats, fam, p.sport) };
+  });
+  const gated = gatedRows.filter((r) => r.gate.allowed).map((r) => r.pick);
+
+  if (!gated.length) {
+    const statuses = new Set(gatedRows.map((r) => r.gate.status));
+    const emptyReason =
+      statuses.size === 1 && statuses.has("never")
+        ? "only winner / handicap markets in the window — that no dey the desk"
+        : statuses.has("below-bar")
+          ? `no markets above the ${Math.round(bar * 100)}% bar in the window`
+          : `no DC / O/U legs in the window (bootstrap list, bar ${Math.round(bar * 100)}%)`;
+    return fail(emptyReason);
+  }
+
+  // Honest per-leg probability: the family's own settled hit rate when it has
+  // one, otherwise the book's implied probability (margin included — so the
+  // card's EV can never be a fake positive).
+  const withProb = gated.map((p) => {
+    const fam = marketFamily(p.sporty?.marketId, p.market);
+    const prob = legProbability(stats, fam, p.sport, p.odds);
+    return {
+      ...p,
+      probability:
+        prob != null
+          ? Math.round(prob * 100)
+          : (p as TicketPick & { probability?: number }).probability,
+    };
+  });
+
+  const cards: LadderCard[] = [];
+  const skipped: Array<{ target: number; reason: string }> = [];
+  for (const target of targets) {
+    const spec = buildLadderCard(withProb, target);
+    if (spec.legs.length) cards.push({ ...spec, target, trueChance: Math.round(spec.trueChance * 100) });
+    else skipped.push({ target, reason: "no leg survived the bar" });
+  }
+
+  const families = [...new Set(gated.map((p) => marketFamily(p.sporty?.marketId, p.market)))];
+  return { cards, skipped, emptyReason: null, bar, engineAvg, families };
 }
