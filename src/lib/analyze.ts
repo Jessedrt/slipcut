@@ -364,28 +364,72 @@ async function picksFromPaste(text: string, country?: string): Promise<{
   return { picks };
 }
 
-const DESK_CLOSED = "The website desk is closed. Use t.me/Slipcut_bot.";
+async function picksForInput(
+  input: CutInput,
+): Promise<{ picks: TicketPick[]; shareCode?: string } | { error: string }> {
+  if (input.mode === "picks") {
+    const picks = (input.picks ?? []).slice(0, MAX_PICKS);
+    if (!picks.length) return { error: "No selections to analyze." };
+    return { picks };
+  }
+  if (input.mode === "code") {
+    const code = extractShareCode(input.code ?? "") || (input.code ?? "").trim().toUpperCase();
+    if (!code) return { error: "Enter a SportyBet booking code." };
+    return loadBookingCode(code, input.country);
+  }
+  if (input.mode === "text") {
+    const text = (input.text ?? "").trim();
+    if (!text) return { error: "Paste a ticket, link, or booking code." };
+    return picksFromPaste(text, input.country);
+  }
+  return { error: "Image tickets are only supported on Telegram for now." };
+}
 
 export const loadTicket = createServerFn({ method: "POST" })
   .validator((input: { code?: string; country?: string; text?: string }) => input)
-  .handler(async (): Promise<
+  .handler(async ({ data }): Promise<
     { ok: true; picks: TicketPick[]; shareCode?: string } | { ok: false; error: string }
   > => {
-    return { ok: false, error: DESK_CLOSED };
+    const code = extractShareCode(data.code ?? data.text ?? "") || (data.code ?? "").trim().toUpperCase();
+    if (code) {
+      const loaded = await loadBookingCode(code, data.country);
+      if ("error" in loaded) return { ok: false, error: loaded.error };
+      return { ok: true, picks: loaded.picks, shareCode: loaded.shareCode };
+    }
+    if (data.text?.trim()) {
+      const loaded = await picksFromPaste(data.text.trim(), data.country);
+      if ("error" in loaded) return { ok: false, error: loaded.error };
+      return { ok: true, picks: loaded.picks, shareCode: loaded.shareCode };
+    }
+    return { ok: false, error: "Enter a SportyBet booking code." };
   });
 
 export const cutSlip = createServerFn({ method: "POST" })
   .validator((input: CutInput) => input)
-  .handler(async (): Promise<CutResponse> => {
-    return { ok: false, error: DESK_CLOSED };
+  .handler(async ({ data }): Promise<CutResponse> => {
+    const loaded = await picksForInput(data);
+    if ("error" in loaded) return { ok: false, error: loaded.error };
+    const analysis = await analyzePicks(loaded.picks, data.threshold);
+    return { ok: true, shareCode: loaded.shareCode, ...analysis };
   });
 
 export const bookSlip = createServerFn({ method: "POST" })
   .validator((input: { picks: TicketPick[]; country?: string }) => input)
-  .handler(async (): Promise<
+  .handler(async ({ data }): Promise<
     { ok: true; shareCode: string; shareURL: string; unavailable: number } | { ok: false; error: string }
   > => {
-    return { ok: false, error: DESK_CLOSED };
+    const selections = sportyOf(data.picks ?? []);
+    if (!selections.length) {
+      return { ok: false, error: "These legs can't be booked on SportyBet." };
+    }
+    const minted = await mintShare(selections, data.country);
+    if ("error" in minted) return { ok: false, error: minted.error };
+    return {
+      ok: true,
+      shareCode: minted.shareCode,
+      shareURL: minted.shareURL,
+      unavailable: minted.unavailable,
+    };
   });
 
 export const connectTelegram = createServerFn({ method: "POST" })
