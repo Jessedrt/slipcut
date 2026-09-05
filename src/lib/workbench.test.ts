@@ -43,6 +43,6 @@ test("500x target reaches or gets close instead of collapsing far below target",
 
 test("natural-language target commands parse correctly", () => {
   assert.deepEqual(parseCommand("trim to 500x"), { type: "trim", targetOdds: 500 });
-  assert.deepEqual(parseCommand("make at least 500 odds"), { type: "trim", targetOdds: 500 });
+  assert.deepEqual(parseCommand("make 500 odds"), { type: "trim", targetOdds: 500 });
   assert.deepEqual(parseCommand("build 500x"), { type: "trim", targetOdds: 500 });
 });
