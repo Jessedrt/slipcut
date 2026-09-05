@@ -567,21 +567,6 @@ export async function rememberEventIds(ids: string[]) {
   await setSetting("recent_event_ids", JSON.stringify(next));
 }
 
-export async function markUpdateSeen(id: number): Promise<boolean> {
-  const raw = await getSetting("tg_seen_updates");
-  let ids: number[] = [];
-  try {
-    const parsed = raw ? JSON.parse(raw) : [];
-    if (Array.isArray(parsed)) ids = parsed.map(Number).filter((n) => Number.isFinite(n));
-  } catch {
-    ids = [];
-  }
-  if (ids.includes(id)) return false;
-  ids.push(id);
-  await setSetting("tg_seen_updates", JSON.stringify(ids.slice(-400)));
-  return true;
-}
-
 type AccessRow = { user_id: string; username: string; role: string };
 
 export async function accessLocked(): Promise<boolean> {

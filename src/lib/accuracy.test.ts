@@ -1,9 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { accuracyFilter, groupAllowed, type AccuracyStats } from "./accuracy-gate.ts";
-import type { TicketPick } from "./types.ts";
+import type { TicketPick, SportKind } from "./types.ts";
 
-function pick(sport: string, market: string, marketId: string): TicketPick {
+function pick(sport: SportKind, market: string, marketId: string): TicketPick {
   return {
     id: `${sport}-${marketId}`,
     sport,
