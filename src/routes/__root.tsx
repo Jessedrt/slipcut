@@ -17,7 +17,7 @@ export const Route = createRootRoute({
         name: "description",
         content: "Private Telegram desk for SportyBet tickets.",
       },
-      { name: "theme-color", content: "#09090b" },
+      { name: "theme-color", content: "#e9f0fb" },
     ],
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
@@ -44,7 +44,7 @@ export const Route = createRootRoute({
           <Outlet />
         </AuthProvider>
         <Toaster
-          theme="dark"
+          theme="light"
           position="bottom-center"
           toastOptions={{
             className: "bg-card text-foreground border-border",
