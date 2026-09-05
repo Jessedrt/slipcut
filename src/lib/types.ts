@@ -1,4 +1,4 @@
-export type BookSport = "football" | "basketball" | "tennis";
+export type BookSport = "football" | "basketball" | "tennis" | "handball";
 export type SportKind = BookSport | "other";
 
 export type SportySelection = {

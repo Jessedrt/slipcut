@@ -1,7 +1,6 @@
 import { Loader2, ScanLine, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Mark } from "@/components/mark";
 import { Workbench } from "@/components/workbench";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -123,17 +122,23 @@ export function Desk() {
 
   return (
     <div className="desk-grid min-h-dvh">
-      <header className="deck-header sticky top-0 z-20">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
-          <div className="flex items-center gap-3">
-            <Mark className="size-10" />
+      <div className="liquid-scene" aria-hidden="true">
+        <div className="liquid-blob liquid-blob-a" />
+        <div className="liquid-blob liquid-blob-c" />
+      </div>
+      <header className="glass-nav sticky top-0 z-20">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
+          <a href="/" className="flex items-center gap-3">
+            <img src="/logo.png" alt="" className="size-9 rounded-full outline-none" />
             <div className="leading-none">
-              <p className="font-serif text-xl tracking-tight">SlipCut</p>
+              <p className="text-xl font-bold tracking-tight">
+                Slip<span className="text-primary">Cut</span>
+              </p>
               <p className="mt-1 text-[0.62rem] uppercase tracking-[0.22em] text-muted-foreground">
-                private desk
+                web desk
               </p>
             </div>
-          </div>
+          </a>
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"
@@ -170,58 +175,22 @@ export function Desk() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl px-4 pb-24 pt-8 sm:px-6 sm:pt-14">
-        <section className="rise-in grid items-start gap-8 lg:grid-cols-[0.92fr_1.08fr] lg:gap-14">
+      <main className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-24 pt-8 sm:pt-12">
+        <section className="rise-in grid items-start gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:gap-12">
           <div className="lg:sticky lg:top-24 lg:pt-4">
-            <span className="kicker">Analyze · Split · Trim · Rebuild</span>
-            <h1 className="mt-5 font-serif text-5xl italic leading-[0.92] tracking-tight sm:text-6xl">
-              <span className="headline">Cut the weak legs.</span>
+            <p className="text-[0.7rem] uppercase tracking-[0.24em] text-muted-foreground">
+              Analyze · split · trim · rebuild
+            </p>
+            <h1 className="mt-4 text-5xl font-bold leading-[0.95] tracking-tight sm:text-6xl">
+              Cut the weak legs.
             </h1>
             <p className="mt-5 max-w-md text-base leading-relaxed text-muted-foreground">
               Load a SportyBet code. Football and basketball are scored on live form — not the
-              price. Then split, trim, and mint a fresh booking code.
+              price. Then split, trim, and mint a new code.
             </p>
-
-            <ol className="mt-9 grid gap-2.5">
-              {[
-                { n: "01", t: "Paste a booking code", d: "Any SportyBet market, any country." },
-                { n: "02", t: "Score on live form", d: "News, injuries, H2H — never the odds." },
-                { n: "03", t: "Mint a new code", d: "Book the survivors, share on Telegram." },
-              ].map((step) => (
-                <li key={step.n} className="spec-plate flex items-center gap-4 px-4 py-3">
-                  <span className="stamp text-sm tabular-nums text-muted-foreground">{step.n}</span>
-                  <span className="hidden h-8 w-px bg-border sm:block" />
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium text-foreground">{step.t}</span>
-                    <span className="block text-[0.8rem] leading-snug text-muted-foreground">
-                      {step.d}
-                    </span>
-                  </span>
-                </li>
-              ))}
-            </ol>
-
-            <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-[0.7rem] uppercase tracking-[0.18em] text-muted-foreground">
-              <span className="inline-flex items-center gap-2">
-                <span className="size-1.5 rounded-full bg-keep" />
-                Form-first scoring
-              </span>
-              <span className="inline-flex items-center gap-2">
-                <span className="size-1.5 rounded-full bg-warn" />
-                Football &amp; basketball
-              </span>
-              <span className="inline-flex items-center gap-2">
-                <span className="size-1.5 rounded-full bg-drop" />
-                No odds bias
-              </span>
-            </div>
           </div>
 
-        <section className="paper rise-in rounded-2xl p-5 sm:p-7">
-          <div className="mb-5 flex items-center justify-between">
-            <p className="stamp text-[0.68rem] text-ink/55">The desk</p>
-            <p className="stamp text-[0.68rem] text-ink/40">Live form engine</p>
-          </div>
+        <section className="paper rounded-xl p-4 sm:p-6">
           <div className="grid gap-4 sm:grid-cols-[1fr_9.5rem]">
             <div>
               <Label htmlFor="code">Booking code</Label>
@@ -345,73 +314,48 @@ export function Desk() {
             busy={busy}
           />
         ) : (
-          <>
-            <div className="mt-16 flex items-center gap-4">
-              <span className="kicker">What the desk does</span>
-              <span className="hairline flex-1" />
-            </div>
-            <section className="mt-6 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
-              {[
-                {
-                  t: "Analyze",
-                  d: "Live form and news. Odds are stored for size and EV, never used as the score.",
-                },
-                {
-                  t: "Split",
-                  d: "Cut a fat accumulator into 2, 3, or 4 even slips. No duplicated legs.",
-                },
-                {
-                  t: "Trim",
-                  d: "Drop the weakest legs until the ticket sits near 20×, 50×, or 100×.",
-                },
-                {
-                  t: "Edit",
-                  d: "Add or remove a pick from the working slip without reloading the code.",
-                },
-                {
-                  t: "Combine",
-                  d: "Fold another SportyBet booking code into the desk, then rescore.",
-                },
-                {
-                  t: "Rebuild",
-                  d: "Mint a new SportyBet booking code from the edited legs.",
-                },
-              ].map((item, i) => (
-                <div key={item.t} className="feature-card ticket rounded-xl">
-                  <div className="ticket-stub">{item.t}</div>
-                  <div className="p-5">
-                    <div className="flex items-baseline justify-between">
-                      <p className="font-serif text-lg text-ink">{item.t}</p>
-                      <span className="stamp text-[0.62rem] tabular-nums text-ink/35">
-                        {String(i + 1).padStart(2, "0")}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-sm leading-relaxed text-ink/65">{item.d}</p>
-                  </div>
+          <section className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {[
+              {
+                t: "Analyze",
+                d: "Live form and news. Odds are stored for size and EV, never used as the score.",
+              },
+              {
+                t: "Split",
+                d: "Cut a fat accumulator into 2, 3, or 4 even slips. No duplicated legs.",
+              },
+              {
+                t: "Trim",
+                d: "Drop the weakest legs until the ticket sits near 20×, 50×, or 100×.",
+              },
+              {
+                t: "Edit",
+                d: "Add or remove a pick from the working slip without reloading the code.",
+              },
+              {
+                t: "Combine",
+                d: "Fold another SportyBet booking code into the desk, then rescore.",
+              },
+              {
+                t: "Rebuild",
+                d: "Mint a new SportyBet booking code from the edited legs.",
+              },
+            ].map((item) => (
+              <div key={item.t} className="ticket rounded-lg">
+                <div className="ticket-stub">{item.t}</div>
+                <div className="p-4">
+                  <p className="font-serif text-lg text-ink">{item.t}</p>
+                  <p className="mt-2 text-sm leading-relaxed text-ink/65">{item.d}</p>
                 </div>
-              ))}
-            </section>
-          </>
+              </div>
+            ))}
+          </section>
         )}
 
-        <footer className="mt-20">
-          <div className="hairline" />
-          <div className="mt-8 flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex items-center gap-3">
-              <Mark className="size-9" />
-              <div className="leading-tight">
-                <p className="font-serif text-lg tracking-tight">SlipCut</p>
-                <p className="text-[0.68rem] uppercase tracking-[0.2em] text-muted-foreground">
-                  Private analysis desk
-                </p>
-              </div>
-            </div>
-            <p className="max-w-md text-xs leading-relaxed text-muted-foreground">
-              Personal analysis desk. Not a bookmaker, not a tipster, not financial advice.
-              Matches move. Injuries land late. You still decide whether to stake.
-            </p>
-          </div>
-        </footer>
+        <p className="mt-14 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+          Personal analysis desk. Not a bookmaker, not a tipster, not financial advice.
+          Matches move. Injuries land late. You still decide whether to stake.
+        </p>
       </main>
 
       {historyOpen ? (

@@ -3,7 +3,7 @@ import { analyzePicks } from "./analyze";
 import { normalizePidgin, pidginSmallTalk, slangHelp, splitChat, wantsCreate } from "./pidgin";
 import { researchPicks } from "./research";
 import { getEventDetail, eventScore, loadBookingCode, listUpcomingPicks, mintShare, parseCookAsks, parseMarketTarget, pickMatchesAsks, formatCookAsks, retargetPicks, sportyOf, windowLabel, type CookAsk, type CookWindow } from "./sportybet";
-import { addAllow, addBlock, allowedBy, applyLessonScores, blockedBy, clearAllows, formatBook, formatRecap, formatStudy, latestCode, latestUnstudiedCode, listAllows, listBlocks, listChats, loadOddsBand, markUpdateSeen, recordSlip, recordStake, rememberChat, removeBlock, saveOddsBand, studyCode } from "./study";
+import { addAllow, addBlock, allowedBy, applyLessonScores, blockedBy, clearAllows, formatBook, formatRecap, formatStudy, latestCode, latestUnstudiedCode, listAllows, listBlocks, listChats, loadOddsBand, loadRecentEventIds, markUpdateSeen, recordSlip, recordStake, rememberChat, rememberEventIds, removeBlock, saveOddsBand, studyCode } from "./study";
 import { addDeskKey, delDeskKey, detectKey, formatKeyList, refreshKeys } from "./keys";
 import { seekaiReady } from "./seekai";
 import { geminiReady } from "./gemini";
@@ -46,11 +46,12 @@ function researchTag(researched: boolean) {
 const MENU = [
   { command: "start", description: "Welcome" },
   { command: "predict", description: "AI picks — cook a slip" },
+  { command: "handball", description: "Cook handball" },
+  { command: "tennis", description: "Cook tennis" },
+  { command: "mix", description: "Mix all sports" },
   { command: "analyze", description: "Form, stats & H2H" },
   { command: "optimize", description: "Trim odds (cut risk)" },
   { command: "split", description: "Split a slip" },
-  { command: "edit", description: "Change games / markets" },
-  { command: "convert", description: "Convert market type" },
   { command: "book", description: "Mint a SportyBet code" },
   { command: "live", description: "Live results" },
   { command: "help", description: "How to talk to me" },
@@ -375,6 +376,7 @@ function accessLines(state: AccessState) {
 function sportIcon(sport: string) {
   if (sport === "basketball") return "🏀";
   if (sport === "tennis") return "🎾";
+  if (sport === "handball") return "🤾";
   if (sport === "football") return "⚽";
   return "🎟️";
 }
@@ -382,6 +384,7 @@ function sportIcon(sport: string) {
 function sportFromFlag(code: string): BookSport {
   if (code === "b") return "basketball";
   if (code === "t") return "tennis";
+  if (code === "h") return "handball";
   return "football";
 }
 
@@ -490,6 +493,7 @@ async function mintAndReply(chatId: number, picks: TicketPick[], country: string
     reply_markup: mintedKeyboard(code, minted.shareURL),
   });
   await recordSlip(code, work);
+  await rememberEventIds(work.map((p) => p.sporty?.eventId).filter((id): id is string => Boolean(id)));
 }
 
 async function scorePlayable(picks: TicketPick[]) {
@@ -504,7 +508,7 @@ async function sureNAndReply(
 ) {
   const n = clampLegs(count, 2);
   if (!picks.length) {
-    await tg("sendMessage", { chat_id: chatId, text: "No football or basketball for this one." });
+    await tg("sendMessage", { chat_id: chatId, text: "No playable games for this one." });
     return;
   }
   await withProgress(chatId, `Picking ${n}…`, async () => {
@@ -546,7 +550,7 @@ async function cookSportSlip(
   const span = windowLabel(window);
   const useBand = band ?? (await loadOddsBand());
   const market = formatCookAsks(asks);
-  const listed = await listUpcomingPicks(sport, Math.min(n + 16, 40), window);
+  const listed = await listUpcomingPicks(sport, Math.min(n + 22, 42), window, "any", await loadRecentEventIds());
   if ("error" in listed) {
     await tg("sendMessage", { chat_id: chatId, text: listed.error });
     return;
@@ -574,7 +578,10 @@ async function cookSportSlip(
   }
   const pool = await cookPool(gated.kept, useBand);
   const researched = await researchPicks(pool, n);
-  const take = uniqueEvents(researched.keep.filter((p) => p.sport === sport)).picks.slice(0, n);
+  const recent = await loadRecentEventIds();
+  const ranked = uniqueEvents(researched.keep.filter((p) => p.sport === sport)).picks;
+  const fresh = ranked.filter((p) => !recent.includes(p.sporty?.eventId ?? ""));
+  const take = (fresh.length >= Math.min(n, 4) ? fresh : ranked).slice(0, n);
   if (!take.length) {
     await tg("sendMessage", { chat_id: chatId, text: `No ${sport}${market ? ` ${market}` : ""} remain after research.` });
     return;
@@ -612,7 +619,7 @@ async function cookOddsSlip(
 ) {
   const span = windowLabel(window);
   const useBand = band ?? (await loadOddsBand());
-  const listed = await listUpcomingPicks(sport, 35, window);
+  const listed = await listUpcomingPicks(sport, 35, window, "any", await loadRecentEventIds());
   if ("error" in listed) {
     await tg("sendMessage", { chat_id: chatId, text: listed.error });
     return;
@@ -787,19 +794,20 @@ async function cookMixSlip(
   const useBand = band ?? (await loadOddsBand());
   const n = clampLegs(opts.games ?? 12, 8);
   const span = windowLabel(window);
-  const [foot, hoop, ten] = await Promise.all([
-    listUpcomingPicks("football", 16, window),
-    listUpcomingPicks("basketball", 16, window),
-    listUpcomingPicks("tennis", 16, window),
+  const skip = await loadRecentEventIds();
+  const [foot, hoop, ten, hand] = await Promise.all([
+    listUpcomingPicks("football", 14, window, "any", skip),
+    listUpcomingPicks("basketball", 12, window, "any", skip),
+    listUpcomingPicks("tennis", 12, window, "any", skip),
+    listUpcomingPicks("handball", 12, window, "any", skip),
   ]);
-  const pools = [foot, hoop, ten].filter((p) => !("error" in p)) as TicketPick[][];
+  const pools = [foot, hoop, ten, hand].filter((p) => !("error" in p)) as TicketPick[][];
   if (!pools.length) {
     await tg("sendMessage", { chat_id: chatId, text: "error" in foot ? foot.error : "No mix sports now." });
     return;
   }
   await maybeStudyLast(chatId);
-  const stacked = interleave(pools[0] ?? [], interleave(pools[1] ?? [], pools[2] ?? []));
-  // Accuracy-led gate shared with the single-sport cook.
+  const stacked = interleave(pools[0] ?? [], interleave(pools[1] ?? [], interleave(pools[2] ?? [], pools[3] ?? [])));
   const accStats = await loadAccuracy();
   const gated = accuracyFilter(stacked, accStats);
   if (!gated.kept.length) {
@@ -819,11 +827,12 @@ async function cookMixSlip(
   const fc = take.filter((p) => p.sport === "football").length;
   const bc = take.filter((p) => p.sport === "basketball").length;
   const tc = take.filter((p) => p.sport === "tennis").length;
+  const hc = take.filter((p) => p.sport === "handball").length;
   await mintAndReply(
     chatId,
     take,
     "ng",
-    `Mix ${fc} football + ${bc} basketball + ${tc} tennis${actual ? ` · ${formatOdds(actual)}` : ""}${span ? ` · ${span}` : ""}${accStats.sampleCount > 0 ? " · accuracy" : ""}${gated.dropped > 0 ? ` · gate −${gated.dropped}` : ""} · ${researched.researched ? researchTag(true) : "desk read"}`,
+    `Mix ${fc} football + ${bc} basketball + ${tc} tennis + ${hc} handball${actual ? ` · ${formatOdds(actual)}` : ""}${span ? ` · ${span}` : ""}${accStats.sampleCount > 0 ? " · accuracy" : ""}${gated.dropped > 0 ? ` · gate −${gated.dropped}` : ""} · ${researched.researched ? researchTag(true) : "desk read"}`,
   );
   await analyzeCard(chatId, take, `<b>Predict · Mix ${take.length} games</b>`);
 }
@@ -1128,39 +1137,6 @@ async function runTicketCommand(chatId: number, code: string, text: string): Pro
   return false;
 }
 
-function clampOddsTarget(n: number) {
-  if (!Number.isFinite(n)) return 20;
-  return Math.max(1.5, Math.min(1000, n));
-}
-
-function parseOddsTarget(text: string): number | null {
-  if (/\b(?:legs?|games?)\b/i.test(text) && !/\bodds?\b|[x×]/i.test(text)) return null;
-  const m =
-    text.match(/(\d{1,4}(?:\.\d+)?)\s*odds?\b/i) ||
-    text.match(/(\d{1,4}(?:\.\d+)?)\s*[x×]\b/i) ||
-    (/\bodds?\b/i.test(text) ? text.match(/\blike\s+(\d{1,4}(?:\.\d+)?)\b/i) : null);
-  if (!m) return null;
-  const n = Number(m[1]);
-  if (!Number.isFinite(n) || n < 1.2) return null;
-  return n;
-}
-
-function parseLegCount(text: string): number | null {
-  if (/\bodds?\b/i.test(text) && !/\b(?:legs?|games?)\b/i.test(text)) return null;
-  const cleaned = text
-    .replace(/\b(?:over|under|o|u)\s*\d+(?:\.\d+)?/gi, " ")
-    .replace(/\b\d+\.\d+\b/g, " ");
-  const m =
-    cleaned.match(/(?:sure\s*)?(\d{1,4})\s*(?:legs?|games?|matches)\b/i) ||
-    cleaned.match(/^\/(?:legs?|games?)(?:@\w+)?\s+(\d{1,4})\b/i) ||
-    (parseSport(text) && !/\bodds?\b/i.test(text) ? cleaned.match(/\b(\d{1,4})\b/) : null) ||
-    (wantsDraw(text) && !/\bodds?\b/i.test(text) ? cleaned.match(/\b(\d{1,4})\b/) : null);
-  if (!m) return null;
-  const n = Number(m[1]);
-  if (!Number.isFinite(n) || n < 1) return null;
-  return n;
-}
-
 export async function handleTelegramUpdate(update: TgUpdate) {
   if (!TOKEN()) return;
   await ensureMenu();
@@ -1360,7 +1336,9 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "<b>Predict</b> — cook an AI slip",
         "<code>/predict 12 football</code>",
         "<code>/predict 8 basketball</code>",
-        "⚡ accuracy-led: only markets whose settled record beats my average hit rate. No draws / straight wins.",
+        "<code>10 games handball</code>",
+        "<code>12 games tennis</code>",
+        "⚡ accuracy-led: only markets whose settled record beats my average hit rate.",
         "",
         "<b>Analyze</b> — form, stats, H2H & live data",
         "<code>/analyze</code> · <code>/analyze TY87PV</code>",
@@ -1665,6 +1643,16 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     await createMixSlip(msg.chat.id, { games: 12 });
     return;
   }
+  if (isCmd(raw, "handball")) {
+    const n = Number(cmdArg(raw).match(/\d{1,4}/)?.[0]);
+    await createSportSlip(msg.chat.id, "handball", Number.isFinite(n) ? n : 10, parseCookWindow(raw));
+    return;
+  }
+  if (isCmd(raw, "tennis")) {
+    const n = Number(cmdArg(raw).match(/\d{1,4}/)?.[0]);
+    await createSportSlip(msg.chat.id, "tennis", Number.isFinite(n) ? n : 10, parseCookWindow(raw));
+    return;
+  }
   if (isCmd(raw, "book") || /^(my book|my slips|book|bankroll)\s*$/i.test(raw)) {
     const bookCode = codeFromText(cmdArg(raw)) || codeFromText(msg.reply_to_message?.text) || (await latestCode());
     if (bookCode) {
@@ -1929,10 +1917,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     return;
   }
   if (sport && !legCount && !code) {
-    await tg("sendMessage", {
-      chat_id: msg.chat.id,
-      text: `How many ${sport} games you want? Type: 12 games ${sport}`,
-    });
+    await createSportSlip(msg.chat.id, sport, 10, cookWindow, band, asks);
     return;
   }
   if (legCount && !code) {

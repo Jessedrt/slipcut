@@ -32,7 +32,7 @@ function clampThreshold(n: number) {
 }
 
 function isSport(v: unknown): v is SportKind {
-  return v === "football" || v === "basketball" || v === "tennis" || v === "other";
+  return v === "football" || v === "basketball" || v === "tennis" || v === "handball" || v === "other";
 }
 
 function stripJson(text: string): unknown {

@@ -43,12 +43,14 @@ export type SharePayload = {
 const FOOTBALL_IDS = new Set(["sr:sport:1", "1"]);
 const BASKETBALL_IDS = new Set(["sr:sport:2", "2"]);
 const TENNIS_IDS = new Set(["sr:sport:5", "5"]);
+const HANDBALL_IDS = new Set(["sr:sport:6", "6"]);
 const COUNTRY_FALLBACKS = ["ng", "gh", "ke", "za", "tz", "ug", "zm", "cm"];
 
 export function mapSport(name?: string, id?: string): SportKind {
   const n = (name ?? "").toLowerCase();
   const sid = (id ?? "").toLowerCase();
   if (n.includes("virtual")) return "other";
+  if (n.includes("handball") || HANDBALL_IDS.has(sid)) return "handball";
   if (n.includes("tennis") || TENNIS_IDS.has(sid)) return "tennis";
   if (n.includes("basket") || BASKETBALL_IDS.has(sid)) return "basketball";
   if (
@@ -192,6 +194,8 @@ const FOOTBALL_LEAGUES =
   /premier league|laliga|la liga|serie a|bundesliga|ligue 1|champions league|europa league|conference league|eredivisie|primeira|championship|mls|copa libertadores|nations league|pro league|saudi/i;
 const BASKETBALL_LEAGUES = /euroleague|eurocup|ncaa|wnba|nbl|acb|bbl/i;
 const TENNIS_LEAGUES = /atp|wta|us open|australian open|wimbledon|roland|french open|masters|challenger|grand slam/i;
+const HANDBALL_LEAGUES =
+  /ehf|champions league|bundesliga|starligue|asobal|seha|olympic|world championship|herre|eliteserien|nexe|barcelona|psg|kiel|flensburg|vesszem|pick szeged/i;
 /** Simulated / virtual leagues — never real fixtures, always excluded. */
 const SIMULATED_LEAGUE =
   /simulat|simulation|virtual|esoccer|e-?soccer|esport|\bsrl\b|fifa|\bpes\b|arcade|\bcrowd\b|robots?/i;
@@ -479,6 +483,25 @@ function tennisCandidates(ev: EventDetail): TicketPick[] {
   return picks;
 }
 
+function handballCandidates(ev: EventDetail): TicketPick[] {
+  const markets = (ev.markets ?? []).filter((m) => m.status === 0);
+  const picks: TicketPick[] = [];
+  pushMarket(picks, ev, "handball", markets.find((m) => m.id === "1"));
+  pushMarket(picks, ev, "handball", markets.find((m) => m.id === "10"));
+  pushMarket(picks, ev, "handball", markets.find((m) => m.id === "11"));
+  pushOver(picks, ev, "handball", lowerOverLine(markets.filter((m) => m.id === "18")));
+  pushOver(
+    picks,
+    ev,
+    "handball",
+    lowerOverLine(markets.filter((m) => m.id === "18" && /total=4[5-9]\.5|total=5[0-6]\.5/.test(m.specifier ?? ""))),
+  );
+  const ou = markets.find((m) => m.id === "18" && (m.specifier === "total=48.5" || m.specifier === "total=47.5" || m.specifier === "total=49.5"));
+  if (ou) pushOver(picks, ev, "handball", ou);
+  pushOver(picks, ev, "handball", lowerOverLine(markets.filter((m) => m.id === "68")));
+  return picks;
+}
+
 function cookablePick(p: TicketPick) {
   const id = p.sporty?.marketId;
   const fam = marketFamily(id, p.market);
@@ -581,44 +604,79 @@ export function windowLabel(window: CookWindow) {
   return "";
 }
 
+function shuffle<T>(items: T[]): T[] {
+  const a = [...items];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = a[i]!;
+    a[i] = a[j]!;
+    a[j] = t;
+  }
+  return a;
+}
+
+function sportIdOf(sport: BookSport) {
+  if (sport === "basketball") return "sr:sport:2";
+  if (sport === "tennis") return "sr:sport:5";
+  if (sport === "handball") return "sr:sport:6";
+  return "sr:sport:1";
+}
+
+function preferLeagues(sport: BookSport) {
+  if (sport === "basketball") return BASKETBALL_LEAGUES;
+  if (sport === "tennis") return TENNIS_LEAGUES;
+  if (sport === "handball") return HANDBALL_LEAGUES;
+  return FOOTBALL_LEAGUES;
+}
+
+function candidatesFor(sport: BookSport, ev: EventDetail) {
+  if (sport === "basketball") return basketballCandidates(ev);
+  if (sport === "tennis") return tennisCandidates(ev);
+  if (sport === "handball") return handballCandidates(ev);
+  return footballCandidates(ev);
+}
+
 export async function listUpcomingPicks(
   sport: BookSport,
   limit = 14,
   window: CookWindow = "soon",
   mode: "any" | "draw" = "any",
+  skipIds: string[] = [],
 ): Promise<TicketPick[] | { error: string }> {
-  const sportId = sport === "basketball" ? "sr:sport:2" : sport === "tennis" ? "sr:sport:5" : "sr:sport:1";
   const payload = (await sportyGet(
-    `/factsCenter/commonThumbnailEvents?sportId=${encodeURIComponent(sportId)}`,
+    `/factsCenter/commonThumbnailEvents?sportId=${encodeURIComponent(sportIdOf(sport))}`,
   )) as SharePayload & { data?: Array<{ name?: string; events?: ShareOutcome[] }> } | null;
   const tours = Array.isArray(payload?.data) ? payload.data : [];
   if (!tours.length) return { error: `No upcoming ${sport} on SportyBet right now.` };
 
-  const prefer =
-    sport === "basketball" ? BASKETBALL_LEAGUES : sport === "tennis" ? TENNIS_LEAGUES : FOOTBALL_LEAGUES;
+  const prefer = preferLeagues(sport);
   const now = Date.now();
-  const upcoming = spreadByDay(
-    tours
-      .flatMap((t) => (t.events ?? []).map((e) => ({ ...e, leagueHint: t.name ?? leagueName(e.sport) })))
-      .filter(
-        (e) =>
-          e.status === 0 &&
-          !e.banned &&
-          e.eventId &&
-          !SIMULATED_LEAGUE.test(e.leagueHint ?? "") &&
-          inCookWindow(e.estimateStartTime ?? 0, window, now) &&
-          (sport !== "basketball" || !/\bnba\b/i.test(e.leagueHint ?? "")),
-      )
-      .sort((a, b) => {
-        const ap = prefer.test(a.leagueHint ?? "") ? 0 : 1;
-        const bp = prefer.test(b.leagueHint ?? "") ? 0 : 1;
-        if (ap !== bp) return ap - bp;
-        return (a.estimateStartTime ?? 0) - (b.estimateStartTime ?? 0);
-      }),
-    window,
-  );
+  const skip = new Set(skipIds);
+  const ranked = tours
+    .flatMap((t) => (t.events ?? []).map((e) => ({ ...e, leagueHint: t.name ?? leagueName(e.sport) })))
+    .filter(
+      (e) =>
+        e.status === 0 &&
+        !e.banned &&
+        e.eventId &&
+        !SIMULATED_LEAGUE.test(e.leagueHint ?? "") &&
+        inCookWindow(e.estimateStartTime ?? 0, window, now) &&
+        (sport !== "basketball" || !/\bnba\b/i.test(e.leagueHint ?? "")),
+    )
+    .sort((a, b) => {
+      const as = skip.has(String(a.eventId)) ? 1 : 0;
+      const bs = skip.has(String(b.eventId)) ? 1 : 0;
+      if (as !== bs) return as - bs;
+      const ap = prefer.test(a.leagueHint ?? "") ? 0 : 1;
+      const bp = prefer.test(b.leagueHint ?? "") ? 0 : 1;
+      if (ap !== bp) return ap - bp;
+      return (a.estimateStartTime ?? 0) - (b.estimateStartTime ?? 0);
+    });
+  const fresh = shuffle(ranked.filter((e) => !skip.has(String(e.eventId))));
+  const stale = ranked.filter((e) => skip.has(String(e.eventId)));
+  const upcoming = spreadByDay([...fresh, ...stale], window);
 
-  const want = Math.max(1, Math.min(35, limit));
+  const want = Math.max(1, Math.min(42, limit));
   const deadline = Date.now() + 45_000;
   const picks: TicketPick[] = [];
   const batchSize = want > 20 ? 10 : 8;
@@ -645,13 +703,7 @@ export async function listUpcomingPicks(
           events += 1;
         }
       } else {
-        const cands =
-          sport === "basketball"
-            ? basketballCandidates(ev)
-            : sport === "tennis"
-              ? tennisCandidates(ev)
-              : footballCandidates(ev);
-        const open = cands.filter(cookablePick);
+        const open = candidatesFor(sport, ev).filter(cookablePick);
         if (!open.length) continue;
         picks.push(...open);
         events += 1;

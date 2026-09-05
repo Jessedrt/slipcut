@@ -547,6 +547,41 @@ export async function getSetting(key: string): Promise<string | null> {
   }
 }
 
+export async function loadRecentEventIds(): Promise<string[]> {
+  const raw = await getSetting("recent_event_ids");
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((x): x is string => typeof x === "string" && x.length > 3);
+  } catch {
+    return [];
+  }
+}
+
+export async function rememberEventIds(ids: string[]) {
+  const clean = [...new Set(ids.filter(Boolean))];
+  if (!clean.length) return;
+  const prev = await loadRecentEventIds();
+  const next = [...clean, ...prev.filter((id) => !clean.includes(id))].slice(0, 140);
+  await setSetting("recent_event_ids", JSON.stringify(next));
+}
+
+export async function markUpdateSeen(id: number): Promise<boolean> {
+  const raw = await getSetting("tg_seen_updates");
+  let ids: number[] = [];
+  try {
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(parsed)) ids = parsed.map(Number).filter((n) => Number.isFinite(n));
+  } catch {
+    ids = [];
+  }
+  if (ids.includes(id)) return false;
+  ids.push(id);
+  await setSetting("tg_seen_updates", JSON.stringify(ids.slice(-400)));
+  return true;
+}
+
 type AccessRow = { user_id: string; username: string; role: string };
 
 export async function accessLocked(): Promise<boolean> {

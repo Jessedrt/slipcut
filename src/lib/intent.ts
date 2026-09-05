@@ -101,6 +101,7 @@ export function wantsDraw(text: string) {
 }
 
 export function parseSport(text: string): BookSport | null {
+  if (/hand\s*ball/i.test(text)) return "handball";
   if (/tennis|atp|wta/i.test(text)) return "tennis";
   if (/basket|hoop/i.test(text)) return "basketball";
   if (/foot|soccer|bola/i.test(text)) return "football";
@@ -126,7 +127,7 @@ export function parseBlock(text: string): BlockIntent | null {
   if (!add?.[1]) return null;
   const v = add[1].trim().replace(/[.!?]+$/, "");
   if (v.length < 3) return null;
-  if (/^(football|basketball|tennis|legs?|games?|odds?|code|bola|hoop|mix|draws?)/i.test(v)) return null;
+  if (/^(football|basketball|tennis|handball|legs?|games?|odds?|code|bola|hoop|mix|draws?)/i.test(v)) return null;
   return { add: v };
 }
 
@@ -141,7 +142,7 @@ const NOT_A_CODE = new Set(
     "CREATE", "START", "HELP", "LEGS", "GAMES", "ODDS", "TRIM", "MINT", "ANALYZE",
     "FOOTBALL", "BASKETBALL", "SOCCER", "SLIPCUT", "SPORT", "SHARE", "CODE", "KEEP",
     "DROP", "HOME", "AWAY", "OVER", "UNDER", "SPLIT", "STUDY", "CUT", "LOST", "COOK",
-    "LIKE", "TENNIS", "ATP", "WTA", "BOOK", "COMBINE", "WEEKEND", "WEEKENDS", "WEEK",
+    "LIKE", "TENNIS", "HANDBALL", "ATP", "WTA", "BOOK", "COMBINE", "WEEKEND", "WEEKENDS", "WEEK",
     "WEEKS", "STAKE", "TODAY", "MIX", "FILTER", "PING", "RECAP", "SCORE", "LIVE",
     "BLOCK", "DRAW", "DRAWS", "LOCK", "UNLOCK", "GRANT", "REVOKE", "KEYS", "KEY",
     "SLANG", "ONLY", "CLEAR", "DAILY", "DAILY2", "RESULTS", "BOLA", "HOOP", "OKAY",

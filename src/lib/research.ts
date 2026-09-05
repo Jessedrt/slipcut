@@ -14,6 +14,7 @@ const TOP_FB =
   /premier league|la liga|laliga|serie a|bundesliga|ligue 1|champions league|europa league|conference league|eredivisie|primeira|championship|mls|copa libertadores|nations league|saudi|super lig|liga portugal|pro league/i;
 const TOP_BB = /euroleague|ncaa|wnba|acb|nbl|eurocup|bbl/i;
 const TOP_TN = /atp|wta|us open|australian open|wimbledon|roland|french open|masters|grand slam|challenger/i;
+const TOP_HB = /ehf|champions league|bundesliga|starligue|asobal|seha|olympic|world championship|herre|eliteserien/i;
 
 function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
@@ -24,10 +25,11 @@ export function deskScore(pick: TicketPick): number {
   let s = 50;
   const league = pick.league ?? "";
   const blob = `${league} ${pick.home} ${pick.away}`;
-  if (WEAK.test(blob) && !TOP_FB.test(league) && !TOP_BB.test(league) && !TOP_TN.test(league)) s -= 28;
+  if (WEAK.test(blob) && !TOP_FB.test(league) && !TOP_BB.test(league) && !TOP_TN.test(league) && !TOP_HB.test(league)) s -= 28;
   if (pick.sport === "football" && TOP_FB.test(league)) s += 8;
   else if (pick.sport === "basketball" && TOP_BB.test(league)) s += 8;
   else if (pick.sport === "tennis" && TOP_TN.test(league)) s += 6;
+  else if (pick.sport === "handball" && TOP_HB.test(league)) s += 7;
   else s -= 4;
 
   if (odds >= 1.4 && odds <= 2.15) s += 12;
@@ -50,6 +52,7 @@ function isJunk(pick: TicketPick) {
   const blob = `${pick.league ?? ""} ${pick.home} ${pick.away}`;
   if (pick.sport === "football") return WEAK_FB.test(blob);
   if (pick.sport === "basketball") return WEAK_BB.test(blob) || /\bnba\b/i.test(pick.league ?? "");
+  if (pick.sport === "handball") return /friendly|women|u-?1[89]|youth|virtual/i.test(blob) && !TOP_HB.test(pick.league ?? "");
   return false;
 }
 
@@ -58,6 +61,7 @@ function isTop(pick: TicketPick) {
   if (pick.sport === "football") return TOP_FB.test(league);
   if (pick.sport === "basketball") return TOP_BB.test(league);
   if (pick.sport === "tennis") return TOP_TN.test(league);
+  if (pick.sport === "handball") return TOP_HB.test(league);
   return false;
 }
 
@@ -251,7 +255,8 @@ export async function researchPicks<T extends TicketPick>(
 
   const bar = researched ? 45 : isTop(shortlist[0] ?? ({} as T)) ? 58 : 62;
   const strong = shortlist.filter((p) => (p.probability ?? 0) >= bar && (researched || isTop(p) || (p.probability ?? 0) >= 66));
-  const keep = strong.slice(0, Math.max(1, want)) as T[];
+  const mixed = mixFamilies(strong.length ? strong : shortlist, Math.max(1, want));
+  const keep = mixed.slice(0, Math.max(1, want)) as T[];
   if (!keep.length && shortlist.length) {
     const fallback = shortlist.filter((p) => isTop(p)).slice(0, Math.max(1, Math.min(want, 8))) as T[];
     return { keep: fallback.length ? fallback : (shortlist.slice(0, 1) as T[]), dropped: unique.length - 1, researched };
