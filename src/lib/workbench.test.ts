@@ -32,6 +32,8 @@ test("500x target reaches or gets close instead of collapsing far below target",
     pick("f", 2.2, 68),
     pick("g", 2.35, 66),
     pick("h", 2.5, 64),
+    pick("i", 2.7, 62),
+    pick("j", 2.8, 60),
   ];
 
   const result = trimToOdds(input, 500);
