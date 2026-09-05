@@ -79,15 +79,10 @@ export function splitEven<T>(items: T[], parts: number): T[][] {
 }
 
 /**
- * Select a subset whose combined odds are as close as possible to the target.
- * Preference order:
- * 1) reach the target when possible;
- * 2) minimize distance from the target;
- * 3) maximize the total log-probability of the legs;
- * 4) use fewer legs as a final tie-break.
- *
- * This replaces the old "remove one by one" algorithm, which could turn a
- * 500x request into a tiny slip simply because the last removed leg was large.
+ * Select a subset whose combined odds is as close as possible to the target.
+ * If the target can be reached, an at-or-above result always wins over a
+ * below-target result. Among those, prefer the smallest overshoot and then
+ * the strongest combined probability.
  */
 export function trimToOdds(picks: AnalyzedPick[], target: number): AnalyzedPick[] {
   const requested = Number.isFinite(target) ? Math.max(1.2, Math.min(1000, target)) : 500;
@@ -96,8 +91,6 @@ export function trimToOdds(picks: AnalyzedPick[], target: number): AnalyzedPick[
     .slice();
   if (!eligible.length) return [];
 
-  // Beam-search subsets. Twenty legs is small enough to explore broadly,
-  // while the beam keeps worst-case work bounded for Vercel/serverless use.
   type State = { ids: string[]; product: number; score: number };
   const beamWidth = 5000;
   const sorted = eligible.sort((a, b) => {
@@ -124,7 +117,7 @@ export function trimToOdds(picks: AnalyzedPick[], target: number): AnalyzedPick[
     next.sort((a, b) => {
       const distance = (x: State) => {
         if (x.product >= requested) return x.product / requested - 1;
-        return requested / x.product - 1;
+        return 1 + (requested / x.product - 1);
       };
       const da = distance(a);
       const db = distance(b);
@@ -138,7 +131,7 @@ export function trimToOdds(picks: AnalyzedPick[], target: number): AnalyzedPick[
   const nonEmpty = states.filter((s) => s.ids.length > 0);
   if (!nonEmpty.length) return [sorted[0]!];
   const byId = new Map(eligible.map((p) => [p.id, p]));
-  const distance = (s: State) => (s.product >= requested ? s.product / requested - 1 : requested / s.product - 1);
+  const distance = (s: State) => (s.product >= requested ? s.product / requested - 1 : 1 + (requested / s.product - 1));
   const best = nonEmpty.sort((a, b) => {
     const da = distance(a);
     const db = distance(b);
@@ -176,7 +169,7 @@ export function parseCommand(raw: string): DeskCommand {
   if (split) return { type: "split", parts: Number(split[1]) };
 
   const trimOdds = t.match(/(?:trim|build|make|target|cook)(?:\s+to)?\s+(\d+(?:\.\d+)?)\s*(?:odds|[x×])?/);
-  if (trimOdds && /(trim|build|make|target|cook)/.test(t)) return { type: "trim", targetOdds: Number(trimOdds[1]) };
+  if (trimOdds) return { type: "trim", targetOdds: Number(trimOdds[1]) };
 
   const trimGames = t.match(/trim(?:\s+to)?\s+(\d+)\s*(?:games?|legs?)?/);
   if (trimGames) return { type: "keepLegs", count: Number(trimGames[1]) };
