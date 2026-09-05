@@ -167,13 +167,14 @@ export function Workbench({
   }
 
   return (
-    <section className="mt-10">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-[0.7rem] uppercase tracking-[0.22em] text-muted-foreground">Desk note</p>
-          <p className="mt-2 max-w-2xl font-serif text-xl leading-snug text-foreground">{result.desk}</p>
-        </div>
+    <section className="fade-up mt-12">
+      <div className="flex items-center gap-4">
+        <span className="kicker">Desk note</span>
+        <span className="hairline flex-1" />
       </div>
+      <p className="mt-4 max-w-2xl font-serif text-2xl italic leading-snug text-foreground">
+        {result.desk}
+      </p>
 
       <div className="paper mt-6 rounded-xl p-4 sm:p-5">
         <div className="flex items-center gap-2 text-[0.7rem] uppercase tracking-[0.18em] text-muted-foreground">
@@ -442,7 +443,7 @@ function Stat({
   tone?: "keep" | "drop";
 }) {
   return (
-    <div className="ticket rounded-lg px-3 py-3">
+    <div className="feature-card ticket rounded-xl px-4 py-3.5">
       <p className="text-[0.65rem] uppercase tracking-wider text-ink/45">{label}</p>
       <p
         className={cn(
