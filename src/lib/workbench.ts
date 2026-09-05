@@ -78,24 +78,76 @@ export function splitEven<T>(items: T[], parts: number): T[][] {
   return buckets.filter((b) => b.length);
 }
 
+/**
+ * Select a subset whose combined odds are as close as possible to the target.
+ * Preference order:
+ * 1) reach the target when possible;
+ * 2) minimize distance from the target;
+ * 3) maximize the total log-probability of the legs;
+ * 4) use fewer legs as a final tie-break.
+ *
+ * This replaces the old "remove one by one" algorithm, which could turn a
+ * 500x request into a tiny slip simply because the last removed leg was large.
+ */
 export function trimToOdds(picks: AnalyzedPick[], target: number): AnalyzedPick[] {
+  const requested = Number.isFinite(target) ? Math.max(1.2, Math.min(1000, target)) : 500;
   const eligible = picks
-    .filter((p) => p.sport !== "other")
-    .slice()
-    .sort((a, b) => b.probability - a.probability);
+    .filter((p) => p.sport !== "other" && Number.isFinite(p.odds) && (p.odds as number) > 1.08 && (p.odds as number) < 6)
+    .slice();
   if (!eligible.length) return [];
-  let kept = eligible;
-  while (kept.length > 1) {
-    const odds = combinedOdds(kept);
-    if (odds == null) {
-      if (kept.length <= 8) break;
-      kept = kept.slice(0, -1);
-      continue;
+
+  // Beam-search subsets. Twenty legs is small enough to explore broadly,
+  // while the beam keeps worst-case work bounded for Vercel/serverless use.
+  type State = { ids: string[]; product: number; score: number };
+  const beamWidth = 5000;
+  const sorted = eligible.sort((a, b) => {
+    const pa = Math.max(1, a.probability) / Math.max(1.01, a.odds as number);
+    const pb = Math.max(1, b.probability) / Math.max(1.01, b.odds as number);
+    return pb - pa;
+  });
+  let states: State[] = [{ ids: [], product: 1, score: 0 }];
+
+  for (const pick of sorted) {
+    const odds = pick.odds as number;
+    const probability = Math.max(1, Math.min(99, pick.probability));
+    const next: State[] = states.slice();
+    for (const state of states) {
+      const product = state.product * odds;
+      if (product > requested * 1.35 && state.ids.length > 0) continue;
+      next.push({
+        ids: [...state.ids, pick.id],
+        product,
+        score: state.score + Math.log(probability / 100),
+      });
     }
-    if (odds <= target) break;
-    kept = kept.slice(0, -1);
+
+    next.sort((a, b) => {
+      const distance = (x: State) => {
+        if (x.product >= requested) return x.product / requested - 1;
+        return requested / x.product - 1;
+      };
+      const da = distance(a);
+      const db = distance(b);
+      if (Math.abs(da - db) > 0.015) return da - db;
+      if (Math.abs(a.score - b.score) > 0.03) return b.score - a.score;
+      return a.ids.length - b.ids.length;
+    });
+    states = next.slice(0, beamWidth);
   }
-  return kept;
+
+  const nonEmpty = states.filter((s) => s.ids.length > 0);
+  if (!nonEmpty.length) return [sorted[0]!];
+  const byId = new Map(eligible.map((p) => [p.id, p]));
+  const distance = (s: State) => (s.product >= requested ? s.product / requested - 1 : requested / s.product - 1);
+  const best = nonEmpty.sort((a, b) => {
+    const da = distance(a);
+    const db = distance(b);
+    if (Math.abs(da - db) > 0.005) return da - db;
+    if (Math.abs(a.score - b.score) > 0.02) return b.score - a.score;
+    return a.ids.length - b.ids.length;
+  })[0]!;
+
+  return best.ids.map((id) => byId.get(id)).filter((p): p is AnalyzedPick => Boolean(p));
 }
 
 export function keepTop(picks: AnalyzedPick[], count: number): AnalyzedPick[] {
@@ -118,13 +170,13 @@ export type DeskCommand =
 
 export function parseCommand(raw: string): DeskCommand {
   const t = raw.trim().toLowerCase();
-  if (!t) return { type: "unknown", hint: "Try: split into 3 · trim to 50x · keep 6 games" };
+  if (!t) return { type: "unknown", hint: "Try: split into 3 · trim to 500x · keep 6 games" };
 
   const split = t.match(/split(?:\s+into)?\s+(\d+)/);
   if (split) return { type: "split", parts: Number(split[1]) };
 
-  const trimOdds = t.match(/trim(?:\s+to)?\s+(\d+(?:\.\d+)?)\s*(?:odds|[x×])/);
-  if (trimOdds) return { type: "trim", targetOdds: Number(trimOdds[1]) };
+  const trimOdds = t.match(/(?:trim|build|make|target|cook)(?:\s+to)?\s+(\d+(?:\.\d+)?)\s*(?:odds|[x×])?/);
+  if (trimOdds && /(trim|build|make|target|cook)/.test(t)) return { type: "trim", targetOdds: Number(trimOdds[1]) };
 
   const trimGames = t.match(/trim(?:\s+to)?\s+(\d+)\s*(?:games?|legs?)?/);
   if (trimGames) return { type: "keepLegs", count: Number(trimGames[1]) };
@@ -141,7 +193,7 @@ export function parseCommand(raw: string): DeskCommand {
 
   return {
     type: "unknown",
-    hint: "Try: split into 3 · trim to 50x · keep 6 games · keep football",
+    hint: "Try: trim to 500x · split into 3 · keep 6 games · keep football",
   };
 }
 
