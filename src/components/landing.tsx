@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Link } from "@tanstack/react-router";
 import {
   ArrowRight,
   Bot,
@@ -8,7 +7,7 @@ import {
   MessageCircle,
   ScanLine,
   Scissors,
-  Ticket,
+  Send,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,7 +17,20 @@ const BOT = "https://t.me/Slipcut_bot";
 const NAV = [
   { href: "#features", label: "Features" },
   { href: "#fix", label: "How it works" },
-  { href: "#desk", label: "Desk" },
+  { href: "#open", label: "Open bot" },
+];
+
+const MARQUEE = [
+  "cook 12 football",
+  "trim 50x",
+  "weekend mix",
+  "10 games handball",
+  "cook basketball overs",
+  "12 games tennis",
+  "how far cook 30 odds",
+  "study",
+  "comot game 3",
+  "8 draw football",
 ];
 
 const CHIPS = ["Cook", "Trim", "Study", "Mix", "Handball", "Tennis", "Pidgin"];
@@ -26,11 +38,11 @@ const CHIPS = ["Cook", "Trim", "Study", "Mix", "Handball", "Tennis", "Pidgin"];
 const FIXES = [
   {
     bad: "40-game tickets take forever to edit by hand",
-    good: "Say trim 12 — SlipCut keeps the strongest legs and mints a new code.",
+    good: "Say trim 12 in Telegram. SlipCut keeps the strongest legs and drops a new code.",
   },
   {
     bad: "Same matches keep coming back on every cook",
-    good: "The desk skips games it just booked, so the next slip is a new set.",
+    good: "The bot skips games it just booked, so the next slip is a new set.",
   },
   {
     bad: "Blind picks on vibes",
@@ -51,7 +63,7 @@ const FEATURES = [
   {
     icon: Scissors,
     title: "Trim the risk",
-    body: "Paste a code. Cut weak legs. Get a shorter booking code you can copy in one tap.",
+    body: "Paste a code. Cut weak legs. Copy the shorter booking code in one tap.",
   },
   {
     icon: ScanLine,
@@ -69,9 +81,9 @@ const FEATURES = [
     body: "How far, cook 30 odds, comot game 3. The desk talks the way you talk.",
   },
   {
-    icon: Ticket,
-    title: "Web desk too",
-    body: "Paste a code here if you prefer a screen. Same cut, same SportyBet mint.",
+    icon: Send,
+    title: "Telegram only",
+    body: "No web forms. Open the bot, paste a code or just say what you want.",
   },
 ];
 
@@ -106,13 +118,7 @@ export function Landing() {
             ))}
           </nav>
           <div className="flex items-center gap-3">
-            <a
-              href={BOT}
-              className="hidden text-foreground/60 transition-colors hover:text-foreground sm:block"
-              aria-label="Telegram"
-            >
-              <SendIcon />
-            </a>
+            <span className="live-pill hidden sm:inline-flex">Live on Telegram</span>
             <a href={BOT} className="hidden sm:block">
               <Button className="relative overflow-hidden rounded-md px-5 uppercase tracking-wide">
                 <span className="cta-sheen pointer-events-none absolute inset-0" />
@@ -151,46 +157,52 @@ export function Landing() {
         ) : null}
       </header>
 
+      <div className="relative z-10 overflow-hidden border-y border-white/40 py-2.5">
+        <div className="marquee">
+          {[...MARQUEE, ...MARQUEE].map((line, i) => (
+            <span key={`${line}-${i}`} className="marquee-item">
+              {line}
+            </span>
+          ))}
+        </div>
+      </div>
+
       <main className="relative z-10">
-        <section className="mx-auto grid max-w-6xl items-center gap-12 px-5 pb-20 pt-10 md:px-8 lg:grid-cols-[1.1fr_0.9fr] lg:gap-16 lg:pt-16">
+        <section className="mx-auto grid max-w-6xl items-center gap-12 px-5 pb-16 pt-10 md:px-8 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16 lg:pt-14">
           <div className="rise-in">
             <p className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">
-              SportyBet desk · Telegram
+              SportyBet · Telegram desk
             </p>
             <h1 className="mt-4 text-5xl font-bold leading-[0.95] sm:text-6xl lg:text-7xl">
-              Your AI betting
-              <span className="block text-primary">co-pilot.</span>
+              Yarn am.
+              <span className="block text-primary">E go cook.</span>
             </h1>
             <p className="mt-5 max-w-lg text-base leading-relaxed text-muted-foreground sm:text-lg">
-              Cook, trim, and book SportyBet slips in one chat. Football, basketball, tennis,
-              handball — no hopping between stats sites and the app.
+              SlipCut lives in Telegram. Cook, trim, study, and book football, basketball, tennis,
+              and handball — one chat, one code.
             </p>
-            <div className="mt-8 flex flex-wrap items-center gap-3">
+            <div className="mt-8">
               <a href={BOT}>
-                <Button size="lg" className="relative overflow-hidden rounded-md uppercase tracking-wide">
+                <Button size="lg" className="relative h-14 overflow-hidden rounded-md px-8 text-base uppercase tracking-wide">
                   <span className="cta-sheen pointer-events-none absolute inset-0" />
-                  Start on Telegram
+                  Open @Slipcut_bot
                   <ArrowRight />
                 </Button>
               </a>
-              <Link to="/desk">
-                <Button size="lg" variant="outline" className="rounded-md glass">
-                  Try the web desk
-                </Button>
-              </Link>
             </div>
             <div className="mt-8 flex flex-wrap gap-2">
-              {CHIPS.map((chip) => (
+              {CHIPS.map((chip, i) => (
                 <span
                   key={chip}
-                  className="glass rounded-full px-3 py-1.5 text-xs font-bold uppercase tracking-widest text-foreground/70"
+                  className="glass float-chip rounded-full px-3 py-1.5 text-xs font-bold uppercase tracking-widest text-foreground/70"
+                  style={{ animationDelay: `${i * 0.18}s` }}
                 >
                   {chip}
                 </span>
               ))}
             </div>
           </div>
-          <PhoneMock />
+          <ChatMock />
         </section>
 
         <section id="fix" className="mx-auto max-w-6xl px-5 py-16 md:px-8">
@@ -214,9 +226,9 @@ export function Landing() {
 
         <section id="features" className="mx-auto max-w-6xl px-5 py-16 md:px-8">
           <p className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">Features</p>
-          <h2 className="mt-3 max-w-xl text-3xl font-bold sm:text-5xl">Everything you need, in one desk.</h2>
+          <h2 className="mt-3 max-w-xl text-3xl font-bold sm:text-5xl">Everything you need, in Telegram.</h2>
           <p className="mt-4 max-w-xl text-muted-foreground">
-            Manage tickets, scan form, and mint a fresh SportyBet code — Telegram or the web.
+            Type it the way you talk. The bot researches, cuts the weak legs, and mints a SportyBet code.
           </p>
           <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {FEATURES.map((f) => (
@@ -229,27 +241,20 @@ export function Landing() {
           </div>
         </section>
 
-        <section id="desk" className="mx-auto max-w-6xl px-5 py-16 md:px-8">
-          <div className="glass-strong overflow-hidden rounded-2xl px-6 py-12 text-center md:px-16">
-            <ScanLine className="mx-auto size-6 text-primary" />
-            <h2 className="mt-4 text-3xl font-bold sm:text-5xl">Paste a code. Cut the weak legs.</h2>
+        <section id="open" className="mx-auto max-w-6xl px-5 py-16 md:px-8">
+          <div className="glass-strong overflow-hidden rounded-2xl px-6 py-14 text-center md:px-16">
+            <span className="live-pill mx-auto">Online now</span>
+            <h2 className="mt-5 text-3xl font-bold sm:text-5xl">The desk is the bot.</h2>
             <p className="mx-auto mt-4 max-w-lg text-muted-foreground">
-              The web desk is back — liquid glass, same engine as the bot. Or stay in Telegram if that is
-              where you live.
+              No paste form. No extra login. Open Telegram and tell SlipCut what to cook.
             </p>
-            <div className="mt-8 flex flex-wrap justify-center gap-3">
-              <Link to="/desk">
-                <Button size="lg" className="rounded-md uppercase tracking-wide">
-                  Open web desk
-                  <ArrowRight />
-                </Button>
-              </Link>
-              <a href={BOT}>
-                <Button size="lg" variant="outline" className="rounded-md">
-                  t.me/Slipcut_bot
-                </Button>
-              </a>
-            </div>
+            <a href={BOT} className="mt-8 inline-flex">
+              <Button size="lg" className="relative h-14 overflow-hidden rounded-md px-8 uppercase tracking-wide">
+                <span className="cta-sheen pointer-events-none absolute inset-0" />
+                Chat @Slipcut_bot
+                <ArrowRight />
+              </Button>
+            </a>
           </div>
         </section>
       </main>
@@ -262,49 +267,57 @@ export function Landing() {
               Slip<span className="text-primary">Cut</span>
             </span>
           </div>
-          <p className="text-sm text-muted-foreground">Private SportyBet desk. 18+ only.</p>
+          <a href={BOT} className="text-sm font-medium text-primary">
+            t.me/Slipcut_bot
+          </a>
         </div>
       </footer>
     </div>
   );
 }
 
-function PhoneMock() {
+function ChatMock() {
+  const lines = [
+    { who: "you", text: "how far cook 12 football overs" },
+    { who: "bot", text: "Cooking 12 football · overs" },
+    { who: "bot", text: "K8P2QX  ·  tap to copy" },
+    { who: "you", text: "trim 50x" },
+    { who: "bot", text: "M4N9LC  ·  6 games remain" },
+  ];
   return (
     <div className="rise-in mx-auto w-full max-w-sm">
       <div className="glass-strong relative mx-auto w-72 overflow-hidden rounded-[2rem] p-3">
-        <div className="rounded-[1.55rem] bg-foreground px-4 pb-6 pt-5 text-background">
-          <div className="mx-auto mb-5 h-1.5 w-16 rounded-full bg-background/20" />
-          <p className="text-[0.65rem] font-bold uppercase tracking-[0.2em] text-background/50">SlipCut</p>
-          <p className="mt-3 font-mono text-2xl font-bold tracking-widest">K8P2QX</p>
-          <p className="mt-1 text-xs text-background/55">8 games football · gemini</p>
-          <div className="mt-5 space-y-2">
-            {[
-              ["Arsenal vs Villa", "Over 1.5"],
-              ["Barça vs Girona", "GG"],
-              ["Napoli vs Roma", "1X"],
-              ["Ajax vs PSV", "Over 2.5"],
-            ].map(([m, s]) => (
-              <div key={m} className="flex items-center justify-between rounded-lg bg-background/10 px-3 py-2">
-                <span className="text-xs">{m}</span>
-                <span className="text-xs font-semibold text-primary-foreground/90">{s}</span>
+        <div className="rounded-[1.55rem] bg-foreground px-3.5 pb-5 pt-4 text-background">
+          <div className="mb-4 flex items-center gap-2">
+            <img src="/logo.png" alt="" className="size-7 rounded-full outline-none" />
+            <div>
+              <p className="text-xs font-bold">SlipCut</p>
+              <p className="text-[0.65rem] text-background/50">@Slipcut_bot · typing</p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {lines.map((line, i) => (
+              <div
+                key={i}
+                className={
+                  line.who === "you"
+                    ? "chat-in ml-8 rounded-2xl rounded-br-sm bg-primary px-3 py-2 text-xs text-primary-foreground"
+                    : "chat-in mr-8 rounded-2xl rounded-bl-sm bg-background/12 px-3 py-2 text-xs"
+                }
+                style={{ animationDelay: `${0.18 + i * 0.16}s` }}
+              >
+                {line.text}
               </div>
             ))}
-          </div>
-          <div className="mt-5 rounded-lg bg-primary py-2.5 text-center text-xs font-bold uppercase tracking-widest text-primary-foreground">
-            Copy code
+            <div className="typing mr-8 inline-flex gap-1 rounded-2xl bg-background/12 px-3 py-2">
+              <span />
+              <span />
+              <span />
+            </div>
           </div>
         </div>
       </div>
     </div>
-  );
-}
-
-function SendIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M21 5 2 12.5l7.5 1.5L18 8l-7 8 8.5 2.5L21 5Z" strokeLinejoin="round" />
-    </svg>
   );
 }
 
