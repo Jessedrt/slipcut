@@ -172,17 +172,17 @@ export function Workbench({
         <span className="kicker">Desk note</span>
         <span className="hairline flex-1" />
       </div>
-      <p className="mt-4 max-w-2xl font-serif text-2xl italic leading-snug text-foreground">
+      <p className="mt-4 max-w-2xl text-2xl font-medium leading-snug text-foreground">
         {result.desk}
       </p>
 
-      <div className="paper mt-6 rounded-xl p-4 sm:p-5">
-        <div className="flex items-center gap-2 text-[0.7rem] uppercase tracking-[0.18em] text-muted-foreground">
+      <div className="glass-strong mt-6 rounded-2xl p-5 sm:p-6">
+        <div className="flex items-center gap-2 text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
           <WandSparkles className="size-3.5" />
-          Say what you want
+          Command
         </div>
         <form
-          className="mt-3 flex flex-col gap-2 sm:flex-row"
+          className="mt-3 flex flex-col gap-2"
           onSubmit={(e) => {
             e.preventDefault();
             runCommand();
@@ -191,31 +191,34 @@ export function Workbench({
           <Input
             value={command}
             onChange={(e) => setCommand(e.target.value)}
-            placeholder="split into 3 · trim to 50x · keep 6 legs · keep football"
+            placeholder="split 3 · trim 50x · keep 6"
             className="h-12"
           />
-          <Button type="submit" className="h-12 sm:w-32" disabled={busy}>
+          <Button type="submit" className="h-12 w-full" disabled={busy}>
             Run
           </Button>
         </form>
 
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-4 grid grid-cols-3 gap-2">
           {[2, 3, 4].map((n) => (
-            <Button key={n} type="button" variant="outline" size="sm" onClick={() => applySplit(n)}>
+            <Button key={n} type="button" variant="outline" size="sm" className="w-full" onClick={() => applySplit(n)}>
               <GitBranch />
-              Split {n}
+              {n}
             </Button>
           ))}
           {[20, 50, 100].map((n) => (
-            <Button key={n} type="button" variant="outline" size="sm" onClick={() => applyTrim(n)}>
+            <Button key={n} type="button" variant="outline" size="sm" className="w-full" onClick={() => applyTrim(n)}>
               <Scissors />
-              Trim {n}×
+              {n}×
             </Button>
           ))}
         </div>
+        <p className="mt-2 text-[0.65rem] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+          Split count · trim odds
+        </p>
 
         <form
-          className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]"
+          className="mt-5 grid gap-2 sm:grid-cols-[1fr_auto]"
           onSubmit={(e) => {
             e.preventDefault();
             if (!combineCode.trim()) return;
@@ -226,7 +229,7 @@ export function Workbench({
           <Input
             value={combineCode}
             onChange={(e) => setCombineCode(e.target.value)}
-            placeholder="Combine another SportyBet code"
+            placeholder="Add another code"
             className="font-mono uppercase tracking-wider"
             autoCapitalize="characters"
           />
@@ -235,8 +238,8 @@ export function Workbench({
           </Button>
         </form>
 
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Button type="button" disabled={minting || !working.length} onClick={() => void mintWorking()}>
+        <div className="mt-4 grid gap-2">
+          <Button type="button" className="h-12 w-full" disabled={minting || !working.length} onClick={() => void mintWorking()}>
             {minting ? <Loader2 className="animate-spin" /> : <Ticket />}
             Get SportyBet code
           </Button>
@@ -244,6 +247,7 @@ export function Workbench({
             <Button
               type="button"
               variant="outline"
+              className="w-full"
               disabled={minting}
               onClick={() => void mintSplits()}
             >
@@ -254,9 +258,9 @@ export function Workbench({
         </div>
 
         {minted ? (
-          <div className="mt-4 rounded-lg border border-ink/10 bg-sheet px-4 py-3">
-            <p className="text-[0.7rem] uppercase tracking-[0.18em] text-ink/50">SportyBet code</p>
-            <p className="stamp mt-2 text-3xl text-ink">{minted.shareCode}</p>
+          <div className="glass mt-4 rounded-xl px-4 py-3">
+            <p className="text-[0.7rem] uppercase tracking-[0.18em] text-muted-foreground">SportyBet code</p>
+            <p className="stamp mt-2 text-3xl text-foreground">{minted.shareCode}</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Button
                 type="button"
@@ -265,7 +269,7 @@ export function Workbench({
                 onClick={() => void copyText(minted.shareCode, "Code copied.")}
               >
                 <Copy />
-                Copy code
+                Copy
               </Button>
               <Button asChild size="sm" variant="outline">
                 <a href={minted.shareURL} target="_blank" rel="noreferrer">
@@ -275,7 +279,7 @@ export function Workbench({
               <Button asChild size="sm">
                 <a href={telegramHref(minted.shareCode, minted.shareURL)} target="_blank" rel="noreferrer">
                   <Send />
-                  Send on Telegram
+                  Telegram
                 </a>
               </Button>
             </div>
@@ -285,7 +289,7 @@ export function Workbench({
         {splitMints?.length ? (
           <div className="mt-3 grid gap-2">
             {splitMints.map((m, i) => (
-              <div key={m.shareCode} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-ink/10 bg-sheet px-3 py-2">
+              <div key={m.shareCode} className="glass flex flex-wrap items-center justify-between gap-2 rounded-md px-3 py-2">
                 <p className="font-mono text-sm tracking-wider">
                   Slip {i + 1} · {m.shareCode}
                 </p>
@@ -305,8 +309,7 @@ export function Workbench({
         ) : null}
 
         <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-          Get SportyBet code books the working legs as a new share code. Load from a SportyBet
-          booking code first — pasted text has no event IDs. Send on Telegram shares that code.
+          Books the working legs as a new SportyBet share code. Paste a booking code first.
         </p>
       </div>
 

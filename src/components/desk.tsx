@@ -124,6 +124,7 @@ export function Desk() {
     <div className="desk-grid min-h-dvh">
       <div className="liquid-scene" aria-hidden="true">
         <div className="liquid-blob liquid-blob-a" />
+        <div className="liquid-blob liquid-blob-b" />
         <div className="liquid-blob liquid-blob-c" />
       </div>
       <header className="glass-nav sticky top-0 z-20">

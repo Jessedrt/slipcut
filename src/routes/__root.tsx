@@ -16,7 +16,7 @@ export const Route = createRootRoute({
         name: "description",
         content: "AI desk for SportyBet tickets — cook, trim, and book from Telegram or the web.",
       },
-      { name: "theme-color", content: "#f4f1ea" },
+      { name: "theme-color", content: "#e8f0fb" },
     ],
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },

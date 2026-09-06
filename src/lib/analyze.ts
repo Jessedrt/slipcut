@@ -319,7 +319,7 @@ async function scorePicks(picks: TicketPick[]): Promise<unknown> {
   const scored = await mapPool(groups, 3, (group) => scoreChunk(group));
   for (const group of scored) rows.push(...group);
   return {
-    desk: `🧠 ${geminiReady() ? "Gemini" : seekaiReady() ? "Opus" : "AI"}${youKeys().length ? " + you.com" : ""} deep read of ${playable.length} selection${playable.length === 1 ? "" : "s"}.`,
+    desk: `${geminiReady() ? "Gemini" : seekaiReady() ? "Opus" : "AI"}${youKeys().length ? " + you.com" : ""} deep read of ${playable.length} selection${playable.length === 1 ? "" : "s"}.`,
     picks: rows,
   };
 }
