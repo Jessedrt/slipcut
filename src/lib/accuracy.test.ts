@@ -32,6 +32,17 @@ describe("accuracy-led engine gate", () => {
     assert.equal(groupAllowed("tennis", "win", s), true);
   });
 
+  it("keeps double chance and goal-line families when they beat average", () => {
+    const s = stats(0.5, 40, {
+      "football|dc": { won: 12, lost: 4, rate: 0.75 },
+      "football|ou": { won: 10, lost: 4, rate: 0.71 },
+      "football|gg": { won: 2, lost: 10, rate: 0.17 },
+    });
+    assert.equal(groupAllowed("football", "dc", s), true);
+    assert.equal(groupAllowed("football", "ou", s), true);
+    assert.equal(groupAllowed("football", "gg", s), false);
+  });
+
   it("is permissive until the engine has enough settled history", () => {
     const s = stats(0.5, 3, {});
     assert.equal(groupAllowed("football", "ou", s), true);

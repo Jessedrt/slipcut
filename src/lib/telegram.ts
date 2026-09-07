@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { analyzePicks } from "./analyze";
 import { normalizePidgin, pidginSmallTalk, slangHelp, splitChat, wantsCreate } from "./pidgin";
 import { researchPicks } from "./research";
-import { getEventDetail, eventScore, loadBookingCode, listUpcomingPicks, mintShare, parseCookAsks, parseMarketTarget, pickMatchesAsks, formatCookAsks, retargetPicks, sportyOf, windowLabel, type CookAsk, type CookWindow } from "./sportybet";
+import { getEventDetail, eventScore, loadBookingCode, listUpcomingPicks, mintShare, parseCookAsks, parseMarketTarget, pickMatchesAsks, formatCookAsks, retargetPicks, sportyOf, windowLabel, cookablePick, type CookAsk, type CookWindow } from "./sportybet";
 import { addAllow, addBlock, allowedBy, applyLessonScores, blockedBy, clearAllows, formatBook, formatRecap, formatStudy, latestCode, latestUnstudiedCode, listAllows, listBlocks, listChats, loadOddsBand, loadRecentEventIds, markUpdateSeen, recordSlip, recordStake, rememberChat, rememberEventIds, removeBlock, saveOddsBand, studyCode } from "./study";
 import { addDeskKey, delDeskKey, detectKey, formatKeyList, refreshKeys } from "./keys";
 import { seekaiReady } from "./seekai";
@@ -10,6 +10,7 @@ import { geminiReady } from "./gemini";
 import { buildToOdds, combinedOdds, formatKickoff, formatOdds, keepTop, parseCommand, splitEven, trimToOdds, uniqueEvents } from "./workbench";
 import { pct } from "./format";
 import { accuracyFilter, loadAccuracy, pickFamily } from "./accuracy";
+import { sendEngineToChats } from "./engine";
 import {
   MAX_LEGS,
   applyBand,
@@ -46,6 +47,7 @@ function researchTag(researched: boolean) {
 const MENU = [
   { command: "start", description: "Welcome" },
   { command: "predict", description: "AI picks — cook a slip" },
+  { command: "engine", description: "Accuracy-led accumulators" },
   { command: "handball", description: "Cook handball" },
   { command: "tennis", description: "Cook tennis" },
   { command: "mix", description: "Mix all sports" },
@@ -391,8 +393,8 @@ function sportFromFlag(code: string): BookSport {
 function deskKeyboard() {
   return {
     keyboard: [
-      [{ text: "Predict" }, { text: "Analyze" }, { text: "Optimize" }],
-      [{ text: "Split" }, { text: "Edit" }, { text: "Live" }],
+      [{ text: "Predict" }, { text: "Engine" }, { text: "Analyze" }],
+      [{ text: "Optimize" }, { text: "Split" }, { text: "Live" }],
       [{ text: "Book" }, { text: "Convert" }, { text: "Help" }],
     ],
     resize_keyboard: true,
@@ -556,7 +558,7 @@ async function cookSportSlip(
     return;
   }
   await maybeStudyLast(chatId);
-  const wanted = asks.length ? listed.filter((p) => pickMatchesAsks(p, asks)) : listed;
+  const wanted = (asks.length ? listed.filter((p) => pickMatchesAsks(p, asks)) : listed).filter(cookablePick);
   if (!wanted.length) {
     await tg("sendMessage", {
       chat_id: chatId,
@@ -625,7 +627,7 @@ async function cookOddsSlip(
     return;
   }
   await maybeStudyLast(chatId);
-  const pool = await cookPool(listed, useBand);
+  const pool = await cookPool(listed.filter(cookablePick), useBand);
   const researched = await researchPicks(pool, 24);
   const only = researched.keep.filter((p) => p.sport === sport);
   const take = buildToOdds(only, target).slice(0, MAX_LEGS);
@@ -807,7 +809,7 @@ async function cookMixSlip(
     return;
   }
   await maybeStudyLast(chatId);
-  const stacked = interleave(pools[0] ?? [], interleave(pools[1] ?? [], interleave(pools[2] ?? [], pools[3] ?? [])));
+  const stacked = interleave(pools[0] ?? [], interleave(pools[1] ?? [], interleave(pools[2] ?? [], pools[3] ?? []))).filter(cookablePick);
   const accStats = await loadAccuracy();
   const gated = accuracyFilter(stacked, accStats);
   if (!gated.kept.length) {
@@ -886,9 +888,17 @@ async function maybeSundayRecap() {
 }
 
 export async function runDeskCron() {
+  const engine = await sendScheduledEngine();
   const longshot = await sendScheduledLongshot();
   const recap = await maybeSundayRecap();
-  return { longshot, recap };
+  return { engine, longshot, recap };
+}
+
+async function sendScheduledEngine() {
+  if (new Date().getUTCHours() !== 7) return { sent: 0, skip: true as const };
+  return sendEngineToChats((chatId, html, extra) =>
+    tg("sendMessage", { chat_id: chatId, text: html, ...(extra ?? {}) }),
+  );
 }
 
 async function mintKeepersAndReply(chatId: number, picks: TicketPick[], count?: number) {
@@ -939,6 +949,8 @@ const FAM_LABEL: Record<string, string> = {
   dnb: "DNB",
   win: "1X2",
   hcp: "Hcp",
+  odd: "Odd/Even",
+  corners: "Corners",
 };
 
 /** Real-time enrichment: live score/clock/status + market family hit-rate. */
@@ -1340,6 +1352,10 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "<code>12 games tennis</code>",
         "⚡ accuracy-led: only markets whose settled record beats my average hit rate.",
         "",
+        "<b>Engine</b> — five accuracy-led accumulator cards",
+        "<code>/engine</code>",
+        "Draws and home wins no dey. DC and goal lines usually dey.",
+        "",
         "<b>Analyze</b> — form, stats, H2H & live data",
         "<code>/analyze</code> · <code>/analyze TY87PV</code>",
         "",
@@ -1376,6 +1392,15 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     // everything late in the evening.
     const window = parseCookWindow(arg) === "soon" ? "soon" : parseCookWindow(arg);
     await createSportSlip(msg.chat.id, sport, n, window);
+    return;
+  }
+  if (isCmd(raw, "engine") || /^(engine|accumulators?|ladder)\s*$/i.test(raw)) {
+    await withProgress(msg.chat.id, "Building engine cards…", async () => {
+      await sendEngineToChats(
+        (chatId, html, extra) => tg("sendMessage", { chat_id: chatId, text: html, ...(extra ?? {}) }),
+        [String(msg.chat.id)],
+      );
+    });
     return;
   }
   if (isCmd(raw, "analyze")) {

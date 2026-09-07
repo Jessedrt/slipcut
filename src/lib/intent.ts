@@ -148,6 +148,7 @@ const NOT_A_CODE = new Set(
     "SLANG", "ONLY", "CLEAR", "DAILY", "DAILY2", "RESULTS", "BOLA", "HOOP", "OKAY",
     "THANKS", "ABEG", "OMO", "BOSS", "HELLO", "YES", "NO", "TONIGHT", "GG", "BTTS",
     "DNB", "LONGSHOT", "SURE", "MENU", "CANCEL", "STOP", "MORE", "AGAIN", "SCORES",
+    "ENGINE", "LADDER", "ACCUMULATOR", "ACCUMULATORS", "PREDICT", "ANALYZE", "OPTIMIZE",
   ],
 );
 

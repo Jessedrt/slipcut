@@ -268,19 +268,30 @@ function inBookWindow(odds?: number) {
 export function marketFamily(
   id?: string,
   desc?: string,
-): "win" | "dc" | "ou" | "gg" | "dnb" | "hcp" | "ou1h" | "teamou" {
+): "win" | "dc" | "ou" | "gg" | "dnb" | "hcp" | "ou1h" | "teamou" | "odd" | "corners" {
   const d = (desc ?? "").toLowerCase();
-  if (id === "10" || d.includes("double chance")) return "dc";
-  if (id === "186" || id === "202" || id === "1" || id === "219") return "win";
+  if (id === "10" || id === "63" || d.includes("double chance")) return "dc";
+  if (id === "186" || id === "202" || id === "1" || id === "219" || id === "60") return "win";
   if (id === "187" || id === "188" || id === "16" || id === "14" || id === "223" || id === "66" || d.includes("handicap"))
     return "hcp";
-  if (id === "68" || id === "69" || id === "70" || (id === "236" && d.includes("1st")) || (d.includes("1st half") && d.includes("over")))
+  if (id === "68" || id === "69" || id === "70" || (id === "236" && d.includes("1st")) || (d.includes("1st half") && (d.includes("over") || d.includes("total"))))
     return "ou1h";
   if (id === "227" || id === "228") return "teamou";
-  if (id === "189" || id === "204" || id === "314" || id === "18" || id === "225" || d.includes("over/under") || d.includes("total games"))
-    return "ou";
-  if (id === "29" || d.includes("gg/ng")) return "gg";
+  if (id === "8" || d.includes("odd/even") || d.includes("odd or even")) return "odd";
+  if (id === "166" || id === "90" || d.includes("corner")) return "corners";
+  if (id === "29" || id === "64" || d.includes("gg/ng") || d.includes("both teams to score")) return "gg";
   if (id === "11" || d.includes("draw no bet")) return "dnb";
+  if (
+    id === "189" ||
+    id === "204" ||
+    id === "314" ||
+    id === "18" ||
+    id === "225" ||
+    id === "62" ||
+    d.includes("over/under") ||
+    d.includes("total games")
+  )
+    return "ou";
   return "win";
 }
 
@@ -305,7 +316,11 @@ function toPick(
   else if (market.id === "69") label = `1H home total ${total}`.trim();
   else if (market.id === "70") label = `1H away total ${total}`.trim();
   else if (market.id === "66") label = `1st Half Handicap ${hcp}`.trim();
-  else if (market.id === "236" && spec.includes("quarternr=1")) label = `1st quarter O/U ${total}`.trim();
+  else if (market.id === "62") label = `2nd Half O/U ${total}`.trim();
+  else if (market.id === "63") label = "1st Half Double Chance";
+  else if (market.id === "64") label = "1st Half GG";
+  else if (market.id === "8") label = "Odd/Even";
+  else if (market.id === "166" || /corner/i.test(market.desc ?? "")) label = `Corners ${total}`.trim();
   else if (market.id === "186") label = "Winner";
   else if (market.id === "187") label = `Game handicap ${hcp}`.trim();
   else if (market.id === "188") label = `Set handicap ${hcp}`.trim();
@@ -338,25 +353,36 @@ function openOutcomes(market: EventMarket) {
 
 function footballCandidates(ev: EventDetail): TicketPick[] {
   const markets = (ev.markets ?? []).filter((m) => m.status === 0);
-  const want: EventMarket[] = [];
-  const first = (pred: (m: EventMarket) => boolean) => {
-    const hit = markets.find(pred);
-    if (hit) want.push(hit);
-  };
-  first((m) => m.id === "10");
-  first((m) => m.id === "11");
-  first((m) => m.id === "29");
-  first((m) => m.id === "18" && m.specifier === "total=1.5");
-  first((m) => m.id === "18" && (m.specifier === "total=2.5" || m.specifier === "total=2"));
-  first((m) => m.id === "18" && (m.specifier === "total=3.5" || m.specifier === "total=3"));
-  first((m) => m.id === "68" && (m.specifier === "total=0.5" || m.specifier === "total=1.5" || m.specifier === "total=1"));
   const picks: TicketPick[] = [];
-  for (const market of want) {
-    for (const outcome of openOutcomes(market)) {
-      const pick = toPick(ev, "football", market, outcome);
-      if (pick && inBookWindow(pick.odds)) picks.push(pick);
+  const pull = (pred: (m: EventMarket) => boolean, oversOnly = false) => {
+    for (const market of markets) {
+      if (!pred(market)) continue;
+      if (oversOnly) pushOver(picks, ev, "football", market);
+      else pushMarket(picks, ev, "football", market);
     }
+  };
+
+  // Keep 1X2 in the event pool so research can see the favourite — cookablePick strips it before booking.
+  pull((m) => m.id === "1");
+  pull((m) => m.id === "10");
+  pull((m) => m.id === "11");
+  pull((m) => m.id === "29");
+  pull((m) => m.id === "63" || /1st half.*double chance/i.test(m.desc ?? ""));
+  pull((m) => m.id === "64" || /both teams to score.*1st/i.test(m.desc ?? "") || /1st half.*(gg|both teams)/i.test(m.desc ?? ""));
+
+  for (const line of ["0.5", "1.5", "2", "2.5", "3", "3.5", "4.5"]) {
+    pull((m) => m.id === "18" && m.specifier === `total=${line}`, true);
   }
+  for (const line of ["0.5", "1", "1.5"]) {
+    pull((m) => m.id === "68" && m.specifier === `total=${line}`, true);
+  }
+  pull((m) => m.id === "62" || /2nd half.*over\/under/i.test(m.desc ?? ""), true);
+  pull((m) => (m.id === "227" || m.id === "228") && /total=(0\.5|1\.5)/.test(m.specifier ?? ""), true);
+  pull((m) => (m.id === "69" || m.id === "70") && /total=(0\.5|1|1\.5)/.test(m.specifier ?? ""), true);
+  pull(
+    (m) => /corner/i.test(m.desc ?? "") && /over\/under|total/i.test(m.desc ?? "") && /total=(8\.5|9\.5|10\.5|11\.5)/.test(m.specifier ?? ""),
+    true,
+  );
   return picks;
 }
 
@@ -502,12 +528,12 @@ function handballCandidates(ev: EventDetail): TicketPick[] {
   return picks;
 }
 
-function cookablePick(p: TicketPick) {
+export function cookablePick(p: TicketPick) {
   const id = p.sporty?.marketId;
   const fam = marketFamily(id, p.market);
   if (p.sport === "basketball" && /\bnba\b/i.test(p.league ?? "")) return false;
   if (p.sport === "football" || p.sport === "basketball") {
-    if (id === "1" || id === "219" || fam === "win") return false;
+    if (id === "1" || id === "60" || id === "219" || fam === "win") return false;
     if (id === "16" || id === "66" || id === "223" || fam === "hcp") return false;
   }
   return true;
@@ -524,13 +550,11 @@ function pickFromEvent(cands: TicketPick[], used: Record<string, number>): Ticke
     (a, b) =>
       (used[a] ?? 0) - (used[b] ?? 0) ||
       Number(a === "win") - Number(b === "win") ||
-      Number(a === "dnb") - Number(b === "dnb") ||
-      Number(a === "teamou") - Number(b === "teamou") ||
-      Number(b === "ou") - Number(a === "ou") ||
-      Number(b === "ou1h") - Number(a === "ou1h"),
+      Number(a === "odd") - Number(b === "odd") ||
+      Number(a === "hcp") - Number(b === "hcp"),
   );
   let family = families[0];
-  if (hasOu && ouShare < 0.4) family = "ou";
+  if (hasOu && ouShare < 0.22) family = "ou";
   const pool = family
     ? pool0.filter((p) => marketFamily(p.sporty?.marketId, p.market) === family)
     : pool0;
@@ -703,8 +727,10 @@ export async function listUpcomingPicks(
           events += 1;
         }
       } else {
-        const open = candidatesFor(sport, ev).filter(cookablePick);
-        if (!open.length) continue;
+        const open = candidatesFor(sport, ev);
+        const bookable = open.filter(cookablePick);
+        if (!bookable.length) continue;
+        // Keep 1X2 (and other non-bookable) in the pool so research can see the favourite.
         picks.push(...open);
         events += 1;
       }
@@ -720,7 +746,7 @@ export type CookAsk = {
   period: "ft" | "1h" | "q1" | "any";
   side: "over" | "under" | "any";
   line?: number;
-  family?: "ou" | "ou1h" | "teamou" | "gg" | "dc" | "dnb" | "win" | "hcp";
+  family?: "ou" | "ou1h" | "teamou" | "gg" | "dc" | "dnb" | "win" | "hcp" | "odd" | "corners";
 };
 
 export function parseCookAsks(text: string): CookAsk[] {
@@ -749,9 +775,10 @@ export function parseCookAsks(text: string): CookAsk[] {
   if (/over\s*1\.5|o\s*1\.5|ou\s*1\.5|o1\.5/.test(t)) lines.push(1.5);
   if (/over\s*0\.5|o0\.5|ou\s*0\.5/.test(t)) lines.push(0.5);
 
-  if (/\bgg\b|btts|both teams/.test(t)) add({ period: "any", side: "any", family: "gg" });
+  if (/\bgg\b|btts|both teams/.test(t)) add({ period: /1st\s*half|first\s*half|\b1h\b/.test(t) ? "1h" : "any", side: "any", family: "gg" });
   if (/draw no bet|\bdnb\b/.test(t)) add({ period: "any", side: "any", family: "dnb" });
-  if (/double chance|\bdc\b/.test(t) || (/home or away/.test(t) && !hasOver)) add({ period: "any", side: "any", family: "dc" });
+  if (/double chance|\bdc\b/.test(t) || (/home or away/.test(t) && !hasOver)) add({ period: /1st\s*half|first\s*half|\b1h\b/.test(t) ? "1h" : "any", side: "any", family: "dc" });
+  if (/corners?/.test(t)) add({ period: "any", side: side === "any" ? "over" : side, family: "corners" });
   // handicap / 1x2 win no longer primary cook options
   if (/team totals?|home total|away total|individual over/.test(t)) {
     add({ period: "ft", side: side === "any" ? "over" : side, family: "teamou" });
@@ -784,6 +811,8 @@ export function formatCookAsks(asks: CookAsk[]): string {
       if (a.family === "hcp") return "handicap";
       if (a.family === "win") return "1X2";
       if (a.family === "teamou") return a.side === "under" ? "team Under" : "team Over";
+      if (a.family === "corners") return "corners";
+      if (a.family === "odd") return "odd/even";
       const when = a.period === "1h" ? "1H " : a.period === "q1" ? "Q1 " : a.period === "ft" ? "FT " : "";
       const side = a.side === "under" ? "Under" : a.side === "over" ? "Over" : "O/U";
       return `${when}${side}${a.line != null ? ` ${a.line}` : ""}`.trim();
@@ -794,7 +823,7 @@ export function formatCookAsks(asks: CookAsk[]): string {
 function pickPeriod(p: TicketPick): "ft" | "1h" | "q1" | "other" {
   const id = p.sporty?.marketId;
   if (id === "236" || /1st quarter/i.test(p.market)) return "q1";
-  if (id === "68" || id === "69" || id === "70" || /1st half|1h /i.test(p.market)) return "1h";
+  if (id === "68" || id === "69" || id === "70" || id === "63" || id === "64" || /1st half|1h /i.test(p.market)) return "1h";
   if (id === "18" || id === "225" || id === "227" || id === "228") return "ft";
   const fam = marketFamily(p.sporty?.marketId, p.market);
   if (fam === "ou1h") return "1h";
@@ -819,11 +848,16 @@ export function pickMatchesAsks(p: TicketPick, asks: CookAsk[]): boolean {
   const under = /\bunder\b/.test(sel);
   const line = pickLine(p);
   return asks.some((ask) => {
-    if (ask.family === "gg") return fam === "gg";
+    if (ask.family === "gg") {
+      if (ask.period === "1h") return fam === "gg" && period === "1h";
+      return fam === "gg";
+    }
     if (ask.family === "dnb") return fam === "dnb";
     if (ask.family === "dc") return fam === "dc";
     if (ask.family === "hcp") return fam === "hcp";
     if (ask.family === "win") return fam === "win";
+    if (ask.family === "corners") return fam === "corners";
+    if (ask.family === "odd") return fam === "odd";
     if (ask.family === "teamou") {
       if (fam !== "teamou") return false;
       if (ask.side === "over" && !over) return false;

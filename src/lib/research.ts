@@ -125,7 +125,15 @@ function footballMarketScore(pick: TicketPick, all: TicketPick[], used: Record<s
   if (open && over25 && over25 <= 1.78 && fam === "gg" && side === "yes") s += 11;
   if (fam === "hcp" && onFav && (pick.odds ?? 9) >= 1.48 && (pick.odds ?? 9) <= 2.05) s += 13;
   if (fam === "hcp" && !onFav && favOdds && favOdds <= 1.55) s -= 10;
-  if (ggYes && ggYes >= 1.48 && ggYes <= 1.9 && fam === "gg" && side === "yes" && over25 && over25 <= 1.85) s += 9;
+  if (over15 && over15 >= 1.22 && over15 <= 1.4 && fam === "ou" && side === "over" && /0\.5/.test(pick.market)) s += 10;
+  if (fam === "ou1h" && side === "over" && /0\.5/.test(pick.market) && (pick.odds ?? 9) <= 1.55) s += 14;
+  if (fam === "ou1h" && side === "over" && /1\.5/.test(pick.market) && (pick.odds ?? 9) <= 1.85) s += 9;
+  if (fam === "teamou" && side === "over" && /0\.5/.test(pick.market) && (pick.odds ?? 9) <= 1.45) s += 13;
+  if (fam === "teamou" && side === "over" && /1\.5/.test(pick.market) && (pick.odds ?? 9) <= 1.85) s += 8;
+  if (fam === "gg" && /1st half|1h /i.test(pick.market) && side === "yes") s += 6;
+  if (fam === "dc" && /1st half/i.test(pick.market) && onFav) s += 8;
+  if (fam === "corners" && side === "over" && (pick.odds ?? 9) <= 1.75) s += 7;
+  if (fam === "ou" && /2nd half/i.test(pick.market) && side === "over" && /0\.5/.test(pick.market)) s += 11;
 
   s -= (used[fam] ?? 0) * 8;
   return s;
@@ -142,7 +150,12 @@ function footballShapePick<T extends TicketPick>(picks: T[]): T[] {
   const used: Record<string, number> = {};
   const best: T[] = [];
   for (const arr of groups.values()) {
-    const ranked = arr
+    const bookable = arr.filter((p) => {
+      const f = familyOf(p);
+      return f !== "win" && f !== "hcp";
+    });
+    if (!bookable.length) continue;
+    const ranked = bookable
       .map((p) => ({ p, s: footballMarketScore(p, arr, used) }))
       .sort((a, b) => b.s - a.s);
     const hit = ranked[0];
@@ -255,11 +268,16 @@ export async function researchPicks<T extends TicketPick>(
 
   const bar = researched ? 45 : isTop(shortlist[0] ?? ({} as T)) ? 58 : 62;
   const strong = shortlist.filter((p) => (p.probability ?? 0) >= bar && (researched || isTop(p) || (p.probability ?? 0) >= 66));
-  const mixed = mixFamilies(strong.length ? strong : shortlist, Math.max(1, want));
+  const mixed = mixFamilies(strong.length ? strong : shortlist, Math.max(1, want)).filter(
+    (p) => familyOf(p) !== "win" && familyOf(p) !== "hcp",
+  );
   const keep = mixed.slice(0, Math.max(1, want)) as T[];
   if (!keep.length && shortlist.length) {
-    const fallback = shortlist.filter((p) => isTop(p)).slice(0, Math.max(1, Math.min(want, 8))) as T[];
-    return { keep: fallback.length ? fallback : (shortlist.slice(0, 1) as T[]), dropped: unique.length - 1, researched };
+    const fallback = shortlist
+      .filter((p) => familyOf(p) !== "win" && familyOf(p) !== "hcp" && isTop(p))
+      .slice(0, Math.max(1, Math.min(want, 8))) as T[];
+    const any = shortlist.filter((p) => familyOf(p) !== "win" && familyOf(p) !== "hcp");
+    return { keep: fallback.length ? fallback : (any.slice(0, 1) as T[]), dropped: unique.length - 1, researched };
   }
   return { keep, dropped: unique.length - keep.length, researched };
 }
