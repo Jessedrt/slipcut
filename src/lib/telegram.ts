@@ -107,18 +107,13 @@ function isBusy(chatId: number) {
  * removes the progress line once the real answer has been sent.
  */
 async function withProgress(chatId: number, text: string, job: () => Promise<void>) {
-  if (isBusy(chatId)) {
-    await tg("sendMessage", { chat_id: chatId, text: "I still dey cook the last one. Hold on small." });
-    return;
-  }
-  busyChats.set(chatId, Date.now());
+  // No busy-lock — start another cook anytime.
   const sent = await tg("sendMessage", { chat_id: chatId, text });
   const progressId = messageIdOf(sent);
   await tg("sendChatAction", { chat_id: chatId, action: "typing" });
   try {
     await job();
   } finally {
-    busyChats.delete(chatId);
     if (progressId) await tg("deleteMessage", { chat_id: chatId, message_id: progressId });
   }
 }
@@ -560,7 +555,7 @@ async function cookSportSlip(
   const leagueTag = league === "champions" ? "Champions League" : sport;
   const listed = await listUpcomingPicks(
     sport,
-    Math.min(n + 22, 42),
+    Math.max(n + 20, 60),
     window,
     "any",
     await loadRecentEventIds(),
@@ -1399,7 +1394,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   if (isCmd(raw, "predict")) {
     const arg = cmdArg(raw);
     const sport = parseSport(arg) ?? "football";
-    const n = parseLegCount(arg) ?? 10;
+    const n = parseLegCount(arg) ?? MAX_LEGS;
     const window = parseCookWindow(arg) === "soon" ? "soon" : parseCookWindow(arg);
     const league = wantsChampions(arg) ? "champions" : null;
     await createSportSlip(msg.chat.id, sport, n, window, undefined, [], league);
@@ -1685,7 +1680,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     return;
   }
   if (isCmd(raw, "weekend")) {
-    await createSportSlip(msg.chat.id, parseSport(cmdArg(raw)) ?? "football", 12, "weekend");
+    await createSportSlip(msg.chat.id, parseSport(cmdArg(raw)) ?? "football", MAX_LEGS, "weekend");
     return;
   }
   if (isCmd(raw, "mix")) {
