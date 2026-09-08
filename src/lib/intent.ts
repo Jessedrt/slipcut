@@ -5,7 +5,8 @@
 import { extractShareCode } from "./parse-ticket.ts";
 import type { BookSport } from "./types.ts";
 
-export const MAX_LEGS = 35;
+/** SportyBet share codes start to struggle past ~50; quality filter decides how many we keep. */
+export const MAX_LEGS = 50;
 
 export type CookWindow = "soon" | "today" | "week" | "fortnight" | "weekend";
 export type OddsBand = { min: number; max: number };
@@ -233,7 +234,7 @@ export function parseLegCount(text: string): number | null {
 
 /** Escape text for Telegram `parse_mode: "HTML"`. */
 export function escapeHtml(s: string) {
-  return s.replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[ch] as string);
+  return s.replace(/[&<>]/g, (ch) => ({ "&": "&", "<": "<", ">": ">" })[ch] as string);
 }
 
 /** Reverse of escapeHtml plus tag stripping — used for WhatsApp plain text. */
@@ -243,9 +244,9 @@ export function htmlToPlain(html: string) {
     .replace(/<\/?(?:i|em)>/gi, "_")
     .replace(/<\/?(?:code|pre)>/gi, "")
     .replace(/<[^>]+>/g, "")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
+    .replace(/</g, "<")
+    .replace(/>/g, ">")
+    .replace(/"/g, '"')
     .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, "&");
+    .replace(/&/g, "&");
 }
