@@ -530,7 +530,7 @@ async function createSportSlip(
   asks: CookAsk[] = [],
   league: string | null = null,
 ) {
-  const n = clampLegs(count, 5);
+  const n = clampLegs(count, MAX_LEGS);
   const span = windowLabel(window);
   const market = formatCookAsks(asks);
   const leagueTag = league === "champions" ? "Champions League" : sport;
@@ -1405,7 +1405,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     await createSportSlip(
       msg.chat.id,
       "football",
-      Number.isFinite(n) ? n : 8,
+      Number.isFinite(n) ? n : MAX_LEGS,
       parseCookWindow(raw),
       undefined,
       [],
