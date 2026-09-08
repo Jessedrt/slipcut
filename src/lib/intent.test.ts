@@ -20,9 +20,11 @@ import {
   parseOddsTarget,
   parseSport,
   parseStake,
+  wantsChampions,
   wantsDraw,
   wantsLive,
   wantsMix,
+  isChampionsLeague,
 } from "./intent.ts";
 
 describe("commands", () => {
@@ -111,6 +113,18 @@ describe("sport, window, flags", () => {
     assert.equal(parseSport("hoop"), "basketball");
     assert.equal(parseSport("wta tonight"), "tennis");
     assert.equal(parseSport("12 games"), null);
+    assert.equal(parseSport("10 champions league"), "football");
+    assert.equal(parseSport("ucl"), "football");
+  });
+  it("detects Champions League", () => {
+    assert.equal(isChampionsLeague("UEFA Champions League"), true);
+    assert.equal(isChampionsLeague("TotalEnergies CAF Champions League"), true);
+    assert.equal(isChampionsLeague("AFC Champions League"), true);
+    assert.equal(isChampionsLeague("EFL Championship"), false);
+    assert.equal(isChampionsLeague("UEFA Women's Champions League"), false);
+    assert.equal(wantsChampions("UCL"), true);
+    assert.equal(wantsChampions("10 champions league"), true);
+    assert.equal(wantsChampions("championship"), false);
   });
   it("detects windows", () => {
     assert.equal(parseCookWindow("weekend mix"), "weekend");

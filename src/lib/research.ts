@@ -11,7 +11,7 @@ const WEAK_BB = /friendly|club friendly|virtual|esport|simulat|simulation|\besoc
 const WEAK =
   /friendly|u-?1[789]|u-?2[013]|reserve|\bii\b|amateur|virtual|esport|simulat|simulation|\besoccer\b|\bsrl\b|youth|qualification play-off/i;
 const TOP_FB =
-  /premier league|la liga|laliga|serie a|bundesliga|ligue 1|champions league|europa league|conference league|eredivisie|primeira|championship|mls|copa libertadores|nations league|saudi|super lig|liga portugal|pro league/i;
+  /premier league|la liga|laliga|serie a|bundesliga|ligue 1|champions league|\bucl\b|caf champions|afc champions|europa league|conference league|eredivisie|primeira|championship|mls|copa libertadores|nations league|saudi|super lig|liga portugal|pro league/i;
 const TOP_BB = /euroleague|ncaa|wnba|acb|nbl|eurocup|bbl/i;
 const TOP_TN = /atp|wta|us open|australian open|wimbledon|roland|french open|masters|grand slam|challenger/i;
 const TOP_HB = /ehf|champions league|bundesliga|starligue|asobal|seha|olympic|world championship|herre|eliteserien/i;
@@ -27,6 +27,7 @@ export function deskScore(pick: TicketPick): number {
   const blob = `${league} ${pick.home} ${pick.away}`;
   if (WEAK.test(blob) && !TOP_FB.test(league) && !TOP_BB.test(league) && !TOP_TN.test(league) && !TOP_HB.test(league)) s -= 28;
   if (pick.sport === "football" && TOP_FB.test(league)) s += 8;
+  if (pick.sport === "football" && /champions league|\bucl\b|caf champions|afc champions/i.test(league)) s += 8;
   else if (pick.sport === "basketball" && TOP_BB.test(league)) s += 8;
   else if (pick.sport === "tennis" && TOP_TN.test(league)) s += 6;
   else if (pick.sport === "handball" && TOP_HB.test(league)) s += 7;

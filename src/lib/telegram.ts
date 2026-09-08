@@ -31,6 +31,7 @@ import {
   parseOddsTarget,
   parseSport,
   parseStake,
+  wantsChampions,
   wantsDraw,
   wantsLive,
   wantsMix,
@@ -47,6 +48,7 @@ function researchTag(researched: boolean) {
 const MENU = [
   { command: "start", description: "Welcome" },
   { command: "predict", description: "AI picks — cook a slip" },
+  { command: "ucl", description: "Champions League slip" },
   { command: "engine", description: "Accuracy-led accumulators" },
   { command: "handball", description: "Cook handball" },
   { command: "tennis", description: "Cook tennis" },
@@ -393,8 +395,8 @@ function sportFromFlag(code: string): BookSport {
 function deskKeyboard() {
   return {
     keyboard: [
-      [{ text: "Predict" }, { text: "Engine" }, { text: "Analyze" }],
-      [{ text: "Optimize" }, { text: "Split" }, { text: "Live" }],
+      [{ text: "Predict" }, { text: "UCL" }, { text: "Engine" }],
+      [{ text: "Analyze" }, { text: "Optimize" }, { text: "Live" }],
       [{ text: "Book" }, { text: "Convert" }, { text: "Help" }],
     ],
     resize_keyboard: true,
@@ -531,14 +533,16 @@ async function createSportSlip(
   window: CookWindow = "soon",
   band?: OddsBand | null,
   asks: CookAsk[] = [],
+  league: string | null = null,
 ) {
   const n = clampLegs(count, 5);
   const span = windowLabel(window);
   const market = formatCookAsks(asks);
+  const leagueTag = league === "champions" ? "Champions League" : sport;
   const label = span
     ? `Researching ${span}${market ? ` · ${market}` : ""}…`
-    : `Researching ${n} ${sport}${market ? ` · ${market}` : ""}…`;
-  await withProgress(chatId, label, () => cookSportSlip(chatId, sport, n, window, band, asks));
+    : `Researching ${n} ${leagueTag}${market ? ` · ${market}` : ""}…`;
+  await withProgress(chatId, label, () => cookSportSlip(chatId, sport, n, window, band, asks, league));
 }
 
 async function cookSportSlip(
@@ -548,11 +552,20 @@ async function cookSportSlip(
   window: CookWindow,
   band: OddsBand | null | undefined,
   asks: CookAsk[],
+  league: string | null = null,
 ) {
   const span = windowLabel(window);
   const useBand = band ?? (await loadOddsBand());
   const market = formatCookAsks(asks);
-  const listed = await listUpcomingPicks(sport, Math.min(n + 22, 42), window, "any", await loadRecentEventIds());
+  const leagueTag = league === "champions" ? "Champions League" : sport;
+  const listed = await listUpcomingPicks(
+    sport,
+    Math.min(n + 22, 42),
+    window,
+    "any",
+    await loadRecentEventIds(),
+    league,
+  );
   if ("error" in listed) {
     await tg("sendMessage", { chat_id: chatId, text: listed.error });
     return;
@@ -562,7 +575,7 @@ async function cookSportSlip(
   if (!wanted.length) {
     await tg("sendMessage", {
       chat_id: chatId,
-      text: market ? `No ${sport} ${market} open now. Try another line or later.` : `No ${sport} remain after research. Relax the cap or blacklist.`,
+      text: market ? `No ${leagueTag} ${market} open now. Try another line or later.` : `No ${leagueTag} remain after research. Relax the cap or blacklist.`,
     });
     return;
   }
@@ -574,7 +587,7 @@ async function cookSportSlip(
   if (!gated.kept.length) {
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `No ${sport} market wey pass the accuracy gate (${accStats.sampleCount} settled). Try another line or later.`,
+      text: `No ${leagueTag} market wey pass the accuracy gate (${accStats.sampleCount} settled). Try another line or later.`,
     });
     return;
   }
@@ -585,7 +598,7 @@ async function cookSportSlip(
   const fresh = ranked.filter((p) => !recent.includes(p.sporty?.eventId ?? ""));
   const take = (fresh.length >= Math.min(n, 4) ? fresh : ranked).slice(0, n);
   if (!take.length) {
-    await tg("sendMessage", { chat_id: chatId, text: `No ${sport}${market ? ` ${market}` : ""} remain after research.` });
+    await tg("sendMessage", { chat_id: chatId, text: `No ${leagueTag}${market ? ` ${market}` : ""} remain after research.` });
     return;
   }
   const tag = researchTag(researched.researched);
@@ -593,8 +606,8 @@ async function cookSportSlip(
   const gatedNote = gated.dropped > 0 ? ` · gate −${gated.dropped}` : "";
   const title =
     take.length < n
-      ? `${take.length} games ${sport}${market ? ` · ${market}` : ""}${span ? ` · ${span}` : ""} · ${tag}${accTag}${gatedNote} — na only ${take.length} pass`
-      : `${take.length} games ${sport}${market ? ` · ${market}` : ""}${span ? ` · ${span}` : ""} · ${tag}${accTag}${gatedNote}${researched.dropped ? ` · dropped ${researched.dropped}` : ""}`;
+      ? `${take.length} games ${leagueTag}${market ? ` · ${market}` : ""}${span ? ` · ${span}` : ""} · ${tag}${accTag}${gatedNote} — na only ${take.length} pass`
+      : `${take.length} games ${leagueTag}${market ? ` · ${market}` : ""}${span ? ` · ${span}` : ""} · ${tag}${accTag}${gatedNote}${researched.dropped ? ` · dropped ${researched.dropped}` : ""}`;
   await mintAndReply(chatId, take, "ng", title, n);
   await analyzeCard(chatId, take, `<b>Predict · ${take.length} games</b>`);
 }
@@ -1347,6 +1360,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
         "",
         "<b>Predict</b> — cook an AI slip",
         "<code>/predict 12 football</code>",
+        "<code>/ucl</code> · <code>10 champions league</code>",
         "<code>/predict 8 basketball</code>",
         "<code>10 games handball</code>",
         "<code>12 games tennis</code>",
@@ -1386,12 +1400,22 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     const arg = cmdArg(raw);
     const sport = parseSport(arg) ?? "football";
     const n = parseLegCount(arg) ?? 10;
-    // Default to the broad "soon" window (any upcoming game), like the
-    // natural-language cook. A specific window ("today", "weekend", ...) is
-    // only used when the user names one — "today" alone filters out almost
-    // everything late in the evening.
     const window = parseCookWindow(arg) === "soon" ? "soon" : parseCookWindow(arg);
-    await createSportSlip(msg.chat.id, sport, n, window);
+    const league = wantsChampions(arg) ? "champions" : null;
+    await createSportSlip(msg.chat.id, sport, n, window, undefined, [], league);
+    return;
+  }
+  if (isCmd(raw, "ucl") || isCmd(raw, "champions") || /^(ucl|champions league)\s*$/i.test(raw)) {
+    const n = parseLegCount(raw) ?? Number(cmdArg(raw).match(/\d{1,4}/)?.[0]);
+    await createSportSlip(
+      msg.chat.id,
+      "football",
+      Number.isFinite(n) ? n : 8,
+      parseCookWindow(raw),
+      undefined,
+      [],
+      "champions",
+    );
     return;
   }
   if (isCmd(raw, "engine") || /^(engine|accumulators?|ladder)\s*$/i.test(raw)) {
@@ -1899,6 +1923,18 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   if (wantsDraw(`${text} ${raw}`) && !code) {
     const w = cookWindow === "soon" ? "today" : cookWindow;
     await createDrawSlip(msg.chat.id, legCount ?? 12, w);
+    return;
+  }
+  if (wantsChampions(`${text} ${raw}`) && !code) {
+    await createSportSlip(
+      msg.chat.id,
+      "football",
+      legCount ?? 8,
+      cookWindow,
+      band,
+      asks,
+      "champions",
+    );
     return;
   }
   if (asks.length && !code) {

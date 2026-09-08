@@ -47,6 +47,7 @@ export function normalizeFilter(raw: string): string | "clear" | null {
   if (/bundes/.test(t)) return "bundesliga";
   if (/ligue ?1/.test(t)) return "ligue 1";
   if (/\bucl\b|champions/.test(t)) return "champions league";
+  if (/\bcaf\b/.test(t) && /champions/.test(t)) return "caf champions";
   if (/\bnba\b/.test(t)) return "nba";
   if (/\bwta\b/.test(t)) return "wta";
   if (/atp|us open|grand slam/.test(t)) return "atp";
@@ -104,8 +105,21 @@ export function parseSport(text: string): BookSport | null {
   if (/hand\s*ball/i.test(text)) return "handball";
   if (/tennis|atp|wta/i.test(text)) return "tennis";
   if (/basket|hoop/i.test(text)) return "basketball";
-  if (/foot|soccer|bola/i.test(text)) return "football";
+  if (/foot|soccer|bola|ucl|champions league/i.test(text)) return "football";
   return null;
+}
+
+/** UEFA / CAF / AFC / CONCACAF Champions League — not EFL Championship. */
+export function isChampionsLeague(league: string) {
+  const l = (league ?? "").toLowerCase();
+  if (/women|uwcl|feminine|femenin/.test(l)) return false;
+  if (/\bchampionship\b/.test(l) && !/champions league/.test(l)) return false;
+  return /champions league|\bucl\b|uefa cl\b|caf champions|afc champions|concacaf champions|liga de campeones/.test(l);
+}
+
+export function wantsChampions(text: string) {
+  if (/\bchampionship\b/i.test(text) && !/champions league/i.test(text)) return false;
+  return /champions leagues?|\bucl\b|uefa\s*cl\b|caf champions|afc champions/i.test(text);
 }
 
 export function parseCookWindow(text: string): CookWindow {
@@ -149,6 +163,7 @@ const NOT_A_CODE = new Set(
     "THANKS", "ABEG", "OMO", "BOSS", "HELLO", "YES", "NO", "TONIGHT", "GG", "BTTS",
     "DNB", "LONGSHOT", "SURE", "MENU", "CANCEL", "STOP", "MORE", "AGAIN", "SCORES",
     "ENGINE", "LADDER", "ACCUMULATOR", "ACCUMULATORS", "PREDICT", "ANALYZE", "OPTIMIZE",
+    "UCL", "CHAMPIONS", "CHAMPION",
   ],
 );
 

@@ -1,4 +1,5 @@
 import type { BookSport, SportKind, SportySelection, TicketPick } from "./types";
+import { isChampionsLeague } from "./intent.ts";
 
 export type ShareOutcome = {
   eventId?: string;
@@ -191,8 +192,11 @@ export function sportyOf(picks: TicketPick[]): SportySelection[] {
 }
 
 const FOOTBALL_LEAGUES =
-  /premier league|laliga|la liga|serie a|bundesliga|ligue 1|champions league|europa league|conference league|eredivisie|primeira|championship|mls|copa libertadores|nations league|pro league|saudi/i;
-const BASKETBALL_LEAGUES = /euroleague|eurocup|ncaa|wnba|nbl|acb|bbl/i;
+  /premier league|laliga|la liga|serie a|bundesliga|ligue 1|champions league|\bucl\b|uefa cl|caf champions|afc champions|concacaf champions|europa league|\buel\b|conference league|eredivisie|primeira|championship|mls|copa libertadores|nations league|pro league|saudi|npfl/i;
+const BASKETBALL_LEAGUES =
+  /euroleague|eurocup|ncaa|wnba|nbl|acb|bbl|cba|kbl|b\.?league|fiba|world cup|olympi|eurobasket|americup|afrobasket|aba|adriatic|liga endesa|pro a|lnb|serie a|basketbol super|vtb|nbb|champions league|cebl|nbl australia/i;
+const WEAK_BASKETBALL_LEAGUE =
+  /3x3|tbt\b|the basketball tournament|development|reserve|u-?1[89]|u-?2[01]|youth|cadet|junior|amateur|friendly|liga nacional|lnbp|libobasquet|liga boliviana|liga uruguaya|liga sudamericana|bcl americas|paraguayan|venezuelan|cuban|nicaragu|hondur|kosovo|albanian|mongolian|n1 league|b2 league|east asia super/i;
 const TENNIS_LEAGUES = /atp|wta|us open|australian open|wimbledon|roland|french open|masters|challenger|grand slam/i;
 const HANDBALL_LEAGUES =
   /ehf|champions league|bundesliga|starligue|asobal|seha|olympic|world championship|herre|eliteserien|nexe|barcelona|psg|kiel|flensburg|vesszem|pick szeged/i;
@@ -411,9 +415,47 @@ function mostBalanced(markets: EventMarket[]): EventMarket | undefined {
   return best;
 }
 
+function isPrematch(ev: EventDetail, now = Date.now()) {
+  if (ev.status !== 0 || ev.banned) return false;
+  if (typeof ev.period === "number" && ev.period > 0) return false;
+  if (/live|started|1st|2nd|3rd|4th|q1|q2|q3|q4|\bht\b|half/i.test(ev.matchStatus ?? "")) return false;
+  const t = ev.estimateStartTime ?? 0;
+  if (t && t < now + 12 * 60_000) return false;
+  return true;
+}
+
 function specNum(market: EventMarket, key: string) {
   const n = Number((market.specifier ?? "").match(new RegExp(`${key}=(-?[\\d.]+)`))?.[1]);
   return Number.isFinite(n) ? n : null;
+}
+
+function specTotal(market: EventMarket) {
+  return specNum(market, "total");
+}
+
+function balancedOver(
+  markets: EventMarket[],
+  minLine: number,
+  maxLine: number,
+): EventMarket | undefined {
+  let best: EventMarket | undefined;
+  let bestScore = -999;
+  for (const market of markets) {
+    const total = specTotal(market);
+    const over = openOutcomes(market).find((o) => /over/i.test(o.desc ?? ""));
+    const odds = Number(over?.odds);
+    if (!over || total == null || total < minLine || total > maxLine) continue;
+    if (!Number.isFinite(odds) || odds < 1.4 || odds > 1.72) continue;
+    const s = 20 - Math.abs(odds - 1.55) * 16;
+    if (s > bestScore) {
+      bestScore = s;
+      best = market;
+    }
+  }
+  return best ?? mostBalanced(markets.filter((m) => {
+    const t = specTotal(m);
+    return t != null && t >= minLine && t <= maxLine;
+  }));
 }
 
 function lowerOverLine(markets: EventMarket[]): EventMarket | undefined {
@@ -666,12 +708,20 @@ export async function listUpcomingPicks(
   window: CookWindow = "soon",
   mode: "any" | "draw" = "any",
   skipIds: string[] = [],
+  league: string | null = null,
 ): Promise<TicketPick[] | { error: string }> {
   const payload = (await sportyGet(
     `/factsCenter/commonThumbnailEvents?sportId=${encodeURIComponent(sportIdOf(sport))}`,
   )) as SharePayload & { data?: Array<{ name?: string; events?: ShareOutcome[] }> } | null;
   const tours = Array.isArray(payload?.data) ? payload.data : [];
-  if (!tours.length) return { error: `No upcoming ${sport} on SportyBet right now.` };
+  if (!tours.length) {
+    return {
+      error:
+        league === "champions"
+          ? "No Champions League fixtures on SportyBet right now."
+          : `No upcoming ${sport} on SportyBet right now.`,
+    };
+  }
 
   const prefer = preferLeagues(sport);
   const now = Date.now();
@@ -685,7 +735,8 @@ export async function listUpcomingPicks(
         e.eventId &&
         !SIMULATED_LEAGUE.test(e.leagueHint ?? "") &&
         inCookWindow(e.estimateStartTime ?? 0, window, now) &&
-        (sport !== "basketball" || !/\bnba\b/i.test(e.leagueHint ?? "")),
+        (sport !== "basketball" || !/\bnba\b/i.test(e.leagueHint ?? "")) &&
+        (league !== "champions" || isChampionsLeague(e.leagueHint ?? "")),
     )
     .sort((a, b) => {
       const as = skip.has(String(a.eventId)) ? 1 : 0;
@@ -736,7 +787,14 @@ export async function listUpcomingPicks(
       }
     }
   }
-  if (!picks.length) return { error: `Could not read ${sport} markets on SportyBet.` };
+  if (!picks.length) {
+    return {
+      error:
+        league === "champions"
+          ? "No Champions League fixtures open now. Try later today."
+          : `Could not read ${sport} markets on SportyBet.`,
+    };
+  }
   return picks;
 }
 
