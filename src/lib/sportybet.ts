@@ -370,9 +370,7 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
   pull((m) => m.id === "1");
   pull((m) => m.id === "10");
   pull((m) => m.id === "11");
-  pull((m) => m.id === "29");
   pull((m) => m.id === "63" || /1st half.*double chance/i.test(m.desc ?? ""));
-  pull((m) => m.id === "64" || /both teams to score.*1st/i.test(m.desc ?? "") || /1st half.*(gg|both teams)/i.test(m.desc ?? ""));
 
   for (const line of ["0.5", "1.5", "2", "2.5", "3", "3.5", "4.5"]) {
     pull((m) => m.id === "18" && m.specifier === `total=${line}`, true);
@@ -578,6 +576,7 @@ export function cookablePick(p: TicketPick) {
     if (id === "1" || id === "60" || id === "219" || fam === "win") return false;
     if (id === "16" || id === "66" || id === "223" || fam === "hcp") return false;
   }
+  if (p.sport === "football" && (fam === "gg" || id === "29" || id === "64")) return false;
   return true;
 }
 
@@ -742,9 +741,15 @@ export async function listUpcomingPicks(
       const as = skip.has(String(a.eventId)) ? 1 : 0;
       const bs = skip.has(String(b.eventId)) ? 1 : 0;
       if (as !== bs) return as - bs;
-      const ap = prefer.test(a.leagueHint ?? "") ? 0 : 1;
-      const bp = prefer.test(b.leagueHint ?? "") ? 0 : 1;
-      if (ap !== bp) return ap - bp;
+      if (sport === "football") {
+        const ra = isChampionsLeague(a.leagueHint ?? "") ? 0 : prefer.test(a.leagueHint ?? "") ? 1 : 5;
+        const rb = isChampionsLeague(b.leagueHint ?? "") ? 0 : prefer.test(b.leagueHint ?? "") ? 1 : 5;
+        if (ra !== rb) return ra - rb;
+      } else {
+        const ap = prefer.test(a.leagueHint ?? "") ? 0 : 1;
+        const bp = prefer.test(b.leagueHint ?? "") ? 0 : 1;
+        if (ap !== bp) return ap - bp;
+      }
       return (a.estimateStartTime ?? 0) - (b.estimateStartTime ?? 0);
     });
   const fresh = shuffle(ranked.filter((e) => !skip.has(String(e.eventId))));
