@@ -530,7 +530,7 @@ async function createSportSlip(
   chatId: number,
   sport: BookSport,
   count: number,
-  window: CookWindow = "soon",
+  window: CookWindow = "today",
   band?: OddsBand | null,
   asks: CookAsk[] = [],
   league: string | null = null,
@@ -618,7 +618,7 @@ async function createOddsSlip(
   chatId: number,
   sport: BookSport,
   targetRaw: number,
-  window: CookWindow = "soon",
+  window: CookWindow = "today",
   band?: OddsBand | null,
 ) {
   const target = clampOddsTarget(targetRaw);
@@ -724,9 +724,15 @@ async function cookSportyDaily2(chatId: number) {
     await tg("sendMessage", { chat_id: chatId, text: listed.error });
     return;
   }
+  // Strict same-day only (Lagos): drop anything past ~36h even if feed mislabels.
+  const now = Date.now();
+  const dayPool = listed.filter((p) => {
+    const ko = p.kickoff ?? 0;
+    return ko >= now - 60_000 && ko <= now + 36 * 3_600_000;
+  });
   // Short prices only — safer rollover building blocks.
-  const short = listed.filter((p) => p.odds && p.odds >= 1.15 && p.odds <= 1.55);
-  const pool = await cookPool(short.length ? short : listed, null);
+  const short = dayPool.filter((p) => p.odds && p.odds >= 1.15 && p.odds <= 1.55);
+  const pool = await cookPool(short.length ? short : dayPool.length ? dayPool : listed, null);
   const researched = await researchPicks(pool, 16);
   const safe = researched.keep
     .filter((p) => (p.probability ?? 0) >= Math.min(KEEP_LINE, 48))
@@ -806,7 +812,7 @@ function interleave<T>(a: T[], b: T[]): T[] {
 async function createMixSlip(
   chatId: number,
   opts: { games?: number; odds?: number },
-  window: CookWindow = "soon",
+  window: CookWindow = "today",
   band?: OddsBand | null,
 ) {
   const span = windowLabel(window);

@@ -627,9 +627,14 @@ function watDay(ms: number) {
 }
 
 function inCookWindow(ts: number, window: CookWindow, now: number) {
-  if (ts < now - 60_000) return false;
-  if (window === "soon") return true;
-  if (window === "today") return watDay(ts).key === watDay(now).key;
+  if (!ts || ts < now - 60_000) return false;
+  // "soon" = next ~30 hours only (not multi-day fixtures)
+  if (window === "soon") return ts <= now + 30 * 3_600_000;
+  if (window === "today") {
+    // Same Lagos calendar day AND not more than ~36h ahead
+    if (watDay(ts).key !== watDay(now).key) return false;
+    return ts <= now + 36 * 3_600_000;
+  }
   if (window === "week") return ts <= now + 7 * 86_400_000;
   if (window === "fortnight") return ts <= now + 14 * 86_400_000;
   const { dow } = watDay(ts);
