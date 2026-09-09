@@ -535,8 +535,8 @@ async function createSportSlip(
   const market = formatCookAsks(asks);
   const leagueTag = league === "champions" ? "Champions League" : sport;
   const label = span
-    ? `Researching ${span}${market ? ` · ${market}` : ""}…`
-    : `Researching ${n} ${leagueTag}${market ? ` · ${market}` : ""}…`;
+    ? `Analyzing ${span}${market ? ` · ${market}` : ""}…`
+    : `Analyzing ${n} ${leagueTag}${market ? ` · ${market}` : ""}…`;
   await withProgress(chatId, label, () => cookSportSlip(chatId, sport, n, window, band, asks, league));
 }
 
@@ -603,8 +603,9 @@ async function cookSportSlip(
     take.length < n
       ? `${take.length} games ${leagueTag}${market ? ` · ${market}` : ""}${span ? ` · ${span}` : ""} · ${tag}${accTag}${gatedNote} — na only ${take.length} pass`
       : `${take.length} games ${leagueTag}${market ? ` · ${market}` : ""}${span ? ` · ${span}` : ""} · ${tag}${accTag}${gatedNote}${researched.dropped ? ` · dropped ${researched.dropped}` : ""}`;
+  // Analyze first so form/H2H shows before the booking code.
+  await analyzeCard(chatId, take, `<b>Predict · ${take.length} games</b>`, false);
   await mintAndReply(chatId, take, "ng", title, n);
-  await analyzeCard(chatId, take, `<b>Predict · ${take.length} games</b>`);
 }
 
 async function createOddsSlip(
@@ -616,7 +617,7 @@ async function createOddsSlip(
 ) {
   const target = clampOddsTarget(targetRaw);
   const span = windowLabel(window);
-  const label = span ? `Researching ${span}…` : `Researching ${formatOdds(target)} ${sport}…`;
+  const label = span ? `Analyzing ${span}…` : `Analyzing ${formatOdds(target)} ${sport}…`;
   await withProgress(chatId, label, () => cookOddsSlip(chatId, sport, target, window, band));
 }
 
@@ -653,7 +654,7 @@ async function cookOddsSlip(
 }
 
 async function createStakeDaily(chatId: number) {
-  await withProgress(chatId, "Researching Stake 2…", () => cookStakeDaily(chatId));
+  await withProgress(chatId, "Analyzing Stake 2…", () => cookStakeDaily(chatId));
 }
 
 async function cookStakeDaily(chatId: number) {
@@ -708,7 +709,7 @@ async function cookStakeDaily(chatId: number) {
 }
 
 async function createSportyDaily2(chatId: number) {
-  await withProgress(chatId, "Researching 2 odds…", () => cookSportyDaily2(chatId));
+  await withProgress(chatId, "Analyzing 2 odds…", () => cookSportyDaily2(chatId));
 }
 
 async function cookSportyDaily2(chatId: number) {
@@ -737,7 +738,7 @@ async function cookSportyDaily2(chatId: number) {
 async function createDrawSlip(chatId: number, count: number, window: CookWindow = "today") {
   const n = clampLegs(count, 12);
   const span = windowLabel(window) || "today";
-  await withProgress(chatId, `Researching ${n} draws · ${span}…`, () => cookDrawSlip(chatId, n, window));
+  await withProgress(chatId, `Analyzing ${n} draws · ${span}…`, () => cookDrawSlip(chatId, n, window));
 }
 
 async function cookDrawSlip(chatId: number, n: number, window: CookWindow) {
@@ -791,7 +792,7 @@ async function createMixSlip(
   band?: OddsBand | null,
 ) {
   const span = windowLabel(window);
-  const label = span ? `Researching mix · ${span}…` : "Researching mix…";
+  const label = span ? `Analyzing mix · ${span}…` : "Analyzing mix…";
   await withProgress(chatId, label, () => cookMixSlip(chatId, opts, window, band));
 }
 
@@ -838,13 +839,14 @@ async function cookMixSlip(
   const bc = take.filter((p) => p.sport === "basketball").length;
   const tc = take.filter((p) => p.sport === "tennis").length;
   const hc = take.filter((p) => p.sport === "handball").length;
+  await analyzeCard(chatId, take, `<b>Predict · Mix ${take.length} games</b>`, false);
   await mintAndReply(
     chatId,
     take,
     "ng",
     `Mix ${fc} football + ${bc} basketball + ${tc} tennis + ${hc} handball${actual ? ` · ${formatOdds(actual)}` : ""}${span ? ` · ${span}` : ""}${accStats.sampleCount > 0 ? " · accuracy" : ""}${gated.dropped > 0 ? ` · gate −${gated.dropped}` : ""} · ${researched.researched ? researchTag(true) : "desk read"}`,
   );
-  await analyzeCard(chatId, take, `<b>Predict · Mix ${take.length} games</b>`);
+  
 }
 
 async function liveScoreAndReply(chatId: number, code: string, picks: TicketPick[]) {
