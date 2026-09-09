@@ -1,7 +1,7 @@
-import { randomUUID } from "node:crypto";
 import { getSql } from "./db";
 import { eventScore, getEventDetail, marketFamily } from "./sportybet";
 import type { TicketPick } from "./types";
+import { randomUUID } from "node:crypto";
 
 export type LegResult = "won" | "lost" | "void" | "pending";
 
@@ -37,11 +37,7 @@ export type PendingReview = {
 };
 
 /** Save a proposed slip until the user explicitly chooses to book it. */
-export async function savePendingReview(
-  chatId: number,
-  picks: TicketPick[],
-  title: string,
-): Promise<PendingReview | null> {
+export async function savePendingReview(chatId: number, picks: TicketPick[], title: string): Promise<PendingReview | null> {
   const review: PendingReview = {
     token: randomUUID().replace(/-/g, "").slice(0, 12),
     chatId: String(chatId),
@@ -60,10 +56,7 @@ export async function savePendingReview(
   }
 }
 
-export async function loadPendingReview(
-  token: string,
-  chatId: number,
-): Promise<PendingReview | null> {
+export async function loadPendingReview(token: string, chatId: number): Promise<PendingReview | null> {
   try {
     const sql = await getSql();
     const rows = await sql<{ token: string; chat_id: string; title: string; picks_json: string }>`
@@ -74,12 +67,7 @@ export async function loadPendingReview(
     `;
     const row = rows[0];
     if (!row?.picks_json) return null;
-    return {
-      token: row.token,
-      chatId: row.chat_id,
-      title: row.title,
-      picks: JSON.parse(row.picks_json) as TicketPick[],
-    };
+    return { token: row.token, chatId: row.chat_id, title: row.title, picks: JSON.parse(row.picks_json) as TicketPick[] };
   } catch {
     return null;
   }
@@ -88,13 +76,9 @@ export async function loadPendingReview(
 export async function updatePendingReview(review: PendingReview): Promise<void> {
   try {
     const sql = await getSql();
-    await sql`
-      update pending_reviews
-      set picks_json = ${JSON.stringify(review.picks)}
-      where token = ${review.token} and chat_id = ${review.chatId}
-    `;
+    await sql`update pending_reviews set picks_json = ${JSON.stringify(review.picks)} where token = ${review.token} and chat_id = ${review.chatId}`;
   } catch {
-    /* leave review intact */
+    /* Review controls need a database; leave the original review intact on failure. */
   }
 }
 
@@ -103,8 +87,16 @@ export async function deletePendingReview(token: string, chatId: number): Promis
     const sql = await getSql();
     await sql`delete from pending_reviews where token = ${token} and chat_id = ${String(chatId)}`;
   } catch {
-    /* ok */
+    /* A code can still be used from its Telegram message if cleanup fails. */
   }
 }
 
-// REST of file continues below — this is incomplete if we only push this
+/* NOTE: This push is incomplete - user must restore rest from commit 10330195 */
+export async function recordSlip(code: string, picks: TicketPick[]) {
+  try {
+    const sql = await getSql();
+    await sql`insert into study_slips (code, picks_json, studied) values (${code}, ${JSON.stringify(picks)}, 0) on conflict (code) do nothing`;
+  } catch {
+    /* ignore */
+  }
+}
