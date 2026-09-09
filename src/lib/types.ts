@@ -20,6 +20,10 @@ export type TicketPick = {
   odds?: number;
   kickoff?: number;
   sporty?: SportySelection;
+  probability?: number;
+  confidence?: "high" | "medium" | "low";
+  summary?: string;
+  verdict?: "keep" | "drop" | "ignore";
 };
 
 export type AnalyzedPick = TicketPick & {
