@@ -130,7 +130,7 @@ function pickQuery(pick: TicketPick) {
         : "football soccer";
   const core = `${sport}: ${clip(pick.home, 36)} vs ${clip(pick.away, 36)}. ${clip(pick.league, 24)}. Market: ${clip(pick.market, 36)}. Selection: ${clip(pick.selection, 36)}.`;
   const tail =
-    " Recent form, injuries, H2H, motivation. Be harsh. If unsure score under 45. IGNORE odds. Reply ONLY JSON {\"probability\":0-100,\"confidence\":\"high|medium|low\",\"summary\":\"short\",\"reasons\":[\"x\"],\"risks\":[\"x\"]}";
+    " Recent form, injuries, H2H, motivation. Prefer the safest justified selection. Factor offered odds into confidence (lower odds can support a higher score when the edge is clear). Average solid games 55-70; only go below 50 if the pick is clearly weak. Reply ONLY JSON {\"probability\":0-100,\"confidence\":\"high|medium|low\",\"summary\":\"short\",\"reasons\":[\"x\"],\"risks\":[\"x\"]}";
   return (core + tail).slice(0, 400);
 }
 
@@ -197,7 +197,7 @@ async function scoreChunk(picks: TicketPick[]): Promise<Record<string, unknown>[
     .join("\n");
   const brief = await liveBrief(picks);
   const system =
-    "You are an elite football/basketball match analyst, not a tipster. Think carefully about each selection: league quality, team style, injuries, rest, H2H, whether this MARKET (Over/1H Over/GG/DNB/DC) actually fits THIS match. Reject Home/Away winner and handicap. Score true chance the selection wins, 0-100. Coin-flips 40-48. Only 62+ if you would stake your own money. Reply ONLY JSON {\"picks\":[{\"i\":1,\"probability\":0-100,\"confidence\":\"high|medium|low\",\"summary\":\"one line\",\"reasons\":[\"form\",\"style\"],\"risks\":[\"x\"]}]}";
+    "You are a careful football/basketball match analyst focused on safe, high-probability selections. Weigh league quality, form, injuries, rest, H2H, and whether the MARKET fits the match. Factor the offered odds: short prices on solid sides/totals deserve higher probability when the case is clean. Prefer the safest option in each match. Typical solid games score 55-70; weak or speculative picks stay under 50. Only 75+ when evidence is strong. Reply ONLY JSON {\"picks\":[{\"i\":1,\"probability\":0-100,\"confidence\":\"high|medium|low\",\"summary\":\"one line\",\"reasons\":[\"form\",\"style\"],\"risks\":[\"x\"]}]}";
   const user = `${brief ? `LIVE RESEARCH:\n${brief}\n\n` : ""}Score each selection independently. Do not copy the same market across games unless the matchup truly matches.\n${lines}`;
 
   const tryParse = (answer: string, engine: string) => {
@@ -263,7 +263,7 @@ async function scoreChunk(picks: TicketPick[]): Promise<Record<string, unknown>[
       ];
     }
   }
-  const query = `You are a sharp football/basketball analyst. For each selection, use recent form, injuries, H2H and whether the market actually fits the match. Be harsh: average games 40-50, only strong spots 60+. IGNORE odds. Reply ONLY JSON {"picks":[{"i":1,"probability":0-100,"confidence":"high|medium|low","summary":"one line","reasons":["form"],"risks":["x"]}]}\n${lines}`.slice(
+  const query = `You are a careful football/basketball analyst focused on safe picks. Use recent form, injuries, H2H and whether the market fits. Factor odds: short prices on justified selections can score higher. Prefer safest options. Average solid games 55-70; only strong clear spots 70+. Reply ONLY JSON {"picks":[{"i":1,"probability":0-100,"confidence":"high|medium|low","summary":"one line","reasons":["form"],"risks":["x"]}]}\n${lines}`.slice(
     0,
     1800,
   );
