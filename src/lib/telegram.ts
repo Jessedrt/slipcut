@@ -727,7 +727,8 @@ async function cookSportyDaily2(chatId: number) {
   const short = listed.filter((p) => p.odds && p.odds >= 1.12 && p.odds <= 1.65);
   const pool = await cookPool(short, null);
   const researched = await researchPicks(pool, 12);
-  const take = buildToOdds(researched.keep, 2).slice(0, 4);
+  const safe = researched.keep.filter((p) => (p.probability ?? 0) >= KEEP_LINE);
+  const take = buildToOdds(safe.length ? safe : researched.keep, 2).slice(0, 3);
   if (!take.length) {
     await tg("sendMessage", { chat_id: chatId, text: "No safe 2-odds football for SportyBet today. Try later." });
     return;
@@ -1776,6 +1777,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   if (
     isCmd(raw, "2odds") ||
     isCmd(raw, "daily2") ||
+    isCmd(raw, "rollover") ||
     /^(daily\s*2(\s*odds)?|2\s*odds(\s*daily)?|2odds|rollover)\s*$/i.test(raw)
   ) {
     await createSportyDaily2(msg.chat.id);

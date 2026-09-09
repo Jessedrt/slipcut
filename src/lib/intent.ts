@@ -164,7 +164,7 @@ const NOT_A_CODE = new Set(
     "THANKS", "ABEG", "OMO", "BOSS", "HELLO", "YES", "NO", "TONIGHT", "GG", "BTTS",
     "DNB", "LONGSHOT", "SURE", "MENU", "CANCEL", "STOP", "MORE", "AGAIN", "SCORES",
     "ENGINE", "LADDER", "ACCUMULATOR", "ACCUMULATORS", "PREDICT", "ANALYZE", "OPTIMIZE",
-    "UCL", "CHAMPIONS", "CHAMPION",
+    "UCL", "CHAMPIONS", "CHAMPION", "ROLLOVER", "2ODDS", "DAILY2ODDS",
   ],
 );
 
@@ -234,7 +234,7 @@ export function parseLegCount(text: string): number | null {
 
 /** Escape text for Telegram `parse_mode: "HTML"`. */
 export function escapeHtml(s: string) {
-  return s.replace(/[&<>]/g, (ch) => ({ "&": "&", "<": "<", ">": ">" })[ch] as string);
+  return s.replace(/[&<>"]/g, (ch) => ({ "&": "&", "<": "<", ">": ">", '"': """ })[ch] as string);
 }
 
 /** Reverse of escapeHtml plus tag stripping — used for WhatsApp plain text. */
