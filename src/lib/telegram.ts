@@ -392,7 +392,7 @@ function sportFromFlag(code: string): BookSport {
 function deskKeyboard() {
   return {
     keyboard: [
-      [{ text: "Predict" }, { text: "2odds" }, { text: "Engine" }],
+      [{ text: "Predict" }, { text: "Daily 2 odds" }, { text: "Engine" }],
       [{ text: "Analyze" }, { text: "Optimize" }, { text: "Live" }],
       [{ text: "Book" }, { text: "Results" }, { text: "Help" }],
     ],
@@ -719,18 +719,27 @@ async function createSportyDaily2(chatId: number) {
 }
 
 async function cookSportyDaily2(chatId: number) {
-  const listed = await listUpcomingPicks("football", 28, "today");
+  const listed = await listUpcomingPicks("football", 40, "today");
   if ("error" in listed) {
     await tg("sendMessage", { chat_id: chatId, text: listed.error });
     return;
   }
-  const short = listed.filter((p) => p.odds && p.odds >= 1.12 && p.odds <= 1.65);
-  const pool = await cookPool(short, null);
-  const researched = await researchPicks(pool, 12);
-  const safe = researched.keep.filter((p) => (p.probability ?? 0) >= KEEP_LINE);
-  const take = buildToOdds(safe.length ? safe : researched.keep, 2).slice(0, 3);
+  // Short prices only — safer rollover building blocks.
+  const short = listed.filter((p) => p.odds && p.odds >= 1.15 && p.odds <= 1.55);
+  const pool = await cookPool(short.length ? short : listed, null);
+  const researched = await researchPicks(pool, 16);
+  const safe = researched.keep
+    .filter((p) => (p.probability ?? 0) >= Math.min(KEEP_LINE, 48))
+    .sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0) || (a.odds ?? 99) - (b.odds ?? 99));
+  const pool2 = safe.length
+    ? safe
+    : [...researched.keep].sort(
+        (a, b) => (b.probability ?? 0) - (a.probability ?? 0) || (a.odds ?? 99) - (b.odds ?? 99),
+      );
+  let take = buildToOdds(pool2, 2).slice(0, 3);
+  if (!take.length) take = pool2.slice(0, 2);
   if (!take.length) {
-    await tg("sendMessage", { chat_id: chatId, text: "No safe 2-odds football for SportyBet today. Try later." });
+    await tg("sendMessage", { chat_id: chatId, text: "No football open for a 2-odds card today. Try later." });
     return;
   }
   const combo = combinedOdds(take);
@@ -738,8 +747,8 @@ async function cookSportyDaily2(chatId: number) {
     chatId,
     take,
     "ng",
-    `SportyBet · 2odds rollover${combo ? ` · ${formatOdds(combo)}` : ""} · ${researched.researched ? researchTag(true) : "desk read"}`,
-    `<b>2odds rollover · ${take.length} games</b>`,
+    `SportyBet · Daily 2 odds${combo ? ` · ${formatOdds(combo)}` : ""} · ${researched.researched ? researchTag(true) : "desk read"}`,
+    `<b>Daily 2 odds · ${take.length} games</b>`,
   );
 }
 
@@ -1024,19 +1033,23 @@ async function analyzeCard(
         ...lines,
       ].join("\n").slice(0, 3900),
     });
-    return result.kept;
+    // Rank safest first: higher probability, then shorter odds.
+    const ranked = [...result.picks].sort((a, b) => {
+      const pa = a.probability ?? 0;
+      const pb = b.probability ?? 0;
+      if (pb !== pa) return pb - pa;
+      return (a.odds ?? 99) - (b.odds ?? 99);
+    });
+    return { kept: result.kept, ranked };
   };
   if (progress === false) {
-    // Used inside the cook after minting: no separate progress line, and we do
-    // NOT re-enter withProgress (the cook already holds the per-chat busy slot),
-    // so it wouldn't trip the busy guard.
     return render();
   }
-  let kept: Awaited<ReturnType<typeof render>> = [];
+  let out: Awaited<ReturnType<typeof render>> = { kept: [], ranked: [] };
   await withProgress(chatId, progress, async () => {
-    kept = await render();
+    out = await render();
   });
-  return kept;
+  return out;
 }
 
 /**
@@ -1052,27 +1065,18 @@ async function analyzeThenMint(
   label: string,
   limit = MAX_LEGS,
 ) {
-  const kept = await analyzeCard(chatId, picks, label, false);
-  // If NOTHING scores well, still offer a review instead of refusing outright
-  // — the analysis result (shown above) already tells the user it's a weak
-  // batch; let them decide rather than dead-ending the whole request.
-  const forReview = kept.length ? kept : picks;
-  const fallbackTitle = kept.length ? title : `${title} · below usual confidence`;
-  if (!kept.length) {
+  const scored = await analyzeCard(chatId, picks, label, false);
+  // Prefer AI "keep" legs; else safest ranked by probability + shorter odds.
+  const preferred = scored.kept.length ? scored.kept : scored.ranked;
+  const approved = (preferred.length ? preferred : picks).slice(0, limit);
+  if (!scored.kept.length) {
     await tg("sendMessage", {
       chat_id: chatId,
-      text: "None of those graded well, but here they are anyway — remove any leg before booking.",
+      text: "Confidence soft on these — booking the safest legs by score + shorter odds.",
     });
   }
-  const review = await savePendingReview(chatId, forReview.slice(0, limit), fallbackTitle);
-  if (!review) {
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: "I fit analyze this slip, but review no save right now. Try again before booking.",
-    });
-    return;
-  }
-  await sendReview(chatId, review);
+  // Always drop a SportyBet code. Never block on review/DB.
+  await mintAndReply(chatId, approved, country, title, limit);
 }
 
 function reviewKeyboard(review: PendingReview) {
