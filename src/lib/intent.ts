@@ -234,7 +234,9 @@ export function parseLegCount(text: string): number | null {
 
 /** Escape text for Telegram `parse_mode: "HTML"`. */
 export function escapeHtml(s: string) {
-  return s.replace(/[&<>"]/g, (ch) => ({ "&": "&", "<": "<", ">": ">", '"': """ })[ch] as string);
+  return s.replace(/[&<>"]/g, (ch) =>
+    ({ "&": "&", "<": "<", ">": ">", '"': """ })[ch] as string,
+  );
 }
 
 /** Reverse of escapeHtml plus tag stripping — used for WhatsApp plain text. */
