@@ -1,7 +1,10 @@
 import { getSql } from "./db";
 import { eventScore, getEventDetail, marketFamily } from "./sportybet";
 import type { TicketPick } from "./types";
-import { randomUUID } from "node:crypto";
+
+function randomUUID() {
+  return globalThis.crypto.randomUUID();
+}
 
 export type LegResult = "won" | "lost" | "void" | "pending";
 
