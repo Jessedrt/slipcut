@@ -43,84 +43,25 @@
 }
 
 @layer base {
-  html {
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-
-  html,
-  body,
-  #app {
+  html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  html, body, #app {
     min-height: 100%;
     background: var(--color-background);
     color: var(--color-foreground);
   }
-
-  body {
-    font-family: var(--font-sans);
-    letter-spacing: -0.02em;
-  }
-
-  button:not(:disabled),
-  [role="button"]:not(:disabled) {
-    cursor: pointer;
-  }
-
-  h1,
-  h2,
-  h3 {
-    text-wrap: balance;
-    letter-spacing: -0.045em;
-  }
-
-  p {
-    text-wrap: pretty;
-  }
-
-  ::selection {
-    background: color-mix(in oklab, var(--color-primary) 22%, transparent);
-    color: var(--color-foreground);
-  }
-
-  img {
-    outline: 1px solid rgb(16 32 60 / 0.08);
-    outline-offset: -1px;
-  }
+  body { font-family: var(--font-sans); letter-spacing: -0.02em; }
+  button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
+  h1, h2, h3 { text-wrap: balance; letter-spacing: -0.045em; }
+  p { text-wrap: pretty; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-
-@keyframes rise-in {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.rise-in {
-  animation: rise-in 500ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-/* Telegram Mini App — bronze desk (kept from screenshots) */
+/* Telegram Mini App — bronze desk */
 .mini-app {
   background:
     radial-gradient(120% 80% at 50% -10%, #3d2a1c 0%, transparent 55%),
     linear-gradient(180deg, #1c120c 0%, #120c09 45%, #0d0907 100%);
   color: #f3e6d4;
 }
-
 .mini-range {
   -webkit-appearance: none;
   appearance: none;
