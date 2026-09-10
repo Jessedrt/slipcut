@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { analyzePicks } from "./analyze";
 import { researchPicks } from "./research";
 import { geminiReady, geminiVision } from "./gemini";
-import { parseTicketText } from "./parse-ticket";
+import { parseTicketText, extractShareCode } from "./parse-ticket";
 import { firstUrl, youContents } from "./you";
 import {
   loadBookingCode,
@@ -33,7 +33,6 @@ import {
   trimToOdds,
   keepTop,
   splitEven,
-  copySplitBook,
 } from "./workbench";
 import {
   MAX_LEGS,
@@ -59,23 +58,15 @@ const TG_TIMEOUT_MS = 20_000;
 const HELP = `What you can do here:
 • Edit big tickets faster
 • Split one slip into smaller slips
-• Trim a ticket down to your target odds
+• Trim a ticket down to your target odds (AI scores safest legs)
 • Change markets across a ticket
-• Convert text tickets toward SportyBet booking codes
 • Read booking codes, screenshots, and links
 • Check today’s matches and book games from your instruction
 
-Best way to start:
-Send any one of these:
-• A booking code
-• A screenshot of a ticket or match list
-• An X / web link with selections
-• A simple instruction
-
-Try: /help · Cook 30 odds · 2odds · trim · split into 2 · paste a code`;
+Try: /help · Cook 30 odds · 2odds · trim · split into 2 · paste a code · paste X link`;
 
 function esc(s: string) {
-  return s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 async function tg(method: string, payload: Record<string, unknown> = {}) {
@@ -174,7 +165,6 @@ async function mintAndReply(chatId: number, picks: TicketPick[], title: string) 
   await recordSlip(code, work).catch(() => {});
 }
 
-/** Mint immediately — do not block on slow AI analysis. */
 async function analyzeThenMintAll(chatId: number, picks: TicketPick[], title: string) {
   await mintAndReply(chatId, picks, title);
 }
@@ -207,19 +197,38 @@ async function trimCode(chatId: number, code: string, targetOdds?: number) {
   await tg("sendMessage", {
     chat_id: chatId,
     text: targetOdds
-      ? `Trimming ${code} toward ${formatOdds(targetOdds)}…`
-      : `Trimming ${code} — keeping safest legs…`,
+      ? `Trimming ${code} toward ${formatOdds(targetOdds)} with AI…`
+      : `Trimming ${code} with AI — keeping safest legs…`,
   });
-  // Fast trim: no AI round-trip — rank by probability then lower odds
-  const pool = ([...base].map((p) => ({
-    ...p,
-    probability: p.probability ?? (p.odds ? Math.max(20, Math.min(80, 100 / (p.odds || 2))) : 50),
-    confidence: (p.confidence as AnalyzedPick["confidence"]) || "medium",
-    summary: p.summary || "",
-    reasons: [] as string[],
-    risks: [] as string[],
-    verdict: (p.verdict as AnalyzedPick["verdict"]) || "keep",
-  })) as AnalyzedPick[]).sort(
+  let pool: AnalyzedPick[];
+  try {
+    const analysis = await analyzePicks(base, 40);
+    const scored = (analysis.kept?.length ? analysis.kept : analysis.picks || []) as AnalyzedPick[];
+    pool =
+      scored.length > 0
+        ? scored
+        : (base.map((p) => ({
+            ...p,
+            probability: p.probability ?? 55,
+            confidence: "medium" as const,
+            summary: "",
+            reasons: [],
+            risks: [],
+            verdict: "keep" as const,
+          })) as AnalyzedPick[]);
+  } catch (err) {
+    console.error("trim analyze:", err instanceof Error ? err.message : err);
+    pool = base.map((p) => ({
+      ...p,
+      probability: p.probability ?? (p.odds ? Math.max(20, Math.min(80, 100 / (p.odds || 2))) : 50),
+      confidence: "medium" as const,
+      summary: "",
+      reasons: [],
+      risks: [],
+      verdict: "keep" as const,
+    })) as AnalyzedPick[];
+  }
+  pool = [...pool].sort(
     (a, b) => (b.probability ?? 0) - (a.probability ?? 0) || (a.odds ?? 99) - (b.odds ?? 99),
   );
   let take: TicketPick[];
@@ -272,17 +281,14 @@ function changeMarkets(picks: TicketPick[], instruction: string): TicketPick[] {
   const toAway = /to\s+away|all\s+away|away\s+win/.test(t);
   const drawsOnly = /draw/.test(t);
   const allLegs = /all\s+selection|every\s+leg|across/.test(t) || !drawsOnly;
-
   return picks.map((p) => {
     const sel = (p.selection || "").toLowerCase();
     const isDraw = /\bdraw\b|\bx\b/.test(sel) || /draw/i.test(p.market);
     if (drawsOnly && !isDraw && !allLegs) return p;
-    if (toUnder && (isDraw || allLegs)) {
+    if (toUnder && (isDraw || allLegs))
       return { ...p, market: "Over/Under 2.5", selection: "Under 2.5", sporty: undefined };
-    }
-    if (toOver && (isDraw || allLegs)) {
+    if (toOver && (isDraw || allLegs))
       return { ...p, market: "Over/Under 2.5", selection: "Over 2.5", sporty: undefined };
-    }
     if (toHome) return { ...p, market: "1X2", selection: "Home", sporty: undefined };
     if (toAway) return { ...p, market: "1X2", selection: "Away", sporty: undefined };
     return p;
@@ -309,11 +315,26 @@ async function changeCodeMarkets(chatId: number, code: string, instruction: stri
 }
 
 async function handleTextTicket(chatId: number, text: string, title = "From paste") {
+  const maybe = extractShareCode(text);
+  if (maybe) {
+    const loaded = await loadBookingCode(maybe, "ng");
+    if (!("error" in loaded)) {
+      const play = playable(loaded.picks);
+      await tg("sendMessage", {
+        chat_id: chatId,
+        parse_mode: "HTML",
+        text: `<code>${esc(loaded.shareCode)}</code>\n${play.length} games loaded`,
+        reply_markup: codeKeyboard(loaded.shareCode),
+      });
+      await recordSlip(loaded.shareCode, play).catch(() => {});
+      return;
+    }
+  }
   const picks = parseTicketText(text).slice(0, MAX_LEGS);
   if (!picks.length) {
     await tg("sendMessage", {
       chat_id: chatId,
-      text: "I no fit read games from that text. Paste clearer lines or a SportyBet code.",
+      text: "I no fit read games from that text. If the post shows a booking code (e.g. P2X28H), paste the code directly.",
     });
     return;
   }
@@ -324,11 +345,34 @@ async function handleLink(chatId: number, url: string) {
   await tg("sendMessage", { chat_id: chatId, text: "Reading link…" });
   try {
     const md = await youContents(url);
+    const fromText = extractShareCode(md) || extractShareCode(url);
+    const scan =
+      fromText ||
+      (md.match(/\b(?:booking\s*code|code)\s*[:=]?\s*([A-Za-z0-9]{5,12})\b/i)?.[1] ?? null) ||
+      (md.match(/\b([A-Z0-9]{6,10})\b/)?.[1] ?? null);
+    if (scan) {
+      const code = String(scan).toUpperCase();
+      await tg("sendMessage", { chat_id: chatId, text: `Found code ${code} — loading…` });
+      const loaded = await loadBookingCode(code, "ng");
+      if (!("error" in loaded)) {
+        const play = playable(loaded.picks);
+        await tg("sendMessage", {
+          chat_id: chatId,
+          parse_mode: "HTML",
+          text: `<code>${esc(loaded.shareCode)}</code>\n${play.length} games loaded from link`,
+          reply_markup: codeKeyboard(loaded.shareCode),
+        });
+        await recordSlip(loaded.shareCode, play).catch(() => {});
+        return;
+      }
+    }
     await handleTextTicket(chatId, md, "From link");
   } catch (err) {
     await tg("sendMessage", {
       chat_id: chatId,
-      text: err instanceof Error ? err.message : "Could not read that link.",
+      text:
+        (err instanceof Error ? err.message : "Could not read that link.") +
+        " If the post shows a booking code, paste the code (e.g. P2X28H).",
     });
   }
 }
@@ -372,8 +416,8 @@ async function handlePhoto(chatId: number, fileId: string, caption: string) {
   }
   try {
     const text = await geminiVision(
-      "Extract every betting selection from this ticket screenshot. Output plain lines: Home vs Away · market/selection · odds if visible. No commentary.",
-      caption || "Extract the full betting ticket.",
+      "Extract booking codes and every betting selection. Prefer the booking code if visible. Output plain lines or the code alone.",
+      caption || "Extract the full betting ticket or booking code.",
       img,
     );
     await handleTextTicket(chatId, text, "From screenshot");
@@ -465,21 +509,17 @@ async function cookInstruction(chatId: number, instruction: string) {
   }
   let pool = listed.filter(cookablePick);
   const t = instruction.toLowerCase();
-  if (/score|btts|gg|both teams/.test(t)) {
+  if (/score|btts|gg|both teams/.test(t))
     pool = pool.filter((p) => /btts|both teams|gg|score/i.test(`${p.market} ${p.selection}`));
-  } else if (/under\s*2\.5|u2\.5/.test(t)) {
+  else if (/under\s*2\.5|u2\.5/.test(t))
     pool = pool.filter((p) => /under\s*2\.5/i.test(`${p.market} ${p.selection}`));
-  } else if (/over\s*2\.5|o2\.5/.test(t)) {
+  else if (/over\s*2\.5|o2\.5/.test(t))
     pool = pool.filter((p) => /over\s*2\.5/i.test(`${p.market} ${p.selection}`));
-  }
   if (!pool.length) pool = listed.filter(cookablePick);
   const researched = await researchPicks(await cookPool(pool, await loadOddsBand()), 12);
   const take = researched.keep.slice(0, 6);
   if (!take.length) {
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: "No matching live markets for that instruction right now.",
-    });
+    await tg("sendMessage", { chat_id: chatId, text: "No matching live markets for that instruction right now." });
     return;
   }
   await analyzeThenMintAll(chatId, take, `From instruction · ${take.length} ${sport}`);
@@ -488,7 +528,6 @@ async function cookInstruction(chatId: number, instruction: string) {
 export async function sendScheduledLongshot() {
   console.log("longshot");
 }
-
 export async function runDeskCron() {
   console.log("cron");
 }
