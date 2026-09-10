@@ -19,9 +19,18 @@ import {
   recordSlip,
   blockedBy,
   allowedBy,
+  latestCode,
   type PendingReview,
 } from "./study";
-import { buildToOdds, combinedOdds, formatKickoff, formatOdds, uniqueEvents } from "./workbench";
+import {
+  buildToOdds,
+  combinedOdds,
+  formatKickoff,
+  formatOdds,
+  uniqueEvents,
+  trimToOdds,
+  keepTop,
+} from "./workbench";
 import {
   MAX_LEGS,
   applyBand,
@@ -34,7 +43,7 @@ import {
   parseSport,
   type OddsBand,
 } from "./intent";
-import type { BookSport, TicketPick } from "./types";
+import type { AnalyzedPick, BookSport, TicketPick } from "./types";
 
 export type ChatBridge = {
   send: (method: string, payload: Record<string, unknown>) => Promise<void>;
@@ -46,7 +55,7 @@ const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
 const TG_TIMEOUT_MS = 20_000;
 
 function esc(s: string) {
-  return s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 async function tg(method: string, payload: Record<string, unknown> = {}) {
@@ -96,6 +105,11 @@ function codeKeyboard(code: string) {
           url: `https://www.sportybet.com/ng/m/code-hub/load-code?code=${encodeURIComponent(code)}`,
         },
       ],
+      [
+        { text: "✂️ Trim", callback_data: `trim:${code}` },
+        { text: "Trim to 10×", callback_data: `trim10:${code}` },
+        { text: "Trim to 5×", callback_data: `trim5:${code}` },
+      ],
     ],
   };
 }
@@ -133,7 +147,6 @@ async function mintAndReply(chatId: number, picks: TicketPick[], title: string) 
   await recordSlip(code, work).catch(() => {});
 }
 
-/** Analyze for display, but ALWAYS mint the full built slip (keepAll for any odds target). */
 async function analyzeThenMintAll(chatId: number, picks: TicketPick[], title: string) {
   try {
     const scored = await analyzePicks(picks, 40);
@@ -147,6 +160,55 @@ async function analyzeThenMintAll(chatId: number, picks: TicketPick[], title: st
     console.error("analyzeThenMintAll analyze:", err instanceof Error ? err.message : err);
   }
   await mintAndReply(chatId, picks, title);
+}
+
+async function trimCode(chatId: number, code: string, targetOdds?: number) {
+  const loaded = await loadBookingCode(code, "ng");
+  if ("error" in loaded) {
+    await tg("sendMessage", { chat_id: chatId, text: loaded.error });
+    return;
+  }
+  const base = playable(loaded.picks);
+  if (!base.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "No playable legs in that code." });
+    return;
+  }
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: targetOdds
+      ? `Trimming ${code} toward ${formatOdds(targetOdds)}…`
+      : `Trimming ${code} — keeping safest legs…`,
+  });
+
+  const analysis = await analyzePicks(base, 40);
+  const scored = (analysis.kept?.length ? analysis.kept : analysis.picks || []) as AnalyzedPick[];
+  const pool = scored.length
+    ? scored
+    : (base.map((p) => ({
+        ...p,
+        probability: 55,
+        confidence: "medium" as const,
+        summary: "",
+        reasons: [],
+        risks: [],
+        verdict: "keep" as const,
+      })) as AnalyzedPick[]);
+
+  let take: TicketPick[];
+  if (targetOdds && targetOdds > 1.2) {
+    take = trimToOdds(pool, clampOddsTarget(targetOdds));
+  } else {
+    const n = Math.max(2, Math.ceil(pool.length / 2));
+    take = keepTop(pool, n);
+  }
+  if (!take.length) take = base.slice(0, Math.min(3, base.length));
+
+  const actual = combinedOdds(take);
+  await mintAndReply(
+    chatId,
+    take,
+    `Trimmed${targetOdds ? ` to ~${formatOdds(clampOddsTarget(targetOdds))}` : ""}${actual ? ` · ${formatOdds(actual)}` : ""}`,
+  );
 }
 
 async function cookOddsSlip(chatId: number, sport: BookSport, target: number, window: CookWindow) {
@@ -224,12 +286,46 @@ export async function runDeskCron() {
   console.log("cron");
 }
 
+type TgUser = { id: number; username?: string };
+type TgMessage = {
+  message_id: number;
+  chat: { id: number };
+  text?: string;
+};
+type TgCallback = {
+  id: string;
+  from: TgUser;
+  message?: TgMessage;
+  data?: string;
+};
 type TgUpdate = {
   update_id?: number;
-  message?: { message_id: number; chat: { id: number }; text?: string };
+  message?: TgMessage;
+  callback_query?: TgCallback;
 };
 
 export async function handleTelegramUpdate(update: TgUpdate) {
+  if (update.callback_query) {
+    const cb = update.callback_query;
+    const chatId = cb.message?.chat?.id;
+    const data = String(cb.data || "");
+    await tg("answerCallbackQuery", { callback_query_id: cb.id });
+    if (!chatId) return;
+    if (data.startsWith("trim:")) {
+      await trimCode(chatId, data.slice(5));
+      return;
+    }
+    if (data.startsWith("trim10:")) {
+      await trimCode(chatId, data.slice(7), 10);
+      return;
+    }
+    if (data.startsWith("trim5:")) {
+      await trimCode(chatId, data.slice(6), 5);
+      return;
+    }
+    return;
+  }
+
   const msg = update.message;
   if (!msg?.chat?.id) return;
   const chatId = msg.chat.id;
@@ -237,7 +333,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   if (!raw) {
     await tg("sendMessage", {
       chat_id: chatId,
-      text: "Send: 2odds · Cook 30 odds basketball · Predict · or paste a code",
+      text: "Send: 2odds · Cook 30 odds basketball · Trim · Predict · or paste a code",
     });
     return;
   }
@@ -245,6 +341,28 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   if (update.update_id && !(await markUpdateSeen(update.update_id).catch(() => true))) return;
 
   const lower = raw.toLowerCase();
+
+  if (isCmd(raw, "trim") || isCmd(raw, "optimize") || /^(trim|optimize)\b/i.test(raw)) {
+    const codeMatch = raw.match(/\b([A-Za-z0-9]{5,12})\b/);
+    const oddsMatch = lower.match(/(?:to\s+)?(\d+(?:\.\d+)?)\s*(?:odds|[x×])?/);
+    const maybeCode =
+      codeMatch && !/^(trim|optimize|to|odds)$/i.test(codeMatch[1])
+        ? codeMatch[1].toUpperCase()
+        : null;
+    const code = maybeCode || (await latestCode());
+    if (!code) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: "Paste a booking code first, then say: trim · trim to 10x · or tap Trim under a code.",
+      });
+      return;
+    }
+    const withoutCode = maybeCode ? lower.replace(maybeCode.toLowerCase(), "") : lower;
+    const explicitTarget = /(?:to\s+)?\d+(?:\.\d+)?\s*(?:odds|[x×])?/i.test(withoutCode);
+    const target = explicitTarget && oddsMatch ? clampOddsTarget(Number(oddsMatch[1])) : undefined;
+    await trimCode(chatId, code, target);
+    return;
+  }
 
   if (
     isCmd(raw, "2odds") ||
@@ -307,6 +425,6 @@ export async function handleTelegramUpdate(update: TgUpdate) {
 
   await tg("sendMessage", {
     chat_id: chatId,
-    text: "Try: Cook 30 odds basketball · 2odds · 10 games football · or paste a code",
+    text: "Try: Cook 30 odds basketball · 2odds · trim · trim to 10x · 10 games football · or paste a code",
   });
 }
