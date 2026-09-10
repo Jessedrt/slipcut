@@ -45,6 +45,10 @@ export const chatBridge = new AsyncLocalStorage<ChatBridge>();
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
 const TG_TIMEOUT_MS = 20_000;
 
+function esc(s: string) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 async function tg(method: string, payload: Record<string, unknown> = {}) {
   const bridged = chatBridge.getStore();
   if (bridged) {
@@ -82,6 +86,17 @@ async function cookPool(picks: TicketPick[], band: OddsBand | null) {
   return applyBand(allowedBy(blockedBy(picks, blocks), allows), band);
 }
 
+function codeKeyboard(code: string) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "📋 Copy code", copy_text: { text: code } },
+        { text: "Open SportyBet", url: `https://www.sportybet.com/ng/m/shareCode?shareCode=${encodeURIComponent(code)}` },
+      ],
+    ],
+  };
+}
+
 async function mintAndReply(chatId: number, picks: TicketPick[], title: string) {
   const unique = uniqueEvents(picks);
   const work = unique.picks.slice(0, MAX_LEGS);
@@ -98,18 +113,21 @@ async function mintAndReply(chatId: number, picks: TicketPick[], title: string) 
     await tg("sendMessage", { chat_id: chatId, text: minted.error });
     return;
   }
+  const code = minted.shareCode;
   const combo = combinedOdds(work);
   const lines = work.map((p, i) => {
     const when = formatKickoff(p.kickoff);
     const price = p.odds ? formatOdds(p.odds) : "";
-    return `${i + 1}. ${p.home} vs ${p.away} · ${p.selection}${price ? ` · ${price}` : ""}${when ? ` · ${when}` : ""}`;
+    return `${i + 1}. ${esc(p.home)} vs ${esc(p.away)} · ${esc(p.selection)}${price ? ` · ${price}` : ""}${when ? ` · ${when}` : ""}`;
   });
-  const head = `${title}${combo ? ` · ${formatOdds(combo)}` : ""} · ${work.length} games`;
+  const head = `${esc(title)}${combo ? ` · ${formatOdds(combo)}` : ""} · ${work.length} games`;
   await tg("sendMessage", {
     chat_id: chatId,
-    text: [`${minted.shareCode}`, head, "", ...lines].join("\n").slice(0, 3900),
+    parse_mode: "HTML",
+    text: [`<code>${esc(code)}</code>`, head, "", ...lines].join("\n").slice(0, 3900),
+    reply_markup: codeKeyboard(code),
   });
-  await recordSlip(minted.shareCode, work).catch(() => {});
+  await recordSlip(code, work).catch(() => {});
 }
 
 /** Analyze for display, but ALWAYS mint the full built slip (keepAll for any odds target). */
@@ -125,7 +143,6 @@ async function analyzeThenMintAll(chatId: number, picks: TicketPick[], title: st
   } catch (err) {
     console.error("analyzeThenMintAll analyze:", err instanceof Error ? err.message : err);
   }
-  // Never drop legs on odds-target cooks
   await mintAndReply(chatId, picks, title);
 }
 
@@ -277,7 +294,9 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     const play = playable(loaded.picks);
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `${loaded.shareCode}\n${play.length} games loaded`,
+      parse_mode: "HTML",
+      text: `<code>${esc(loaded.shareCode)}</code>\n${play.length} games loaded`,
+      reply_markup: codeKeyboard(loaded.shareCode),
     });
     await recordSlip(loaded.shareCode, play).catch(() => {});
     return;
