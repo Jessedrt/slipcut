@@ -2,6 +2,7 @@
 /**
  * Restore sportybet.ts from a known-good commit, then open NBA + full market families.
  * Runs as part of `npm run build` so production always gets a complete module.
+ * User request: all SportyBet options for NBA + football so AI picks the best/safest.
  */
 import { writeFileSync } from "fs";
 
@@ -27,7 +28,7 @@ t = t.replace(
   "  return picks;\n}",
 );
 
-// Allow all market families
+// Allow all market families — AI / user picks the safest
 const oldCook = `export function cookablePick(p: TicketPick) {
   const id = p.sporty?.marketId;
   const fam = marketFamily(id, p.market);
@@ -40,7 +41,7 @@ const oldCook = `export function cookablePick(p: TicketPick) {
   return true;
 }`;
 const newCook = `export function cookablePick(p: TicketPick) {
-  // Full SportyBet board — user trims to best
+  // Full SportyBet board — user / AI trims to best
   if (!p.sporty?.eventId || !p.sporty?.marketId) return false;
   if (p.sport === "other") return false;
   return true;
@@ -136,4 +137,4 @@ t = t.replace(
 );
 
 writeFileSync("src/lib/sportybet.ts", t);
-console.log("sportybet.ts restored + open markets", t.length);
+console.log("sportybet.ts restored + FULL open markets (NBA + football all families)", t.length);
