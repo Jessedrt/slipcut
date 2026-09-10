@@ -46,7 +46,7 @@ const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
 const TG_TIMEOUT_MS = 20_000;
 
 function esc(s: string) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
 }
 
 async function tg(method: string, payload: Record<string, unknown> = {}) {
@@ -91,7 +91,10 @@ function codeKeyboard(code: string) {
     inline_keyboard: [
       [
         { text: "📋 Copy code", copy_text: { text: code } },
-        { text: "Open SportyBet", url: `https://www.sportybet.com/ng/m/shareCode?shareCode=${encodeURIComponent(code)}` },
+        {
+          text: "Open SportyBet",
+          url: `https://www.sportybet.com/ng/m/code-hub/load-code?code=${encodeURIComponent(code)}`,
+        },
       ],
     ],
   };
