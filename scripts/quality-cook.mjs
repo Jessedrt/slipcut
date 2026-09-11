@@ -13,7 +13,7 @@ if (!existsSync(path)) {
   process.exit(0);
 }
 let t = readFileSync(path, "utf8");
-if (t.includes("QUALITY_COOK_V1")) {
+if (t.includes("QUALITY_COOK_V2")) {
   console.log("quality cook filter already present");
   process.exit(0);
 }
@@ -24,12 +24,12 @@ const NEW_FOOTBALL_LEAGUES = `const FOOTBALL_LEAGUES =
 const NEW_BASKET_LEAGUES = `const BASKETBALL_LEAGUES =
   /\\bnba\\b|euroleague|eurocup|\\bncaa\\b|\\bwnba\\b|\\bnbl\\b|\\bacb\\b|liga endesa|\\bbbl\\b|\\bcba\\b|\\bkbl\\b|b\\.?league|\\bfiba\\b|world cup|olympi|eurobasket|americup|afrobasket|\\baba\\b|adriatic|pro a|\\blnb\\b|serie a|basketbol super|\\bvtb\\b|\\bnbb\\b|champions league|\\bcebl\\b|nbl australia|greek basket|bnxt/i`;
 
-if (/const FOOTBALL_LEAGUES =\s*\/[^/]+\//.test(t)) {
-  t = t.replace(/const FOOTBALL_LEAGUES =\s*\/[^/]+\//i, NEW_FOOTBALL_LEAGUES);
+if (/const FOOTBALL_LEAGUES =\s*\/[^/\n]+\/[gimuy]*/.test(t)) {
+  t = t.replace(/const FOOTBALL_LEAGUES =\s*\/[^/\n]+\/[gimuy]*/i, NEW_FOOTBALL_LEAGUES);
   console.log("FOOTBALL_LEAGUES updated");
 }
-if (/const BASKETBALL_LEAGUES =\s*\/[^/]+\//.test(t)) {
-  t = t.replace(/const BASKETBALL_LEAGUES =\s*\/[^/]+\//i, NEW_BASKET_LEAGUES);
+if (/const BASKETBALL_LEAGUES =\s*\/[^/\n]+\/[gimuy]*/.test(t)) {
+  t = t.replace(/const BASKETBALL_LEAGUES =\s*\/[^/\n]+\/[gimuy]*/i, NEW_BASKET_LEAGUES);
   console.log("BASKETBALL_LEAGUES updated");
 }
 
@@ -95,7 +95,7 @@ if (!t.includes("isStrongLeague(sport, leagueName(ev.sport))")) {
 }
 
 const NEW_PICK = `function pickFromEvent(cands: TicketPick[], used: Record<string, number>): TicketPick | null {
-  // QUALITY_COOK_V1 — prefer solid markets over fragile 1H Over 0.5
+  // QUALITY_COOK_V2 — prefer solid markets over fragile 1H Over 0.5
   const pool0 = cands.filter(cookablePick);
   if (!pool0.length) return null;
   const totalUsed = Object.values(used).reduce((n, v) => n + v, 0);
@@ -150,13 +150,13 @@ if (pickRe.test(t)) {
   console.warn("pickFromEvent not found");
 }
 
-if (!t.includes("QUALITY_COOK_V1")) {
-  t = "// QUALITY_COOK_V1\n" + t;
+if (!t.includes("QUALITY_COOK_V2")) {
+  t = "// QUALITY_COOK_V2\n" + t;
 }
 
 writeFileSync(path, t);
 console.log("quality filter done", {
   strong: t.includes("isStrongLeague"),
-  quality: t.includes("QUALITY_COOK_V1"),
+  quality: t.includes("QUALITY_COOK_V2"),
   pick: t.includes("prefer solid markets"),
 });
