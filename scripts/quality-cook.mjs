@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 /**
- * Quality cook filter:
- * 1) HARD allowlist — only top football/basketball leagues enter the cook pool
- * 2) Expand weak patterns as extra safety net
- * 3) Prefer safer market families (DC/GG/FT O/U) over fragile 1H Over 0.5
+ * QUALITY_COOK_V3 — strict top-league allowlist + block soft 1H overs
  */
 import { readFileSync, writeFileSync, existsSync } from "fs";
 
@@ -13,89 +10,89 @@ if (!existsSync(path)) {
   process.exit(0);
 }
 let t = readFileSync(path, "utf8");
-if (t.includes("QUALITY_COOK_V2")) {
-  console.log("quality cook filter already present");
+if (t.includes("QUALITY_COOK_V3")) {
+  console.log("quality cook V3 already present");
   process.exit(0);
 }
 
-const NEW_FOOTBALL_LEAGUES = `const FOOTBALL_LEAGUES =
-  /premier league|\\bepl\\b|laliga|la liga|serie a|bundesliga|ligue 1|champions league|\\bucl\\b|uefa cl|caf champions|afc champions|concacaf champions|europa league|\\buel\\b|conference league|eredivisie|primeira|liga portugal|championship|\\bmls\\b|copa libertadores|nations league|pro league|belgian|saudi|\\bnpfl\\b|turkish super|super lig|superlig|scottish premiership|liga mx|liga profesional|brasileirao|serie a brazil|allsvenskan|eliteserien|superliga|a-?league|j-?league|k-?league|egyptian premier|south african premier|caf confederation/i`;
+t = t.replace(/\/\/ QUALITY_COOK_V[12]\n?/g, "");
 
-const NEW_BASKET_LEAGUES = `const BASKETBALL_LEAGUES =
-  /\\bnba\\b|euroleague|eurocup|\\bncaa\\b|\\bwnba\\b|\\bnbl\\b|\\bacb\\b|liga endesa|\\bbbl\\b|\\bcba\\b|\\bkbl\\b|b\\.?league|\\bfiba\\b|world cup|olympi|eurobasket|americup|afrobasket|\\baba\\b|adriatic|pro a|\\blnb\\b|serie a|basketbol super|\\bvtb\\b|\\bnbb\\b|champions league|\\bcebl\\b|nbl australia|greek basket|bnxt/i`;
+const NEW_FOOTBALL = `const FOOTBALL_LEAGUES =
+  /\\bpremier league\\b|\\bepl\\b|\\blaliga\\b|\\bla liga\\b|\\bserie a\\b(?!\\s*(brazil|brazil|b\\b))|\\bbundesliga\\b|\\bligue 1\\b|\\bchampions league\\b|\\bucl\\b|uefa champions|\\beuropa league\\b|\\buel\\b|\\bconference league\\b|\\beredivisie\\b|\\bprimeira liga\\b|\\bliga portugal\\b|\\befl championship\\b|english championship|\\bmls\\b|major league soccer|\\bcopa libertadores\\b|\\bnations league\\b|\\bbelgian pro league\\b|jupiler|\\bsaudi pro league\\b|roshn saudi|\\bnpfl\\b|nigeria professional|\\bturkish super lig\\b|\\bsuper lig\\b|\\bscottish premiership\\b|\\bliga mx\\b|\\bbrasileir[aã]o\\b|brazil serie a|\\ballsvenskan\\b|\\beliteserien\\b|denmark superliga|\\ba-league\\b|\\bj-league\\b|\\bk-league\\b|egyptian premier|south african premier|\\bcaf champions\\b|\\bcaf confederation\\b|\\bafc champions\\b|\\bconcacaf champions\\b/i`;
 
-if (/const FOOTBALL_LEAGUES =\s*\/[^/\n]+\/[gimuy]*/.test(t)) {
-  t = t.replace(/const FOOTBALL_LEAGUES =\s*\/[^/\n]+\/[gimuy]*/i, NEW_FOOTBALL_LEAGUES);
-  console.log("FOOTBALL_LEAGUES updated");
-}
-if (/const BASKETBALL_LEAGUES =\s*\/[^/\n]+\/[gimuy]*/.test(t)) {
-  t = t.replace(/const BASKETBALL_LEAGUES =\s*\/[^/\n]+\/[gimuy]*/i, NEW_BASKET_LEAGUES);
-  console.log("BASKETBALL_LEAGUES updated");
-}
+const NEW_BASKET = `const BASKETBALL_LEAGUES =
+  /\\bnba\\b|\\beuroleague\\b|\\beurocup\\b|\\bncaa\\b|\\bwnba\\b|\\bacb\\b|liga endesa|\\bbbl\\b|\\bcba\\b|\\bkbl\\b|\\bfiba\\b|\\beurobasket\\b|\\baba\\b|adriatic|\\bpro a\\b|\\blnb\\b|basketbol super|\\bvtb\\b|\\bnbb\\b|\\bcebl\\b|greek basket|\\bbnxt\\b/i`;
+
+t = t.replace(/const FOOTBALL_LEAGUES =\s*\/[^/\n]+\/[gimuy]*/i, NEW_FOOTBALL);
+t = t.replace(/const BASKETBALL_LEAGUES =\s*\/[^/\n]+\/[gimuy]*/i, NEW_BASKET);
+console.log("strict FOOTBALL/BASKETBALL leagues set");
 
 const WEAK_AND_STRONG = `
 const WEAK_BASKETBALL_LEAGUE =
-  /3x3|tbt\\b|the basketball tournament|development|reserve|u-?1[89]|u-?2[01]|youth|cadet|junior|amateur|friendly|liga nacional|lnbp|libobasquet|liga boliviana|liga uruguaya|liga sudamericana|bcl americas|paraguayan|venezuelan|cuban|nicaragu|hondur|kosovo|albanian|mongolian|n1 league|b2 league|east asia super|liga argentina|liga mexicana|liga chilena|liga colombiana|liga peruana|liga ecuatoriana|asean|qbl|division 2|div 2|segunda|tercer|regional|student/i;
+  /3x3|tbt\\b|development|reserve|u-?1[89]|u-?2[01]|youth|cadet|junior|amateur|friendly|liga nacional|lnbp|libobasquet|paraguayan|venezuelan|cuban|nicaragu|hondur|kosovo|albanian|mongolian|n1 league|b2 league|division 2|div 2|regional|student/i;
 const WEAK_FOOTBALL_LEAGUE =
-  /reserve|u-?1[789]|u-?2[01]|youth|cadet|junior|amateur|friendly|primavera|regional|division 3|third division|fourth division|serie d|national league south|national league north|conference north|conference south|non.?league|county league|liga 3|liga 4|u19|u20|u21|u23|reserva|filial|b team|2nd team|development squad|academy|primera b|primera c|primera d|metropolitana|torneo federal|regional amateur|ituzaingo|comunicaciones|argentina.?b|argentina.?c|liga regional|segund[ao]|tercer[ao]|fourth tier|fifth tier|county|district|village/i;
+  /reserve|u-?1[789]|u-?2[01]|youth|cadet|junior|amateur|friendly|primavera|regional|division 3|third division|fourth division|serie [cd]\\b|serie d|national league|conference north|conference south|non.?league|county league|liga [34]\\b|u19|u20|u21|u23|reserva|filial|b team|2nd team|academy|primera [bcd]\\b|metropolitana|torneo federal|argentina.?[bcd]|liga regional|segund[ao]|tercer[ao]|cearense|paulista|carioca|mineiro|gaucho|goiano|paranaense|baiano|pernambucano|serie c|serie d|liga 2|liga 3|primera federacion|segunda federacion|tercera|national 2|national 3|vanarama|italian serie c|serie c group|liga expansion|categoria primera b|primera nacional|federal a|sudan|zambian|ghana premier|botola|mozambican/i;
 function isWeakLeague(name: string) {
   const n = name || "";
   return WEAK_BASKETBALL_LEAGUE.test(n) || WEAK_FOOTBALL_LEAGUE.test(n);
 }
 function isStrongLeague(sport: BookSport, name: string) {
   const n = name || "";
+  if (!n.trim()) return false;
   if (isWeakLeague(n) || /simulat|virtual|esoccer|e-?soccer/i.test(n)) return false;
   if (sport === "basketball") return BASKETBALL_LEAGUES.test(n);
   if (sport === "tennis") return TENNIS_LEAGUES.test(n);
   if (sport === "handball") return HANDBALL_LEAGUES.test(n);
-  return FOOTBALL_LEAGUES.test(n) || /champions league|europa league|conference league/i.test(n);
+  return FOOTBALL_LEAGUES.test(n);
 }
 `;
 
-if (/const WEAK_BASKETBALL_LEAGUE =[\s\S]*?;/.test(t)) {
-  t = t.replace(/const WEAK_BASKETBALL_LEAGUE =[\s\S]*?;\n(?:const WEAK_FOOTBALL_LEAGUE =[\s\S]*?;\n)?(?:function isWeakLeague[\s\S]*?\n\})?/, WEAK_AND_STRONG.trim() + "\n");
+if (/const WEAK_BASKETBALL_LEAGUE =[\s\S]*?function isStrongLeague[\s\S]*?\n\}/.test(t)) {
+  t = t.replace(/const WEAK_BASKETBALL_LEAGUE =[\s\S]*?function isStrongLeague[\s\S]*?\n\}/, WEAK_AND_STRONG.trim());
+} else if (/const WEAK_BASKETBALL_LEAGUE =[\s\S]*?;/.test(t)) {
+  t = t.replace(/const WEAK_BASKETBALL_LEAGUE =[\s\S]*?;\n(?:const WEAK_FOOTBALL_LEAGUE =[\s\S]*?;\n)?(?:function isWeakLeague[\s\S]*?\n\})?(?:\nfunction isStrongLeague[\s\S]*?\n\})?/, WEAK_AND_STRONG.trim() + "\n");
 } else if (t.includes("const SIMULATED_LEAGUE")) {
   t = t.replace("const SIMULATED_LEAGUE", WEAK_AND_STRONG + "\nconst SIMULATED_LEAGUE");
-} else {
-  console.warn("could not inject weak/strong helpers");
 }
 
 if (!t.includes("function isStrongLeague")) {
-  t = t.replace(
-    /function isWeakLeague\(name: string\) \{[\s\S]*?\n\}/,
-    (m) =>
-      m +
-      `\nfunction isStrongLeague(sport: BookSport, name: string) {
-  const n = name || "";
-  if (isWeakLeague(n) || /simulat|virtual|esoccer|e-?soccer/i.test(n)) return false;
-  if (sport === "basketball") return BASKETBALL_LEAGUES.test(n);
-  if (sport === "tennis") return TENNIS_LEAGUES.test(n);
-  if (sport === "handball") return HANDBALL_LEAGUES.test(n);
-  return FOOTBALL_LEAGUES.test(n) || /champions league|europa league|conference league/i.test(n);
-}`,
-  );
+  console.warn("isStrongLeague missing after inject");
 }
 
-if (!t.includes("!isStrongLeague(sport, e.leagueHint") && !t.includes("isStrongLeague(sport, e.leagueHint")) {
+if (!t.includes("isStrongLeague(sport, e.leagueHint")) {
   t = t.replace(
-    /!SIMULATED_LEAGUE\.test\(e\.leagueHint \?\? ""\) &&\n(\s*)!isWeakLeague\(e\.leagueHint \?\? ""\) &&/,
-    '!SIMULATED_LEAGUE.test(e.leagueHint ?? "") &&\n$1isStrongLeague(sport, e.leagueHint ?? "") &&',
+    /!SIMULATED_LEAGUE\.test\(e\.leagueHint \?\? ""\) &&\n(\s*)(!isWeakLeague\(e\.leagueHint \?\? ""\) &&\n\s*)?/,
+    '!SIMULATED_LEAGUE.test(e.leagueHint ?? "") &&\n$1isStrongLeague(sport, e.leagueHint ?? "") &&\n$1',
   );
   t = t.replace(
     /!SIMULATED_LEAGUE\.test\(e\.leagueHint \?\? ""\) &&\n(\s*)inCookWindow/,
     '!SIMULATED_LEAGUE.test(e.leagueHint ?? "") &&\n$1isStrongLeague(sport, e.leagueHint ?? "") &&\n$1inCookWindow',
   );
 }
-
 if (!t.includes("isStrongLeague(sport, leagueName(ev.sport))")) {
   t = t.replace(
-    /if \(SIMULATED_LEAGUE\.test\(leagueName\(ev\.sport\)\)\) continue;(\n\s*if \(isWeakLeague\(leagueName\(ev\.sport\)\)\) continue;)?/,
+    /if \(SIMULATED_LEAGUE\.test\(leagueName\(ev\.sport\)\)\) continue;(\n\s*if \(!?isWeakLeague\(leagueName\(ev\.sport\)\)\) continue;)?(\n\s*if \(!isStrongLeague\(sport, leagueName\(ev\.sport\)\)\) continue;)?/,
     'if (SIMULATED_LEAGUE.test(leagueName(ev.sport))) continue;\n      if (!isStrongLeague(sport, leagueName(ev.sport))) continue;',
   );
 }
 
+const NEW_COOKABLE = `export function cookablePick(p: TicketPick) {
+  // QUALITY_COOK_V3
+  if (!p.sporty?.eventId || !p.sporty?.marketId) return false;
+  if (p.sport === "other") return false;
+  const label = \`\${p.market ?? ""} \${p.selection ?? ""}\`.toLowerCase();
+  if (/1st half|1h|first half/.test(label) && /over\\s*(0\\.5|1(\\.0)?|1\\.5)\\b/.test(label)) return false;
+  if (/2nd half|2h|second half/.test(label) && /over\\s*(0\\.5|1(\\.0)?)\\b/.test(label)) return false;
+  return true;
+}`;
+
+if (/export function cookablePick\(p: TicketPick\) \{[\s\S]*?\n\}/.test(t)) {
+  t = t.replace(/export function cookablePick\(p: TicketPick\) \{[\s\S]*?\n\}/, NEW_COOKABLE);
+  console.log("cookablePick hardened");
+}
+
 const NEW_PICK = `function pickFromEvent(cands: TicketPick[], used: Record<string, number>): TicketPick | null {
-  // QUALITY_COOK_V2 — prefer solid markets over fragile 1H Over 0.5
+  // QUALITY_COOK_V3 — DC / GG / FT O/U first; never soft 1H
   const pool0 = cands.filter(cookablePick);
   if (!pool0.length) return null;
   const totalUsed = Object.values(used).reduce((n, v) => n + v, 0);
@@ -103,6 +100,7 @@ const NEW_PICK = `function pickFromEvent(cands: TicketPick[], used: Record<strin
   const hasOu = families.includes("ou");
   const hasDc = families.includes("dc");
   const hasGg = families.includes("gg");
+  const hasDnb = families.includes("dnb");
   const ouShare = totalUsed ? (used.ou ?? 0) / totalUsed : 0;
   const dcShare = totalUsed ? (used.dc ?? 0) / totalUsed : 0;
   const ggShare = totalUsed ? (used.gg ?? 0) / totalUsed : 0;
@@ -115,26 +113,25 @@ const NEW_PICK = `function pickFromEvent(cands: TicketPick[], used: Record<strin
       Number(a === "hcp") - Number(b === "hcp"),
   );
   let family = families[0];
-  if (hasDc && dcShare < 0.18) family = "dc";
-  else if (hasGg && ggShare < 0.15) family = "gg";
-  else if (hasOu && ouShare < 0.28) family = "ou";
+  if (hasDc && dcShare < 0.22) family = "dc";
+  else if (hasGg && ggShare < 0.18) family = "gg";
+  else if (hasOu && ouShare < 0.32) family = "ou";
+  else if (hasDnb && (used.dnb ?? 0) < 2) family = "dnb";
   const pool = family
     ? pool0.filter((p) => marketFamily(p.sporty?.marketId, p.market) === family)
     : pool0;
   const score = (p: TicketPick) => {
     const fam = marketFamily(p.sporty?.marketId, p.market);
     const odds = Number(p.odds) || 9;
-    const label = \`\${p.market ?? ""} \${p.selection ?? ""}\`.toLowerCase();
     let s = implied(p.odds);
-    if (fam === "ou") s += 0.12;
-    if (fam === "dc") s += 0.14;
-    if (fam === "gg") s += 0.1;
-    if (fam === "dnb") s += 0.08;
-    if (fam === "ou1h") s -= 0.18;
-    if (/1st half|1h/.test(label) && /over\\s*0\\.5|over\\s*1(\\.0)?\\b/.test(label)) s -= 0.25;
-    if (odds >= 1.25 && odds <= 1.65) s += 0.08;
-    if (odds > 2.1) s -= 0.1;
-    if (p.sporty?.marketId === "225" || p.sporty?.marketId === "18") s += 0.06;
+    if (fam === "dc") s += 0.16;
+    if (fam === "gg") s += 0.12;
+    if (fam === "ou") s += 0.14;
+    if (fam === "dnb") s += 0.1;
+    if (fam === "ou1h") s -= 0.3;
+    if (odds >= 1.28 && odds <= 1.7) s += 0.1;
+    if (odds > 2.05) s -= 0.12;
+    if (p.sporty?.marketId === "225" || p.sporty?.marketId === "18") s += 0.08;
     return s;
   };
   const pick = pool.slice().sort((a, b) => score(b) - score(a))[0];
@@ -142,21 +139,18 @@ const NEW_PICK = `function pickFromEvent(cands: TicketPick[], used: Record<strin
   return pick ?? null;
 }`;
 
-const pickRe = /function pickFromEvent\(cands: TicketPick\[\], used: Record<string, number>\): TicketPick \| null \{[\s\S]*?\n\}/;
-if (pickRe.test(t)) {
-  t = t.replace(pickRe, NEW_PICK);
-  console.log("pickFromEvent quality scoring applied");
-} else {
-  console.warn("pickFromEvent not found");
+if (/function pickFromEvent\(cands: TicketPick\[\], used: Record<string, number>\): TicketPick \| null \{[\s\S]*?\n\}/.test(t)) {
+  t = t.replace(/function pickFromEvent\(cands: TicketPick\[\], used: Record<string, number>\): TicketPick \| null \{[\s\S]*?\n\}/, NEW_PICK);
+  console.log("pickFromEvent V3 applied");
 }
 
-if (!t.includes("QUALITY_COOK_V2")) {
-  t = "// QUALITY_COOK_V2\n" + t;
+if (!t.includes("QUALITY_COOK_V3")) {
+  t = "// QUALITY_COOK_V3\n" + t;
 }
 
 writeFileSync(path, t);
-console.log("quality filter done", {
+console.log("quality V3 done", {
   strong: t.includes("isStrongLeague"),
-  quality: t.includes("QUALITY_COOK_V2"),
-  pick: t.includes("prefer solid markets"),
+  v3: t.includes("QUALITY_COOK_V3"),
+  cookable: t.includes("QUALITY_COOK_V3"),
 });
