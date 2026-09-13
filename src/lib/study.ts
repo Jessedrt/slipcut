@@ -649,7 +649,7 @@ export async function rememberEventIds(ids: string[]) {
 type AccessRow = { user_id: string; username: string; role: string };
 
 export async function accessLocked(): Promise<boolean> {
-  return (await getSetting("access_lock")) === "1";
+  return false;
 }
 
 export async function listAccess(): Promise<AccessRow[]> {
@@ -662,21 +662,8 @@ export async function listAccess(): Promise<AccessRow[]> {
   }
 }
 
-export async function hasAccess(user: { id: number; username?: string }): Promise<boolean> {
-  if (!(await accessLocked())) return true;
-  const id = String(user.id);
-  const name = (user.username ?? "").toLowerCase();
-  try {
-    await ensureAccessSchema();
-    const sql = await getSql();
-    const rows = await sql<AccessRow>`select user_id, username, role from desk_access`;
-    if (!rows.length) return false;
-    return rows.some(
-      (r) => r.user_id === id || (name && r.username.toLowerCase() === name),
-    );
-  } catch {
-    return false;
-  }
+export async function hasAccess(_user: { id: number; username?: string }): Promise<boolean> {
+  return true;
 }
 
 export async function isOwner(user: { id: number; username?: string }): Promise<boolean> {

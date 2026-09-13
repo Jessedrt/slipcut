@@ -1,6 +1,8 @@
 import type { BookSport, SportKind, SportySelection, TicketPick } from "./types";
 import { isChampionsLeague } from "./intent.ts";
 
+// QUALITY_COOK_V4 — baked into source so build rewriters cannot reopen junk leagues.
+
 export type ShareOutcome = {
   eventId?: string;
   estimateStartTime?: number;
@@ -192,9 +194,11 @@ export function sportyOf(picks: TicketPick[]): SportySelection[] {
 }
 
 const FOOTBALL_LEAGUES =
-  /premier league|laliga|la liga|serie a|bundesliga|ligue 1|champions league|\bucl\b|uefa cl|caf champions|afc champions|concacaf champions|europa league|\buel\b|conference league|eredivisie|primeira|championship|mls|copa libertadores|nations league|pro league|saudi|npfl/i;
+  /england premier league|\bla liga\b|\blaliga\b|laliga ea sports|italy serie a\b|^serie a\b|germany bundesliga|france ligue 1|netherlands eredivisie|portugal primeira|liga portugal betclic|england championship\b|uefa champions league|uefa europa league|uefa europa conference|conference league|uefa nations league|major league soccer|\bmls\b|copa libertadores|copa sudamericana|jupiler|belgium pro league|saudi (pro|professional) league|\bnpfl\b|nigeria professional|super lig|scotland.*premiership|liga mx|brasileir|brazil serie a|allsvenskan|eliteserien|egypt.*premier|caf champions|afc champions|\bfa cup\b|copa del rey|dfb-?pokal|coppa italia|coupe de france/i;
+const FOOTBALL_JUNK =
+  /southern|northern premier|isthmian|vanarama|non[-\s]?league|national league|serie [cd]\b|tercera|preferente|autonomica|federacion|hypermotion|segunda|cearense|paulista|carioca|mineiro|qatar|stars league|u-?1[89]|u-?2[01]|reserve|youth|women|friendly|amateur/i;
 const BASKETBALL_LEAGUES =
-  /\bnba\b|euroleague|eurocup|ncaa|wnba|nbl|acb|bbl|cba|kbl|b\.?league|fiba|world cup|olympi|eurobasket|americup|afrobasket|aba|adriatic|liga endesa|pro a|lnb|serie a|basketbol super|vtb|nbb|champions league|cebl|nbl australia/i;
+  /\beuroleague\b|eurocup|ncaa|wnba|nbl|acb|bbl|cba|kbl|fiba|eurobasket|aba league|liga endesa|pro a|lnb|vtb|nbb|cebl|bnxt/i;
 const WEAK_BASKETBALL_LEAGUE =
   /3x3|tbt\b|the basketball tournament|development|reserve|u-?1[89]|u-?2[01]|youth|cadet|junior|amateur|friendly|liga nacional|lnbp|libobasquet|liga boliviana|liga uruguaya|liga sudamericana|bcl americas|paraguayan|venezuelan|cuban|nicaragu|hondur|kosovo|albanian|mongolian|n1 league|b2 league|east asia super/i;
 const TENNIS_LEAGUES = /atp|wta|us open|australian open|wimbledon|roland|french open|masters|challenger|grand slam/i;
@@ -203,6 +207,16 @@ const HANDBALL_LEAGUES =
 /** Simulated / virtual leagues — never real fixtures, always excluded. */
 const SIMULATED_LEAGUE =
   /simulat|simulation|virtual|esoccer|e-?soccer|esport|\bsrl\b|fifa|\bpes\b|arcade|\bcrowd\b|robots?/i;
+
+function isStrongLeague(sport: BookSport, name: string) {
+  const n = (name ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (!n || SIMULATED_LEAGUE.test(n)) return false;
+  if (sport === "basketball") return BASKETBALL_LEAGUES.test(n) && !WEAK_BASKETBALL_LEAGUE.test(n);
+  if (sport === "tennis") return TENNIS_LEAGUES.test(n);
+  if (sport === "handball") return HANDBALL_LEAGUES.test(n);
+  if (FOOTBALL_JUNK.test(n)) return false;
+  return FOOTBALL_LEAGUES.test(n) || isChampionsLeague(name);
+}
 
 type EventMarket = {
   id?: string;
@@ -278,9 +292,18 @@ export function marketFamily(
   if (id === "186" || id === "202" || id === "1" || id === "219" || id === "60") return "win";
   if (id === "187" || id === "188" || id === "16" || id === "14" || id === "223" || id === "66" || d.includes("handicap"))
     return "hcp";
-  if (id === "68" || id === "69" || id === "70" || (id === "236" && d.includes("1st")) || (d.includes("1st half") && (d.includes("over") || d.includes("total"))))
+  if (
+    id === "68" ||
+    (id === "236" && d.includes("1st")) ||
+    (id !== "69" &&
+      id !== "70" &&
+      d.includes("1st half") &&
+      (d.includes("over") || d.includes("total")) &&
+      !d.includes("home") &&
+      !d.includes("away"))
+  )
     return "ou1h";
-  if (id === "227" || id === "228") return "teamou";
+  if (id === "227" || id === "228" || id === "69" || id === "70") return "teamou";
   if (id === "8" || d.includes("odd/even") || d.includes("odd or even")) return "odd";
   if (id === "166" || id === "90" || d.includes("corner")) return "corners";
   if (id === "29" || id === "64" || d.includes("gg/ng") || d.includes("both teams to score")) return "gg";
@@ -370,21 +393,16 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
   pull((m) => m.id === "1");
   pull((m) => m.id === "10");
   pull((m) => m.id === "11");
-  pull((m) => m.id === "29" || /both teams|btts|gg/i.test(m.desc ?? ""));
   pull((m) => m.id === "63" || /1st half.*double chance/i.test(m.desc ?? ""));
-  pull((m) => m.id === "64");
-  pull((m) => m.id === "16" || m.id === "14" || m.id === "223");
-  pull((m) => m.id === "66");
 
-  for (const line of ["0.5", "1.5", "2", "2.5", "3", "3.5", "4.5"]) {
-    pull((m) => m.id === "18" && m.specifier === `total=${line}`);
+  for (const line of ["1.5", "2", "2.5", "3", "3.5"]) {
+    pull((m) => m.id === "18" && m.specifier === `total=${line}`, true);
   }
-  for (const line of ["0.5", "1", "1.5"]) {
+  for (const line of ["1.5"]) {
     pull((m) => m.id === "68" && m.specifier === `total=${line}`, true);
   }
-  pull((m) => m.id === "62" || /2nd half.*over\/under/i.test(m.desc ?? ""), true);
-  pull((m) => (m.id === "227" || m.id === "228") && /total=(0\.5|1\.5)/.test(m.specifier ?? ""), true);
-  pull((m) => (m.id === "69" || m.id === "70") && /total=(0\.5|1|1\.5)/.test(m.specifier ?? ""), true);
+  pull((m) => (m.id === "62" || /2nd half.*over\/under/i.test(m.desc ?? "")) && /total=1\.5/.test(m.specifier ?? ""), true);
+  pull((m) => (m.id === "227" || m.id === "228") && /total=1\.5/.test(m.specifier ?? ""), true);
   pull(
     (m) => /corner/i.test(m.desc ?? "") && /over\/under|total/i.test(m.desc ?? "") && /total=(8\.5|9\.5|10\.5|11\.5)/.test(m.specifier ?? ""),
     true,
@@ -422,7 +440,7 @@ function isPrematch(ev: EventDetail, now = Date.now()) {
   if (typeof ev.period === "number" && ev.period > 0) return false;
   if (/live|started|1st|2nd|3rd|4th|q1|q2|q3|q4|\bht\b|half/i.test(ev.matchStatus ?? "")) return false;
   const t = ev.estimateStartTime ?? 0;
-  if (t && t < now + 12 * 60_000) return false;
+  if (t && t < now + 18 * 60_000) return false;
   return true;
 }
 
@@ -575,6 +593,20 @@ function handballCandidates(ev: EventDetail): TicketPick[] {
 export function cookablePick(p: TicketPick) {
   if (!p.sporty?.eventId || !p.sporty?.marketId) return false;
   if (p.sport === "other") return false;
+  if (p.kickoff && p.kickoff < Date.now() + 15 * 60_000) return false;
+  const league = p.league ?? "";
+  if (league && !isStrongLeague(p.sport as BookSport, league)) return false;
+  const fam = marketFamily(p.sporty.marketId, p.market);
+  const label = `${p.market ?? ""} ${p.selection ?? ""}`.toLowerCase();
+  const line = Number((p.sporty.specifier ?? p.market).match(/([\d.]+)/)?.[1]);
+  const over = /over/i.test(p.selection ?? "");
+  if (p.sport === "football") {
+    if (fam === "win" || fam === "hcp" || fam === "gg" || fam === "odd") return false;
+    if (over && fam === "ou1h" && (line === 0.5 || line === 1)) return false;
+    if (over && (fam === "teamou" || p.sporty.marketId === "69" || p.sporty.marketId === "70") && (line === 0.5 || line === 1)) return false;
+    if (over && /2nd half|2h |second half/.test(label) && (line === 0.5 || line === 1)) return false;
+  }
+  if (p.sport === "basketball" && /\bnba\b/i.test(league)) return false;
   return true;
 }
 
@@ -625,7 +657,7 @@ function watDay(ms: number) {
 }
 
 function inCookWindow(ts: number, window: CookWindow, now: number) {
-  if (!ts || ts < now - 60_000) return false;
+  if (!ts || ts < now + 18 * 60_000) return false;
   // "soon" = next ~30 hours only (not multi-day fixtures)
   if (window === "soon") return ts <= now + 30 * 3_600_000;
   if (window === "today") {
@@ -736,6 +768,7 @@ export async function listUpcomingPicks(
         !e.banned &&
         e.eventId &&
         !SIMULATED_LEAGUE.test(e.leagueHint ?? "") &&
+        isStrongLeague(sport, e.leagueHint ?? "") &&
         inCookWindow(e.estimateStartTime ?? 0, window, now) &&
         (league !== "champions" || isChampionsLeague(e.leagueHint ?? "")),
     )
@@ -775,7 +808,9 @@ export async function listUpcomingPicks(
     });
     for (const ev of details) {
       if (!ev || ev.status !== 0 || ev.banned) continue;
+      if (!isPrematch(ev)) continue;
       if (SIMULATED_LEAGUE.test(leagueName(ev.sport))) continue;
+      if (!isStrongLeague(sport, leagueName(ev.sport))) continue;
       if (events >= want) break;
       if (mode === "draw") {
         if (sport !== "football") continue;
