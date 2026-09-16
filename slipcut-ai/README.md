@@ -1,55 +1,46 @@
 # SlipCut AI
 
-AI-powered Telegram assistant for football and basketball analysis, SportyBet market exploration, slip management, optimization, and supported booking-code preparation.
+Conversational Telegram assistant for football and basketball analysis, SportyBet market exploration, slip management, optimization, and supported booking-code preparation.
 
-## Overview
+## Stack
 
-Conversational product — not a command-only bot. Users speak naturally:
+- Node.js + TypeScript
+- Telegraf
+- Zod
+- Vitest
 
-- "Give me 5 football games today"
-- "Give me around 10 odds"
-- "Remove the weakest two"
-- "Split this ticket into 2"
-- "Explore all markets for Arsenal vs Chelsea"
-- "Analyze this SportyBet code"
+No Fastify, Prisma, Redis, or Docker in this package.
 
 ## Features
 
-- Natural-language intent (Zod + deterministic fallback; optional LLM)
+- Natural-language intent (Zod + deterministic fallback)
+- Open SportyBet market board (`productId=3`)
 - Game-count and target-odds optimization
-- **Open market board** — all SportyBet markets from productId=3 are ingested
-- Confidence / risk labels (no guarantees)
-- Ticket edit, split, book-code load & mint
-- Conversation memory per Telegram user
-- Fastify health API + Telegraf bot
-- Prisma schema, Docker Compose
+- Ticket edit / split / load code / mint code
+- In-memory conversation session per Telegram user
 
-## SportyBet (verified only)
+## SportyBet
 
-See docs/SPORTYBET.md. Endpoints are browser-facing interfaces observed in production — **not invented**.
+See [docs/SPORTYBET.md](docs/SPORTYBET.md). Only verified browser-facing endpoints.
 
-| Capability | Status |
-|------------|--------|
-| Fixtures list | Verified |
-| Full event markets (open board) | Verified |
-| Load share code | Verified |
-| Mint share code | Verified |
-| Auto-wager / deposits | **Not supported** |
-
-## Commands
+## Run
 
 ```bash
 cp .env.example .env
+# set TELEGRAM_BOT_TOKEN
 npm install
-npm run typecheck
 npm test
+npm run typecheck
 npm run dev
 ```
 
-Docker: `docker compose up --build`
+Production:
 
-Production: `npm run build && npm start`
+```bash
+npm run build
+npm start
+```
 
 ## Safety
 
-Never auto-submits wagers. Never stores bookmaker passwords. Odds may change after code creation.
+Never auto-submits wagers. Odds may change after code creation.

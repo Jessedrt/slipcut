@@ -11,30 +11,17 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src tests --ext .ts",
-    "format": "prettier -w src tests prisma",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate deploy",
-    "db:push": "prisma db push",
-    "docker:up": "docker compose up --build"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@prisma/client": "^6.5.0",
-    "fastify": "^5.2.1",
-    "@fastify/cors": "^10.0.2",
-    "ioredis": "^5.5.0",
+    "dotenv": "^16.4.7",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",
     "telegraf": "^4.16.3",
-    "zod": "^3.24.2",
-    "dotenv": "^16.4.7"
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
-    "eslint": "^9.22.0",
-    "prettier": "^3.5.3",
-    "prisma": "^6.5.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
     "vitest": "^3.0.8"
