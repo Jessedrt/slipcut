@@ -75,6 +75,16 @@ export function parseIntentDeterministic(text: string): Intent {
 
   const fixtureQuery = t.match(/(?:markets? for|explore)\s+(.+)$/i)?.[1]?.trim();
 
+  let marketPreference: string | undefined;
+  if (/goal markets|over\/under|\bbtts\b|both teams/.test(t)) marketPreference = "goals";
+  else if (/handicap|asian handicap|\bspread\b/.test(t)) marketPreference = "handicap";
+  else if (/\bcorners?\b/.test(t)) marketPreference = "corners";
+  else if (/\bcards?\b|booking point/.test(t)) marketPreference = "cards";
+  else if (/\b1x2\b|match result|moneyline|winner only/.test(t)) marketPreference = "1x2";
+  else if (/first half|1st half/.test(t)) marketPreference = "first half";
+  else if (/\bquarter\b/.test(t)) marketPreference = "quarter";
+  else if (/team total/.test(t)) marketPreference = "team total";
+
   const parsed = IntentSchema.safeParse({
     action,
     sport,
@@ -90,6 +100,7 @@ export function parseIntentDeterministic(text: string): Intent {
     riskMode,
     dateHint,
     fixtureQuery,
+    marketPreference,
     raw,
   });
 
