@@ -1,34 +1,31 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, existsSync } from "fs";
-
+import { readFileSync, writeFileSync, existsSync, readdirSync } from "fs";
 const path = "src/lib/telegram.ts";
-const p1 = "scripts/telegram.part1.txt";
-const p2 = "scripts/telegram.part2.txt";
-
-function isValid(src) {
-  return (
-    src &&
-    src.length > 10000 &&
+const chunks = readdirSync("scripts")
+  .filter((f) => /^tchunk\d+$/.test(f))
+  .sort((a, b) => Number(a.replace("tchunk", "")) - Number(b.replace("tchunk", "")));
+if (chunks.length) {
+  const b64 = chunks.map((f) => readFileSync("scripts/" + f, "utf8").trim()).join("");
+  const buf = Buffer.from(b64, "base64");
+  const src = buf.toString("utf8");
+  if (
     src.includes("handleTelegramUpdate") &&
     src.includes("runDeskCron") &&
-    src.includes("FIND_SAFER")
-  );
-}
-
-if (existsSync(p1) && existsSync(p2)) {
-  const src = readFileSync(p1, "utf8") + readFileSync(p2, "utf8");
-  if (isValid(src)) {
-    writeFileSync(path, src);
-    console.log("telegram.ts assembled from parts", src.length);
+    src.includes("FIND_SAFER") &&
+    src.length > 10000
+  ) {
+    writeFileSync(path, buf);
+    console.log("telegram.ts from tchunks", buf.length);
     process.exit(0);
   }
-  console.warn("parts invalid", src.length);
+  console.warn("tchunks invalid", buf.length);
 }
-
-if (existsSync(path) && isValid(readFileSync(path, "utf8"))) {
-  console.log("telegram.ts ok", readFileSync(path, "utf8").length);
-  process.exit(0);
+if (existsSync(path)) {
+  const cur = readFileSync(path, "utf8");
+  if (cur.includes("handleTelegramUpdate") && cur.includes("runDeskCron") && cur.length > 10000) {
+    console.log("telegram.ts ok", cur.length);
+    process.exit(0);
+  }
 }
-
 console.error("telegram.ts invalid");
 process.exit(1);
