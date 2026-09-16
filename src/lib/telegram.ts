@@ -364,6 +364,20 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   if (update.update_id && !(await markUpdateSeen(update.update_id).catch(() => true))) return;
   const lower = raw.toLowerCase();
 
+  // FORCE_COOK_V1 — any mention of games/safer/football cooks immediately
+  if (/safer|safe|safest|football|basketball|\bgames?\b|\bpicks?\b/i.test(lower)) {
+    const sport = (parseSport(raw) || "football") as BookSport;
+    const window = parseCookWindow(raw) || "today";
+    const nMatch = lower.match(/\b(\d{1,2})\b/);
+    const n = nMatch ? clampLegs(Number(nMatch[1]), 10) : 5;
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: "✓ Finding safest " + n + " " + sport + " picks… this can take a moment.",
+    });
+    await cookPredict(chatId, sport, n, window);
+    return;
+  }
+
   // FIND_SAFER_NL_V1
   if (
     /\b(safer|safe|safest|high confidence)\b/i.test(lower) ||
@@ -429,8 +443,18 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     return;
   }
 
+  // Never treat natural language as a booking code
+  if (/\b(find|safer|safe|football|basketball|games?|today|cook|give|odds)\b/i.test(raw)) {
+    const sport = (parseSport(raw) || "football") as BookSport;
+    const nMatch = raw.toLowerCase().match(/\b(\d{1,2})\b/);
+    const n = nMatch ? clampLegs(Number(nMatch[1]), 10) : 5;
+    await tg("sendMessage", { chat_id: chatId, text: "✓ Cooking " + n + " safest " + sport + " picks…" });
+    await cookPredict(chatId, sport, n, parseCookWindow(raw) || "today");
+    return;
+  }
+
   const code = raw.replace(/\s+/g, "").toUpperCase();
-  if (/^[A-Z0-9]{5,12}$/.test(code)) {
+  if (/^[A-Z0-9]{5,12}$/.test(code) && !/^(SAFER|GAMES|TODAY|FOOTBALL|COOK|FIND)$/.test(code)) {
     const loaded = await loadBookingCode(code, "ng");
     if ("error" in loaded) {
       await tg("sendMessage", { chat_id: chatId, text: loaded.error });
