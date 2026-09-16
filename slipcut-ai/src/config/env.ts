@@ -1,5 +1,4 @@
 import { z } from "zod";
-import "dotenv/config";
 
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -16,4 +15,13 @@ const schema = z.object({
   LOG_LEVEL: z.string().default("info"),
 });
 
-export const env = schema.parse(process.env);
+export const env = schema.parse({
+  NODE_ENV: process.env.NODE_ENV,
+  TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN ?? "",
+  AI_PROVIDER: process.env.AI_PROVIDER,
+  AI_API_KEY: process.env.AI_API_KEY ?? "",
+  AI_MODEL: process.env.AI_MODEL,
+  SPORTYBET_PROVIDER_ENABLED: process.env.SPORTYBET_PROVIDER_ENABLED,
+  SPORTYBET_COUNTRY: process.env.SPORTYBET_COUNTRY,
+  LOG_LEVEL: process.env.LOG_LEVEL,
+});
