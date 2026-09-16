@@ -1,14 +1,11 @@
 {
   "name": "slipcut-ai",
   "version": "2.0.0",
-  "description": "SlipCut AI — conversational Telegram assistant for SportyBet football & basketball analysis",
+  "description": "SlipCut AI — conversational Telegram assistant for SportyBet",
   "private": true,
   "type": "module",
   "engines": { "node": ">=20" },
   "scripts": {
-    "postinstall": "node scripts/decode-handlers.mjs",
-    "predev": "node scripts/decode-handlers.mjs",
-    "prebuild": "node scripts/decode-handlers.mjs",
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
