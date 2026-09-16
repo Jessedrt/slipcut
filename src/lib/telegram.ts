@@ -284,7 +284,7 @@ async function cookPredict(chatId: number, sport: BookSport, n: number, window: 
   let pool = await cookPool(listed.filter(cookablePick), band);
   const safeish = pool.filter((p) => !p.odds || (p.odds >= 1.15 && p.odds <= 2.4));
   if (safeish.length >= n) pool = safeish;
-  /* SAFEST_RANK_V1 */ const researched = await researchPicks(pool, Math.max(n * 2, 12));
+  const researched = await researchPicks(pool, Math.max(n * 2, 12));
   const ranked = [...researched.keep].sort(
     (a, b) => (b.probability ?? 0) - (a.probability ?? 0) || (a.odds ?? 99) - (b.odds ?? 99),
   );
@@ -378,6 +378,13 @@ type TgUpdate = {
   };
 };
 
+export async function sendScheduledLongshot() {
+  console.log("longshot");
+}
+export async function runDeskCron() {
+  console.log("cron");
+}
+
 export async function handleTelegramUpdate(update: TgUpdate) {
   if (update.callback_query) {
     const cb = update.callback_query;
@@ -397,13 +404,10 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   const chatId = msg.chat.id;
 
   if (msg.photo?.length) {
-    const best = msg.photo[msg.photo.length - 1];
-    if (best?.file_id) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: "Screenshot received. Paste the booking code or ticket text for now.",
-      });
-    }
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: "Screenshot received. Paste the booking code or ticket text for now.",
+    });
     return;
   }
 
