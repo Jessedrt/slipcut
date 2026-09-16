@@ -1,6 +1,6 @@
 import type { Context } from "telegraf";
 import { parseIntent } from "../ai/intent.js";
-import { analyzeMany } from "../analysis/confidence.js";
+import { analyzeMany, pickSafestN } from "../analysis/confidence.js";
 import { diversifyForCook, rankMarkets } from "../markets/catalog.js";
 import {
   getEventMarkets,
@@ -21,15 +21,15 @@ import { logger } from "../utils/logger.js";
 
 async function buildCandidates(
   sport: "football" | "basketball",
-  limitEvents = 22,
+  limitEvents = 28,
   marketPreference?: string,
 ): Promise<AnalyzedSelection[]> {
   const fixtures = await listFixtures(sport);
   if (!fixtures.length) return [];
   const slice = fixtures.slice(0, limitEvents);
   const all: AnalyzedSelection[] = [];
-  for (let i = 0; i < slice.length; i += 5) {
-    const batch = slice.slice(i, i + 5);
+  for (let i = 0; i < slice.length; i += 3) {
+    const batch = slice.slice(i, i + 3);
     const markets = await Promise.all(
       batch.map((f) =>
         getEventMarkets(f.eventId, sport, {
@@ -42,11 +42,16 @@ async function buildCandidates(
     );
     for (const ms of markets) {
       const diversified = diversifyForCook(ms, sport, {
-        perCategory: 3,
-        maxTotal: 28,
+        perCategory: 4,
+        maxTotal: 40,
         marketPreference,
       });
-      all.push(...analyzeMany(diversified));
+      const keys = new Set(diversified.map((m) => `${m.providerMarketId}:${m.providerSelectionId}`));
+      const extra = ms.filter(
+        (m) => m.status === "open" && !keys.has(`${m.providerMarketId}:${m.providerSelectionId}`),
+      );
+      const analyzed = analyzeMany([...diversified, ...extra]);
+      all.push(...pickSafestN(analyzed, 3));
     }
   }
   return all;
@@ -64,9 +69,7 @@ export async function handleStart(ctx: Context) {
           { text: "Around 10 odds", callback_data: "cook:football:6:10" },
           { text: "Goal markets", callback_data: "cook:football:5:goals" },
         ],
-        [
-          { text: "Help", callback_data: "help" },
-        ],
+        [{ text: "Help", callback_data: "help" }],
       ],
     },
   });
@@ -101,7 +104,7 @@ export async function handleText(ctx: Context) {
       combinedOdds: analyzed.reduce((a, l) => a * l.odds, 1),
       averageConfidence:
         (analyzed.reduce((s, l) => s + l.modelProbability, 0) / analyzed.length) * 100,
-      riskMode: "balanced",
+      riskMode: "conservative",
     };
     saveSlip(telegramId, slip);
     await ctx.reply(formatSlip(slip, "Slip Analysis"), {
@@ -124,14 +127,14 @@ export async function handleText(ctx: Context) {
     if (intent.editOp === "remove_below_confidence" && intent.minimumConfidence)
       legs = removeBelowConfidence(legs, intent.minimumConfidence);
     if (intent.editOp === "change_to_goals") {
-      await ctx.reply("Rebuilding with goal markets…");
+      await ctx.reply("Rebuilding with safest goal markets…");
       const sport = (legs[0]?.sport as "football" | "basketball") || "football";
-      const candidates = await buildCandidates(sport, 22, "goals");
+      const candidates = await buildCandidates(sport, 28, "goals");
       const rebuilt = optimizeSlip({
         candidates,
         gameCount: legs.length,
         targetOdds: intent.targetOdds || session.currentSlip.targetOdds,
-        riskMode: intent.riskMode || "balanced",
+        riskMode: intent.riskMode || "conservative",
       });
       legs = rebuilt.legs;
     }
@@ -140,7 +143,7 @@ export async function handleText(ctx: Context) {
         candidates: legs,
         targetOdds: intent.targetOdds,
         gameCount: legs.length,
-        riskMode: intent.riskMode,
+        riskMode: intent.riskMode || "conservative",
       }).legs;
     }
     const slip: BuiltSlip = {
@@ -149,7 +152,7 @@ export async function handleText(ctx: Context) {
       averageConfidence: legs.length
         ? (legs.reduce((s, l) => s + l.modelProbability, 0) / legs.length) * 100
         : 0,
-      riskMode: intent.riskMode || session.currentSlip.riskMode,
+      riskMode: intent.riskMode || session.currentSlip.riskMode || "conservative",
       targetOdds: intent.targetOdds,
     };
     saveSlip(telegramId, slip);
@@ -239,11 +242,11 @@ export async function handleText(ctx: Context) {
   }
 
   await ctx.reply(
-    `Building ${sport} selections` +
+    `Scanning full market boards for safest ${sport} picks` +
       (intent.marketPreference ? ` (${intent.marketPreference})` : "") +
-      `…`,
+      `… this can take a moment.`,
   );
-  const candidates = await buildCandidates(sport, 22, intent.marketPreference);
+  const candidates = await buildCandidates(sport, 28, intent.marketPreference);
   if (!candidates.length) {
     await ctx.reply("SportyBet unavailable or no fixtures. Try again shortly.");
     return;
@@ -255,7 +258,7 @@ export async function handleText(ctx: Context) {
     gameCountMin: intent.gameCountMin,
     gameCountMax: intent.gameCountMax,
     minimumConfidence: intent.minimumConfidence,
-    riskMode: intent.riskMode || "balanced",
+    riskMode: intent.riskMode || "conservative",
   });
   if (!slip.legs.length) {
     await ctx.reply("No selections passed your filters.");
