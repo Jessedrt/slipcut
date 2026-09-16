@@ -1,7 +1,7 @@
 import type { Context } from "telegraf";
 import { parseIntent } from "../ai/intent.js";
 import { analyzeMany } from "../analysis/confidence.js";
-import { rankMarkets } from "../markets/catalog.js";
+import { diversifyForCook, rankMarkets } from "../markets/catalog.js";
 import {
   getEventMarkets,
   listFixtures,
@@ -21,7 +21,8 @@ import { logger } from "../utils/logger.js";
 
 async function buildCandidates(
   sport: "football" | "basketball",
-  limitEvents = 18,
+  limitEvents = 22,
+  marketPreference?: string,
 ): Promise<AnalyzedSelection[]> {
   const fixtures = await listFixtures(sport);
   if (!fixtures.length) return [];
@@ -40,8 +41,12 @@ async function buildCandidates(
       ),
     );
     for (const ms of markets) {
-      const ranked = rankMarkets(ms.filter((m) => m.status === "open"));
-      all.push(...analyzeMany(ranked.slice(0, 8)));
+      const diversified = diversifyForCook(ms, sport, {
+        perCategory: 3,
+        maxTotal: 28,
+        marketPreference,
+      });
+      all.push(...analyzeMany(diversified));
     }
   }
   return all;
@@ -57,6 +62,9 @@ export async function handleStart(ctx: Context) {
         ],
         [
           { text: "Around 10 odds", callback_data: "cook:football:6:10" },
+          { text: "Goal markets", callback_data: "cook:football:5:goals" },
+        ],
+        [
           { text: "Help", callback_data: "help" },
         ],
       ],
@@ -115,6 +123,18 @@ export async function handleText(ctx: Context) {
     if (intent.editOp === "remove_weakest") legs = removeWeakest(legs, intent.removeCount || 1);
     if (intent.editOp === "remove_below_confidence" && intent.minimumConfidence)
       legs = removeBelowConfidence(legs, intent.minimumConfidence);
+    if (intent.editOp === "change_to_goals") {
+      await ctx.reply("Rebuilding with goal markets…");
+      const sport = (legs[0]?.sport as "football" | "basketball") || "football";
+      const candidates = await buildCandidates(sport, 22, "goals");
+      const rebuilt = optimizeSlip({
+        candidates,
+        gameCount: legs.length,
+        targetOdds: intent.targetOdds || session.currentSlip.targetOdds,
+        riskMode: intent.riskMode || "balanced",
+      });
+      legs = rebuilt.legs;
+    }
     if (intent.editOp === "trim_to_odds" && intent.targetOdds) {
       legs = optimizeSlip({
         candidates: legs,
@@ -186,9 +206,9 @@ export async function handleText(ctx: Context) {
       return;
     }
     const markets = await getEventMarkets(hit.eventId, sport, hit);
-    const analyzed = analyzeMany(rankMarkets(markets).slice(0, 12));
+    const analyzed = analyzeMany(rankMarkets(markets).slice(0, 20));
     await ctx.reply(
-      `${hit.home} vs ${hit.away}\n${hit.league}\n\n` +
+      `${hit.home} vs ${hit.away}\n${hit.league}\nOpen markets (sample):\n\n` +
         analyzed.map((a) => formatSelectionCard(a)).join("\n\n—\n\n"),
     );
     return;
@@ -197,14 +217,20 @@ export async function handleText(ctx: Context) {
   const sport = intent.sport || session.lastSport || "football";
   session.lastSport = sport;
 
-  if (!intent.gameCount && !intent.gameCountMin && !intent.targetOdds) {
+  if (!intent.gameCount && !intent.gameCountMin && !intent.targetOdds && !intent.marketPreference) {
     await ctx.reply("How many games do you want?", {
       reply_markup: {
         inline_keyboard: [
           [
             { text: "3", callback_data: `cook:${sport}:3` },
             { text: "5", callback_data: `cook:${sport}:5` },
+            { text: "8", callback_data: `cook:${sport}:8` },
             { text: "10", callback_data: `cook:${sport}:10` },
+          ],
+          [
+            { text: "Goals", callback_data: `cook:${sport}:5:goals` },
+            { text: "BTTS", callback_data: `cook:${sport}:5:btts` },
+            { text: "Handicap", callback_data: `cook:${sport}:5:handicap` },
           ],
         ],
       },
@@ -212,8 +238,12 @@ export async function handleText(ctx: Context) {
     return;
   }
 
-  await ctx.reply(`Building ${sport} selections…`);
-  const candidates = await buildCandidates(sport);
+  await ctx.reply(
+    `Building ${sport} selections` +
+      (intent.marketPreference ? ` (${intent.marketPreference})` : "") +
+      `…`,
+  );
+  const candidates = await buildCandidates(sport, 22, intent.marketPreference);
   if (!candidates.length) {
     await ctx.reply("SportyBet unavailable or no fixtures. Try again shortly.");
     return;
@@ -254,10 +284,16 @@ export async function handleCallback(ctx: Context) {
     return handleText(ctx);
   }
   if (data.startsWith("cook:")) {
-    const [, sport, n, odds] = data.split(":");
-    const parts = [`Give me ${n} ${sport} games`];
-    if (odds) parts.push(`around ${odds} odds`);
-    (ctx as { message?: { text: string } }).message = { text: parts.join(" ") };
+    const parts = data.split(":");
+    const sport = parts[1] || "football";
+    const n = parts[2] || "5";
+    const market = parts[3];
+    const bits = [`Give me ${n} ${sport} games`];
+    if (market === "goals") bits.push("on goal markets");
+    else if (market === "btts") bits.push("btts only");
+    else if (market === "handicap") bits.push("handicap markets");
+    else if (market && !Number.isNaN(Number(market))) bits.push(`around ${market} odds`);
+    (ctx as { message?: { text: string } }).message = { text: bits.join(" ") };
     return handleText(ctx);
   }
   if (data === "edit:remove_weakest") {
