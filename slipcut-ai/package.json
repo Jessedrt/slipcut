@@ -6,6 +6,9 @@
   "type": "module",
   "engines": { "node": ">=20" },
   "scripts": {
+    "postinstall": "node scripts/decode-handlers.mjs",
+    "predev": "node scripts/decode-handlers.mjs",
+    "prebuild": "node scripts/decode-handlers.mjs",
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
