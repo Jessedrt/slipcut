@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "node scripts/with-app-env.mjs vite dev --host 0.0.0.0 --port 8080",
-    "build": "node scripts/restore-telegram.mjs && node scripts/patch-safer-nl.mjs && node scripts/exclude-weak-leagues.mjs && node scripts/expand-markets.mjs && node scripts/quality-cook.mjs && node scripts/with-app-env.mjs vite build && npm run db:migrate && node scripts/set-webhook.mjs",
+    "build": "node scripts/restore-and-patch-sporty.mjs && node scripts/restore-telegram.mjs && node scripts/patch-safer-nl.mjs && node scripts/exclude-weak-leagues.mjs && node scripts/expand-markets.mjs && node scripts/quality-cook.mjs && node scripts/with-app-env.mjs vite build && npm run db:migrate && node scripts/set-webhook.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "build:dev": "node scripts/with-app-env.mjs vite build --mode development",
     "preview": "node scripts/with-app-env.mjs vite preview",
