@@ -22,22 +22,34 @@ function avgConf(legs: AnalyzedSelection[]): number {
 }
 
 export function optimizeSlip(input: OptimizeInput): BuiltSlip {
-  const risk = input.riskMode ?? "balanced";
+  const risk = input.riskMode ?? "conservative";
   const minConf = (input.minimumConfidence ?? 0) / 100;
+
   let pool = input.candidates.filter((c) => c.status === "open");
   if (minConf > 0) pool = pool.filter((c) => (c.modelProbability || 0) >= minConf);
+  // Conservative: drop fragile low-confidence legs when enough safe ones exist
+  if (risk === "conservative" && !input.minimumConfidence) {
+    const safe = pool.filter((c) => (c.modelProbability || 0) >= 0.55 && c.odds < 3.2);
+    if (safe.length >= (input.gameCount ?? 3)) pool = safe;
+  }
   pool = [...pool].sort((a, b) => {
     const conf = (b.modelProbability || 0) - (a.modelProbability || 0);
-    if (risk === "conservative") return conf || a.odds - b.odds;
+    if (risk === "conservative") {
+      if (Math.abs(conf) > 0.008) return conf;
+      return a.odds - b.odds;
+    }
     if (risk === "aggressive") return conf || b.odds - a.odds;
     return conf;
   });
+
   const wantMin = input.gameCountMin ?? input.gameCount ?? 3;
   const wantMax = input.gameCountMax ?? input.gameCount ?? Math.min(12, Math.max(wantMin, 8));
   const target = input.targetOdds;
+
   const usedEvents = new Set<string>();
   const usedLeagues = new Map<string, number>();
   const legs: AnalyzedSelection[] = [];
+
   for (const c of pool) {
     if (legs.length >= wantMax) break;
     if (usedEvents.has(c.eventId)) continue;
@@ -47,8 +59,10 @@ export function optimizeSlip(input: OptimizeInput): BuiltSlip {
     usedEvents.add(c.eventId);
     usedLeagues.set(lg, (usedLeagues.get(lg) || 0) + 1);
   }
+
   let best = legs.slice(0, Math.max(wantMin, Math.min(legs.length, wantMax)));
-  let bestScore = scoreSlip(best, target, wantMin, wantMax);
+  let bestScore = scoreSlip(best, target, wantMin, wantMax, risk);
+
   if (target && pool.length > best.length) {
     let cur = [...best];
     while (cur.length > wantMin) {
@@ -56,7 +70,7 @@ export function optimizeSlip(input: OptimizeInput): BuiltSlip {
       if (target && co <= target * 1.05) break;
       cur.sort((a, b) => (a.modelProbability || 0) - (b.modelProbability || 0));
       cur.shift();
-      const sc = scoreSlip(cur, target, wantMin, wantMax);
+      const sc = scoreSlip(cur, target, wantMin, wantMax, risk);
       if (sc > bestScore) {
         best = [...cur];
         bestScore = sc;
@@ -67,7 +81,7 @@ export function optimizeSlip(input: OptimizeInput): BuiltSlip {
       if (cur.length >= wantMax) break;
       if (cur.some((x) => x.eventId === c.eventId)) continue;
       const next = [...cur, c];
-      const sc = scoreSlip(next, target, wantMin, wantMax);
+      const sc = scoreSlip(next, target, wantMin, wantMax, risk);
       if (sc > bestScore) {
         best = next;
         bestScore = sc;
@@ -75,6 +89,7 @@ export function optimizeSlip(input: OptimizeInput): BuiltSlip {
       }
     }
   }
+
   if (best.length < wantMin) {
     for (const c of pool) {
       if (best.length >= wantMin) break;
@@ -82,6 +97,16 @@ export function optimizeSlip(input: OptimizeInput): BuiltSlip {
       best.push(c);
     }
   }
+
+  // Final: for each event keep the safest candidate from pool if a safer one exists
+  best = best.map((leg) => {
+    const alts = pool.filter((p) => p.eventId === leg.eventId);
+    if (!alts.length) return leg;
+    return alts.reduce((a, b) =>
+      (b.modelProbability || 0) > (a.modelProbability || 0) ? b : a,
+    );
+  });
+
   return {
     legs: best,
     combinedOdds: combined(best.map((l) => l.odds)),
@@ -96,11 +121,12 @@ function scoreSlip(
   target: number | undefined,
   wantMin: number,
   wantMax: number,
+  risk: RiskMode = "conservative",
 ): number {
   if (!legs.length) return -1e9;
   const co = combined(legs.map((l) => l.odds));
   const conf = avgConf(legs);
-  let s = conf * 100;
+  let s = conf * (risk === "conservative" ? 140 : 100);
   if (target) {
     const ratio = co / target;
     if (ratio >= 0.9 && ratio <= 1.25) s += 30 - Math.abs(1 - ratio) * 40;
@@ -110,6 +136,13 @@ function scoreSlip(
   else s -= Math.abs(legs.length - (wantMin + wantMax) / 2) * 2;
   const events = new Set(legs.map((l) => l.eventId));
   s += events.size * 0.5;
+  // Penalize any high-risk leg in conservative mode
+  if (risk === "conservative") {
+    for (const l of legs) {
+      if ((l.modelProbability || 0) < 0.55) s -= 8;
+      if (l.riskLevel === "higher") s -= 5;
+    }
+  }
   return s;
 }
 
@@ -136,7 +169,7 @@ export function splitSlip(legs: AnalyzedSelection[], parts: number): BuiltSlip[]
       legs: b,
       combinedOdds: combined(b.map((l) => l.odds)),
       averageConfidence: avgConf(b) * 100,
-      riskMode: "balanced" as RiskMode,
+      riskMode: "conservative" as RiskMode,
     }));
 }
 
