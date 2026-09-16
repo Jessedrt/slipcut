@@ -56,7 +56,9 @@ export const chatBridge = new AsyncLocalStorage<ChatBridge>();
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
 const TG_TIMEOUT_MS = 20_000;
 
-const HELP = `What you can do here:
+const HELP = `SlipCut live · safer cook on
+
+What you can do here:
 • Edit big tickets faster
 • Split one slip into smaller slips
 • Trim a ticket down to your target odds (AI scores safest legs)
@@ -64,7 +66,7 @@ const HELP = `What you can do here:
 • Read booking codes, screenshots, and links
 • Check today’s matches and book games from your instruction
 
-Try: /help · Cook 30 odds · 2odds · trim · split into 2 · paste a code · paste X link · Find safer football games today`;
+Try: /help · Cook 30 odds · 2odds · trim · split into 2 · paste a code · Find safer football games today`;
 
 function esc(s: string) {
   return s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
@@ -275,33 +277,41 @@ async function splitCode(chatId: number, code: string, parts: number) {
 }
 
 async function cookPredict(chatId: number, sport: BookSport, n: number, window: CookWindow) {
-  const band = await loadOddsBand();
-  const listed = await listUpcomingPicks(sport, Math.min(Math.max(n + 20, 40), 50), window);
-  if ("error" in listed) {
-    await tg("sendMessage", { chat_id: chatId, text: listed.error });
-    return;
+  try {
+    const band = await loadOddsBand();
+    const listed = await listUpcomingPicks(sport, Math.min(Math.max(n + 20, 40), 50), window);
+    if ("error" in listed) {
+      await tg("sendMessage", { chat_id: chatId, text: listed.error });
+      return;
+    }
+    let pool = await cookPool(listed.filter(cookablePick), band);
+    const safeish = pool.filter((p) => !p.odds || (p.odds >= 1.15 && p.odds <= 2.4));
+    if (safeish.length >= n) pool = safeish;
+    const researched = await researchPicks(pool, Math.max(n * 2, 12));
+    const ranked = [...researched.keep].sort(
+      (a, b) => (b.probability ?? 0) - (a.probability ?? 0) || (a.odds ?? 99) - (b.odds ?? 99),
+    );
+    const seen = new Set();
+    const take = [];
+    for (const p of ranked) {
+      const key = p.eventId || p.home + "|" + p.away;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      take.push(p);
+      if (take.length >= n) break;
+    }
+    if (!take.length) {
+      await tg("sendMessage", { chat_id: chatId, text: `No ${sport} picks open now. Try again later or say: Cook 5 odds` });
+      return;
+    }
+    await analyzeThenMintAll(chatId, take, `Safest · ${take.length} ${sport}`);
+  } catch (err) {
+    console.error("cookPredict:", err instanceof Error ? err.message : err);
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: "Could not finish cooking right now. Try: Cook 5 football games",
+    });
   }
-  let pool = await cookPool(listed.filter(cookablePick), band);
-  const safeish = pool.filter((p) => !p.odds || (p.odds >= 1.15 && p.odds <= 2.4));
-  if (safeish.length >= n) pool = safeish;
-  const researched = await researchPicks(pool, Math.max(n * 2, 12));
-  const ranked = [...researched.keep].sort(
-    (a, b) => (b.probability ?? 0) - (a.probability ?? 0) || (a.odds ?? 99) - (b.odds ?? 99),
-  );
-  const seen = new Set();
-  const take = [];
-  for (const p of ranked) {
-    const key = p.eventId || p.home + "|" + p.away;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    take.push(p);
-    if (take.length >= n) break;
-  }
-  if (!take.length) {
-    await tg("sendMessage", { chat_id: chatId, text: `No ${sport} picks open now.` });
-    return;
-  }
-  await analyzeThenMintAll(chatId, take, `Safest · ${take.length} ${sport}`);
 }
 
 async function cookOddsSlip(chatId: number, sport: BookSport, target: number, window: CookWindow) {
@@ -355,12 +365,6 @@ async function cookDaily2(chatId: number) {
     return;
   }
   await analyzeThenMintAll(chatId, take, "SportyBet · Daily 2 odds");
-}
-
-async function cookInstruction(chatId: number, instruction: string) {
-  const sport = (parseSport(instruction) || "football") as BookSport;
-  const window = parseCookWindow(instruction) || "today";
-  await cookPredict(chatId, sport, 5, window);
 }
 
 type TgUpdate = {
@@ -421,6 +425,30 @@ export async function handleTelegramUpdate(update: TgUpdate) {
 
   const lower = raw.toLowerCase();
 
+  // FIND_SAFER_NL_V1 — match first so safer/find games never fall through to HELP
+  if (
+    /check today|book the best|teams to score|book (me )?games|from (my )?instruction/i.test(lower) ||
+    /\b(safer|safe|safest|high confidence)\b/i.test(lower) ||
+    /\b(find|give me|get me|need|want|cook|build)\b.*\b(game|match|pick|selection|football|basketball)/i.test(
+      lower,
+    ) ||
+    /\b(football|basketball)\b.*\b(game|match|pick|today)/i.test(lower) ||
+    /\bgames?\b/i.test(lower)
+  ) {
+    const sport = (parseSport(raw) || "football") as BookSport;
+    const window = parseCookWindow(raw) || "today";
+    const nMatch = lower.match(/\b(\d{1,2})\b/);
+    const n = nMatch ? clampLegs(Number(nMatch[1]), 10) : 5;
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: /safer|safe|safest|high confidence/i.test(lower)
+        ? "Finding safest " + n + " " + sport + " picks… this can take a moment."
+        : "Cooking " + n + " " + sport + "…",
+    });
+    await cookPredict(chatId, sport, n, window);
+    return;
+  }
+
   if (isCmd(raw, "start") || /^\/start\b/i.test(raw)) {
     await tg("sendMessage", {
       chat_id: chatId,
@@ -454,29 +482,6 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     }
     const oddsMatch = lower.match(/(?:to\s+)?(\d+(?:\.\d+)?)\s*(?:odds|[x×])/i);
     await trimCode(chatId, code, oddsMatch ? clampOddsTarget(Number(oddsMatch[1])) : undefined);
-    return;
-  }
-
-  // FIND_SAFER_NL_V1 — safer / find games / give me games
-  if (
-    /check today|book the best|teams to score|book (me )?games|from (my )?instruction/i.test(lower) ||
-    /\b(safer|safe|safest|high confidence)\b/i.test(lower) ||
-    /\b(find|give me|get me|need|want|cook|build)\b.*\b(game|match|pick|selection|football|basketball)/i.test(
-      lower,
-    ) ||
-    /\b(football|basketball)\b.*\b(game|match|pick|today)/i.test(lower)
-  ) {
-    const sport = (parseSport(raw) || "football") as BookSport;
-    const window = parseCookWindow(raw) || "today";
-    const nMatch = lower.match(/\b(\d{1,2})\b/);
-    const n = nMatch ? clampLegs(Number(nMatch[1]), 10) : 5;
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: /safer|safe|safest|high confidence/i.test(lower)
-        ? "Finding safest " + n + " " + sport + " picks… this can take a moment."
-        : "Cooking " + n + " " + sport + "…",
-    });
-    await cookPredict(chatId, sport, n, window);
     return;
   }
 
@@ -538,19 +543,6 @@ export async function handleTelegramUpdate(update: TgUpdate) {
       reply_markup: codeKeyboard(loaded.shareCode),
     });
     await recordSlip(loaded.shareCode, play).catch(() => {});
-    return;
-  }
-
-  // FIND_SAFER_NL_V1 fallthrough
-  if (/\b(game|match|pick|football|basketball|odds|safer|safe)\b/i.test(lower)) {
-    const sport = (parseSport(raw) || "football") as BookSport;
-    const nMatch = lower.match(/\b(\d{1,2})\b/);
-    const n = nMatch ? clampLegs(Number(nMatch[1]), 10) : 5;
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: "Finding safest " + n + " " + sport + " picks… this can take a moment.",
-    });
-    await cookPredict(chatId, sport, n, parseCookWindow(raw) || "today");
     return;
   }
 
