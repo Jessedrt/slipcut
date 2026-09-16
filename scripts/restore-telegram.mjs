@@ -2,7 +2,8 @@
 import { readFileSync, writeFileSync, existsSync } from "fs";
 
 const path = "src/lib/telegram.ts";
-const b64Path = "scripts/telegram_full.b64";
+const p1 = "scripts/telegram.part1.txt";
+const p2 = "scripts/telegram.part2.txt";
 
 function isValid(src) {
   return (
@@ -14,19 +15,14 @@ function isValid(src) {
   );
 }
 
-if (existsSync(b64Path)) {
-  try {
-    const buf = Buffer.from(readFileSync(b64Path, "utf8").trim(), "base64");
-    const src = buf.toString("utf8");
-    if (isValid(src)) {
-      writeFileSync(path, buf);
-      console.log("telegram.ts restored from telegram_full.b64", buf.length);
-      process.exit(0);
-    }
-    console.warn("telegram_full.b64 invalid", buf.length);
-  } catch (e) {
-    console.warn("b64 restore failed", e);
+if (existsSync(p1) && existsSync(p2)) {
+  const src = readFileSync(p1, "utf8") + readFileSync(p2, "utf8");
+  if (isValid(src)) {
+    writeFileSync(path, src);
+    console.log("telegram.ts assembled from parts", src.length);
+    process.exit(0);
   }
+  console.warn("parts invalid", src.length);
 }
 
 if (existsSync(path) && isValid(readFileSync(path, "utf8"))) {
