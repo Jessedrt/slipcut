@@ -1,4 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { MiniApp } from "@/components/mini-app";
+import { MiniAppRefresh } from "@/components/mini-app-refresh";
 
-export const Route = createFileRoute("/app")({ component: MiniApp });
+export const Route = createFileRoute("/app")({ component: MiniAppRefresh });
