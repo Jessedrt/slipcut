@@ -31,7 +31,7 @@ export function verifyTelegramWebhookSecret(received, expected) {
   return actual.length === wanted.length && timingSafeEqual(actual, wanted);
 }
 
-/** Only the live production build may modify the Telegram bot's webhook. */
+/** @param {string | undefined} environment Only production may mutate Telegram's webhook. */
 export function shouldSetTelegramWebhook(environment) {
   return environment === "production";
 }
