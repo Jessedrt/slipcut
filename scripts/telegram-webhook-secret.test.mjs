@@ -35,8 +35,11 @@ test("requires a matching, nonempty webhook header", () => {
 });
 
 test("never registers webhooks in previews or local development", () => {
-  assert.equal(shouldSetTelegramWebhook("production"), true);
+  assert.equal(shouldSetTelegramWebhook("production", undefined, undefined), true);
+  assert.equal(shouldSetTelegramWebhook(undefined, "main", "1"), true);
+  assert.equal(shouldSetTelegramWebhook("preview", "main", "1"), true);
+  assert.equal(shouldSetTelegramWebhook(undefined, "main", undefined), false);
   for (const env of ["preview", "development", undefined, "staging"]) {
-    assert.equal(shouldSetTelegramWebhook(env), false);
+    assert.equal(shouldSetTelegramWebhook(env, "feature/test", "1"), false);
   }
 });

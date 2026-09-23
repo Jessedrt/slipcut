@@ -5,15 +5,19 @@ import {
   telegramWebhookSecret,
 } from "./telegram-webhook-secret.mjs";
 
-if (!shouldSetTelegramWebhook(process.env.VERCEL_ENV)) {
+if (
+  !shouldSetTelegramWebhook(
+    process.env.VERCEL_ENV,
+    process.env.VERCEL_GIT_COMMIT_REF,
+    process.env.VERCEL,
+  )
+) {
   console.log("[set-webhook] non-production build — skip Telegram mutations");
 } else {
   const token = process.env.TELEGRAM_BOT_TOKEN || "";
-  const base = process.env.VERCEL_PROJECT_PRODUCTION_URL
-    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-    : process.env.WEBHOOK_BASE_URL ||
-      process.env.APP_URL ||
-      "https://slipcut-jesse-5780.vercel.app";
+  // Keep Telegram on the canonical SlipCut domain. Generic APP_URL values have
+  // previously pointed this bot at an unrelated legacy Mini App.
+  const base = process.env.SLIPCUT_PUBLIC_URL || "https://slipcut-jesse-5780.vercel.app";
   const publicBase = base.replace(/\/$/, "");
   const webhookUrl = `${publicBase}/api/telegram`;
   const buildId = String(process.env.VERCEL_GIT_COMMIT_SHA || "production").slice(0, 12);
@@ -48,7 +52,7 @@ if (!shouldSetTelegramWebhook(process.env.VERCEL_ENV)) {
         drop_pending_updates: false,
         allowed_updates: ["message", "callback_query"],
       });
-      console.log("[set-webhook] production webhook registration succeeded");
+      console.log(`[set-webhook] production webhook registered at ${webhookUrl}`);
 
       await telegramPost("setChatMenuButton", {
         menu_button: {
@@ -72,7 +76,7 @@ if (!shouldSetTelegramWebhook(process.env.VERCEL_ENV)) {
       if (configuredUrl !== miniAppUrl) {
         throw new Error("Telegram did not return the expected Mini App menu URL");
       }
-      console.log("[set-webhook] default Telegram Mini App menu points to the current production build");
+      console.log(`[set-webhook] default Telegram Mini App menu registered at ${miniAppUrl}`);
     } catch (err) {
       console.error(
         "[set-webhook] registration failed:",
