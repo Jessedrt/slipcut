@@ -253,6 +253,7 @@ export type ProviderErrorCode =
 
 export type DiscoveryDiagnostics = {
   sport: BookSport;
+  window: CookWindow;
   fixturesReturned: number;
   fixturesInWindow: number;
   fixturesInEligibleLeagues: number;
@@ -887,6 +888,7 @@ export async function listUpcomingPicks(
 ): Promise<TicketPick[] | SportyFailure> {
   const diagnostics: DiscoveryDiagnostics = {
     sport,
+    window,
     fixturesReturned: 0,
     fixturesInWindow: 0,
     fixturesInEligibleLeagues: 0,
@@ -910,8 +912,15 @@ export async function listUpcomingPicks(
       marketId: requestedMarketIds(sport),
       pageSize: "100",
       pageNum: "1",
-      todayGames: "false",
-      timeline: "720",
+      todayGames: window === "today" ? "true" : "false",
+      timeline:
+        window === "soon" || window === "today"
+          ? "48"
+          : window === "tomorrow"
+            ? "72"
+            : window === "week" || window === "weekend"
+              ? "504"
+              : "720",
     });
     const payload = (await sportyGet(
       `/factsCenter/pcUpcomingEvents?${query.toString()}`,
@@ -1212,12 +1221,37 @@ export async function getEventDetail(eventId: string): Promise<EventDetail | nul
 export type RefreshedSelections = {
   available: TicketPick[];
   unavailable: Array<{ pick: TicketPick; reason: string }>;
+  error?: SportyFailure;
 };
 
 export async function refreshSelections(picks: TicketPick[]): Promise<RefreshedSelections> {
   const ids = [...new Set(picks.map((pick) => pick.sporty?.eventId).filter(Boolean))] as string[];
-  const details = await mapPool(ids, 6, (id) => getEventDetail(id));
-  const byId = new Map(ids.map((id, index) => [id, details[index]]));
+  const details = await mapPool(ids, 6, async (id) => {
+    try {
+      const body = (await sportyGet(
+        `/factsCenter/event?eventId=${encodeURIComponent(id)}&productId=3`,
+        { timeoutMs: 10_000 },
+      )) as { data?: EventDetail } | null;
+      return { event: body?.data ?? null };
+    } catch (error) {
+      const failure = error instanceof SportyProviderError
+        ? error
+        : new SportyProviderError("provider_unavailable", "SportyBet could not be reached.", true);
+      return {
+        event: null,
+        error: {
+          code: failure.code,
+          error: failure.code === "provider_timeout"
+            ? "SportyBet took too long while refreshing the selected outcomes."
+            : "SportyBet could not refresh the selected outcomes.",
+          retryable: failure.retryable,
+        } satisfies SportyFailure,
+      };
+    }
+  });
+  const providerFailure = details.find((item) => item.error)?.error;
+  if (providerFailure) return { available: [], unavailable: [], error: providerFailure };
+  const byId = new Map(ids.map((id, index) => [id, details[index]?.event ?? null]));
   const available: TicketPick[] = [];
   const unavailable: RefreshedSelections["unavailable"] = [];
 

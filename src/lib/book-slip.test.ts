@@ -41,6 +41,33 @@ describe("reviewed booking", () => {
     assert.deepEqual(result, { ok: false, code: "mint_failed", error: "Booking code creation failed. No code was created." });
   });
 
+  it("does not display a partial code when SportyBet reports unavailable outcomes", async () => {
+    const result = await mintReviewedSlip([pick(1)], "ng", dependencies({
+      mint: async () => ({ shareCode: "PARTIAL", shareURL: "https://example.test/PARTIAL", unavailable: 1 }),
+    }));
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.code, "selection_unavailable");
+  });
+
+  it("distinguishes refresh provider failure from an expired selection", async () => {
+    const result = await mintReviewedSlip([pick(1)], "ng", dependencies({
+      refresh: async () => ({
+        available: [],
+        unavailable: [],
+        error: { code: "provider_timeout", error: "SportyBet refresh timed out.", retryable: true },
+      }),
+    }));
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.code, "provider_timeout");
+  });
+
+  it("rejects two selections from the same event before refresh", async () => {
+    const rows = [pick(1), { ...pick(2), sporty: { ...pick(2).sporty!, eventId: "e-1" } }];
+    const result = await mintReviewedSlip(rows, "ng", dependencies());
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.code, "invalid_request");
+  });
+
   it("returns a real-shaped mint mock and respects manual removal", async () => {
     const rows = [pick(1), pick(2)];
     let refreshed = 0;

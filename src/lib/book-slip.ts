@@ -1,5 +1,6 @@
 import { combinedOdds } from "./workbench";
 import { mintShare, refreshSelections, sportyOf } from "./sportybet";
+import { uniqueEvents } from "./workbench";
 import type { TicketPick } from "./types";
 
 export type BookSlipResult =
@@ -13,7 +14,7 @@ export type BookSlipResult =
     }
   | {
       ok: false;
-      code: "invalid_request" | "selection_unavailable" | "mint_failed";
+      code: "invalid_request" | "selection_unavailable" | "provider_unavailable" | "provider_timeout" | "provider_rejected" | "mint_failed";
       error: string;
       available?: TicketPick[];
       unavailable?: Array<{ pick: TicketPick; reason: string }>;
@@ -41,7 +42,22 @@ export async function mintReviewedSlip(
       error: "Choose between 1 and 15 selections before creating a code.",
     };
   }
-  const refreshed = await dependencies.refresh(picks);
+  const unique = uniqueEvents(picks);
+  if (unique.picks.length !== picks.length) {
+    return {
+      ok: false,
+      code: "invalid_request",
+      error: "Choose only one selection from each event before creating a code.",
+    };
+  }
+  const refreshed = await dependencies.refresh(unique.picks);
+  if (refreshed.error) {
+    return {
+      ok: false,
+      code: refreshed.error.code === "provider_timeout" ? "provider_timeout" : refreshed.error.code === "provider_rejected" ? "provider_rejected" : "provider_unavailable",
+      error: refreshed.error.error,
+    };
+  }
   if (refreshed.unavailable.length) {
     return {
       ok: false,
@@ -68,6 +84,14 @@ export async function mintReviewedSlip(
       ok: false,
       code: "mint_failed",
       error: "Booking code creation failed. No code was created.",
+    };
+  }
+  if (minted.unavailable > 0) {
+    return {
+      ok: false,
+      code: "selection_unavailable",
+      error: "SportyBet reported that one or more outcomes became unavailable. No code was accepted; review and retry.",
+      available: refreshed.available,
     };
   }
   return {

@@ -10,6 +10,15 @@ export const MAX_LEGS = 35;
 
 export type CookWindow = "soon" | "today" | "tomorrow" | "week" | "fortnight" | "weekend" | "upcoming";
 export type OddsBand = { min: number; max: number };
+export type ChatBuildRisk = "conservative" | "balanced" | "aggressive";
+export type ChatBuildDraft = {
+  sport?: Extract<BookSport, "football" | "basketball">;
+  mode?: "games" | "odds";
+  games?: number;
+  targetOdds?: number;
+  risk?: ChatBuildRisk;
+  window?: Extract<CookWindow, "today" | "tomorrow" | "weekend" | "upcoming">;
+};
 
 /** Strip zero-width characters Telegram clients sometimes inject. */
 export function cleanText(raw: string) {
@@ -81,6 +90,71 @@ export function parseSport(text: string): BookSport | null {
   return null;
 }
 
+export function parseRisk(text: string): ChatBuildRisk | null {
+  if (/\b(aggressive|risky|high risk)\b/i.test(text)) return "aggressive";
+  if (/\b(balanced|medium risk|normal risk)\b/i.test(text)) return "balanced";
+  if (/\b(conservative|low risk|safer|safest|safe)\b/i.test(text)) return "conservative";
+  return null;
+}
+
+/**
+ * Parse a complete build request, or apply a short correction to a prior one.
+ * Defaults are deliberately applied only when the message clearly asks to build;
+ * a bare word such as "odds" remains incomplete so the bot asks one focused question.
+ */
+export function parseChatBuildDraft(text: string, prior: ChatBuildDraft = {}): ChatBuildDraft | null {
+  const clean = cleanText(text);
+  const bareNumber = clean.match(/^\d+(?:\.\d+)?$/)?.[0];
+  const sport = parseSport(clean);
+  const targetOdds = parseOddsTarget(clean);
+  const games = parseLegCount(clean);
+  const risk = parseRisk(clean);
+  const explicitWindow = /\b(today|tonight|tomorrow|weekend|upcoming|next games?)\b/i.test(clean)
+    ? parseCookWindow(clean)
+    : null;
+  const correction = /\b(instead|change|switch|make it|rather)\b/i.test(clean);
+  const buildVerb = /\b(cook|build|find|give|get|need|want|games?|picks?|odds?|[x×])\b/i.test(clean);
+  const shortCorrection = Boolean(prior.mode) && Boolean(sport || risk || explicitWindow) && clean.split(/\s+/).length <= 5;
+  const numericFollowup = Boolean(prior.mode && bareNumber);
+  if (!buildVerb && !correction && !shortCorrection && !numericFollowup) return null;
+
+  const draft: ChatBuildDraft = { ...prior };
+  if (sport === "football" || sport === "basketball") draft.sport = sport;
+  if (risk) draft.risk = risk;
+  if (explicitWindow === "today" || explicitWindow === "tomorrow" || explicitWindow === "weekend" || explicitWindow === "upcoming") {
+    draft.window = explicitWindow;
+  }
+  if (targetOdds != null || (prior.mode === "odds" && bareNumber)) {
+    draft.mode = "odds";
+    draft.targetOdds = Math.min(50, Math.max(1.5, targetOdds ?? Number(bareNumber)));
+    delete draft.games;
+  } else if (games != null || (prior.mode === "games" && bareNumber)) {
+    draft.mode = "games";
+    draft.games = Math.min(15, Math.max(2, games ?? Number(bareNumber)));
+    delete draft.targetOdds;
+  } else if (/\bodds?\b|[x×]/i.test(clean)) {
+    draft.mode = "odds";
+    delete draft.games;
+  } else if (/\bgames?|\bpicks?\b/i.test(clean) || correction || shortCorrection) {
+    draft.mode ??= "games";
+  }
+
+  if (buildVerb && draft.mode !== "odds") {
+    draft.mode ??= "games";
+    draft.games ??= 5;
+  }
+  draft.sport ??= "football";
+  draft.risk ??= "conservative";
+  draft.window ??= "today";
+  return draft;
+}
+
+export function missingChatBuildField(draft: ChatBuildDraft): "targetOdds" | "games" | null {
+  if (draft.mode === "odds" && draft.targetOdds == null) return "targetOdds";
+  if (draft.mode === "games" && draft.games == null) return "games";
+  return null;
+}
+
 export function isChampionsLeague(league: string) {
   const l = (league ?? "").toLowerCase();
   if (/women|uwcl|feminine|femenin/.test(l)) return false;
@@ -97,6 +171,7 @@ export function parseCookWindow(text: string): CookWindow {
   if (/\btoday\b|\btonight\b|\bthis (?:evening|night)\b/i.test(text)) return "today";
   if (/\btomorrow\b|\btom\b/i.test(text)) return "tomorrow";
   if (/weekends?|\bsat(?:urday)?s?\b|\bsun(?:day)?s?\b/i.test(text)) return "weekend";
+  if (/\bupcoming\b|\bnext games?\b/i.test(text)) return "upcoming";
   if (/2\s*weeks?|two weeks|fortnight/i.test(text)) return "fortnight";
   if (/long\s*shots?|longshot|1\s*week|one week|this week/i.test(text)) return "week";
   if (/soon|next\s*hours?|in\s*a\s*bit/i.test(text)) return "soon";

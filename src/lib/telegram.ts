@@ -1,11 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { buildSlip, type BuildWindow } from "./build-slip";
+import { buildSlip, type BuildSlipRequest } from "./build-slip";
+import { mintReviewedSlip } from "./book-slip";
 import {
   loadBookingCode,
-  mintShare,
-  sportyOf,
-  windowLabel,
-  type CookWindow,
 } from "./sportybet";
 import {
   markUpdateSeen,
@@ -13,7 +10,6 @@ import {
   latestCode,
 } from "./study";
 import {
-  combinedOdds,
   formatKickoff,
   formatOdds,
   uniqueEvents,
@@ -23,13 +19,13 @@ import {
 } from "./workbench";
 import {
   MAX_LEGS,
-  clampLegs,
   clampOddsTarget,
   isCmd,
-  parseCookWindow,
-  parseSport,
+  missingChatBuildField,
+  parseChatBuildDraft,
+  type ChatBuildDraft,
 } from "./intent";
-import type { AnalyzedPick, BookSport, TicketPick } from "./types";
+import type { AnalyzedPick, TicketPick } from "./types";
 
 export type ChatBridge = {
   send: (method: string, payload: Record<string, unknown>) => Promise<void>;
@@ -51,6 +47,11 @@ Examples:
 Use Open SlipCut for the full builder and manual review.`;
 
 const REMOVE_DESK_KEYBOARD = { remove_keyboard: true } as const;
+const CHAT_BUILD_TTL_MS = 30 * 60_000;
+const telegramGlobal = globalThis as typeof globalThis & {
+  __slipcutLastBuilds__?: Map<number, { draft: ChatBuildDraft; expires: number }>;
+};
+const lastBuilds = telegramGlobal.__slipcutLastBuilds__ ??= new Map();
 
 function esc(s: string) {
   return s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
@@ -116,8 +117,7 @@ async function mintAndReply(chatId: number, picks: TicketPick[], title: string) 
   const unique = uniqueEvents(picks);
   const work = unique.picks.slice(0, MAX_LEGS);
   const lines = pickLines(work);
-  const selections = sportyOf(work);
-  if (!selections.length) {
+  if (!work.some((pick) => pick.sporty?.eventId)) {
     await tg("sendMessage", {
       chat_id: chatId,
       parse_mode: "HTML",
@@ -125,36 +125,32 @@ async function mintAndReply(chatId: number, picks: TicketPick[], title: string) 
     });
     return;
   }
-  const minted = await mintShare(selections, "ng");
-  if ("error" in minted) {
-    console.error("[mint]", minted.error, "n=", selections.length);
-    const combo = combinedOdds(work);
+  const booked = await mintReviewedSlip(work, "ng");
+  if (!booked.ok) {
+    console.error("[mint]", booked.code, booked.error, "n=", work.length);
+    const remaining = booked.available ?? [];
     await tg("sendMessage", {
       chat_id: chatId,
       parse_mode: "HTML",
       text: [
-        esc(title) + (combo ? ` · ${formatOdds(combo)}` : ""),
-        "Could not mint SportyBet code — safest picks:",
-        "",
-        ...lines,
-        "",
-        "Say again: Find safer football games today",
+        esc(booked.error),
+        remaining.length ? `${remaining.length} refreshed selection(s) remain available. Review them in Open SlipCut before retrying.` : "No booking code was created.",
       ]
         .join("\n")
         .slice(0, 3900),
     });
     return;
   }
-  const code = minted.shareCode;
-  const combo = combinedOdds(work);
-  const head = `${esc(title)}${combo ? ` · ${formatOdds(combo)}` : ""} · ${work.length} games`;
+  const code = booked.shareCode;
+  const combo = booked.combinedOdds;
+  const head = `${esc(title)}${combo ? ` · ${formatOdds(combo)}` : ""} · ${booked.picks.length} games`;
   await tg("sendMessage", {
     chat_id: chatId,
     parse_mode: "HTML",
-    text: [`<code>${esc(code)}</code>`, head, "", ...lines].join("\n").slice(0, 3900),
+    text: [`<code>${esc(code)}</code>`, head, "", ...pickLines(booked.picks)].join("\n").slice(0, 3900),
     reply_markup: codeKeyboard(code),
   });
-  await recordSlip(code, work).catch(() => {});
+  await recordSlip(code, booked.picks).catch(() => {});
 }
 
 async function resolveCode(raw: string): Promise<string | null> {
@@ -232,76 +228,62 @@ async function splitCode(chatId: number, code: string, parts: number) {
   }
 }
 
-async function cookPredict(chatId: number, sport: BookSport, n: number, window: CookWindow) {
+async function cookRequest(chatId: number, request: BuildSlipRequest) {
   try {
-    if (sport !== "football" && sport !== "basketball") {
-      await tg("sendMessage", { chat_id: chatId, text: "The shared builder currently supports football and basketball." });
-      return;
-    }
-    const result = await buildSlip({
-      sport,
-      mode: "games",
-      games: Math.min(15, Math.max(2, n)),
-      risk: "conservative",
-      window: miniWindow(window),
-    });
+    const result = await buildSlip(request);
     if (!result.ok) {
-      await tg("sendMessage", { chat_id: chatId, text: result.error });
+      const next = result.code === "no_events" && request.window === "today"
+        ? " Try ‘upcoming’ to widen the window."
+        : "";
+      await tg("sendMessage", { chat_id: chatId, text: `${result.error}${next}` });
       return;
     }
-    await mintAndReply(chatId, result.selections, `Safest · ${result.actualGames} ${sport}`);
+    const target = request.mode === "odds" ? ` · target ${formatOdds(request.targetOdds ?? 0)}` : "";
+    await mintAndReply(
+      chatId,
+      result.selections,
+      `${result.policy.label} · ${result.actualGames} ${request.sport}${target}`,
+    );
   } catch (err) {
-    console.error("cookPredict:", err instanceof Error ? err.message : err);
+    console.error("cookRequest:", err instanceof Error ? err.message : err);
     await tg("sendMessage", {
       chat_id: chatId,
-      text: "Could not finish cooking. Try: Cook 5 football games",
+      text: "SlipCut could not finish the analysis. No booking code was created. Try again shortly.",
     });
   }
-}
-
-async function cookOddsSlip(chatId: number, sport: BookSport, target: number, window: CookWindow) {
-  if (sport !== "football" && sport !== "basketball") {
-    await tg("sendMessage", { chat_id: chatId, text: "The shared builder currently supports football and basketball." });
-    return;
-  }
-  const result = await buildSlip({
-    sport,
-    mode: "odds",
-    targetOdds: Math.min(50, Math.max(1.5, target)),
-    risk: "balanced",
-    window: miniWindow(window),
-  });
-  if (!result.ok) {
-    await tg("sendMessage", { chat_id: chatId, text: result.error });
-    return;
-  }
-  const actual = result.actualCombinedOdds;
-  const span = windowLabel(window);
-  await mintAndReply(
-    chatId,
-    result.selections,
-    `${result.actualGames} games ${sport}${span ? ` · ${span}` : ""}${actual ? ` · ${formatOdds(actual)}` : ""}`,
-  );
 }
 
 async function cookDaily2(chatId: number) {
-  const result = await buildSlip({
+  await cookRequest(chatId, {
     sport: "football",
     mode: "odds",
     targetOdds: 2,
     risk: "conservative",
     window: "today",
   });
-  if (!result.ok) {
-    await tg("sendMessage", { chat_id: chatId, text: result.error });
-    return;
-  }
-  await mintAndReply(chatId, result.selections, "SportyBet · Daily 2 odds");
 }
 
-function miniWindow(window: CookWindow): BuildWindow {
-  if (window === "tomorrow" || window === "weekend" || window === "today") return window;
-  return window === "soon" ? "today" : "upcoming";
+function activeDraft(chatId: number) {
+  const saved = lastBuilds.get(chatId);
+  if (!saved || saved.expires <= Date.now()) {
+    lastBuilds.delete(chatId);
+    return {};
+  }
+  return saved.draft;
+}
+
+function saveDraft(chatId: number, draft: ChatBuildDraft) {
+  lastBuilds.set(chatId, { draft, expires: Date.now() + CHAT_BUILD_TTL_MS });
+}
+
+function completeBuildRequest(draft: ChatBuildDraft): BuildSlipRequest | null {
+  if (!draft.sport || !draft.mode || !draft.risk || !draft.window) return null;
+  if (draft.mode === "odds") {
+    if (draft.targetOdds == null) return null;
+    return { sport: draft.sport, mode: "odds", targetOdds: draft.targetOdds, risk: draft.risk, window: draft.window };
+  }
+  if (draft.games == null) return null;
+  return { sport: draft.sport, mode: "games", games: draft.games, risk: draft.risk, window: draft.window };
 }
 
 type TgUpdate = {
@@ -379,45 +361,39 @@ export async function handleTelegramUpdate(update: TgUpdate) {
 
   if (isCmd(raw, "2odds") || /^(2odds|rollover)\s*$/i.test(raw)) {
     await tg("sendMessage", { chat_id: chatId, text: "Cooking Daily 2 odds…" });
+    saveDraft(chatId, { sport: "football", mode: "odds", targetOdds: 2, risk: "conservative", window: "today" });
     await cookDaily2(chatId);
     return;
   }
 
-  const oddsMatch = lower.match(/(?:cook\s+)?(\d+(?:\.\d+)?)\s*(?:odds|[x×])/i);
-  if (oddsMatch) {
-    const target = clampOddsTarget(Number(oddsMatch[1]));
-    const sport = (parseSport(raw) || "football") as BookSport;
-    const window = parseCookWindow(raw) || "today";
-    await tg("sendMessage", { chat_id: chatId, text: `Cooking ${formatOdds(target)} ${sport}…` });
-    await cookOddsSlip(chatId, sport, target, window);
-    return;
-  }
-
-  // Resolve general build requests once, after more specific odds commands.
-  if (
-    /\b(safer|safe|safest|high confidence|football|basketball|games?|picks?)\b/i.test(lower) ||
-    /\b(find|give me|get me|need|want|cook|build)\b.*\b(game|match|pick|football|basketball)/i.test(lower) ||
-    /\b(football|basketball)\b.*\b(game|match|today)/i.test(lower)
-  ) {
-    const sport = (parseSport(raw) || "football") as BookSport;
-    const window = parseCookWindow(raw) || "today";
-    const nMatch = lower.match(/\b(\d{1,2})\b/);
-    const n = nMatch ? clampLegs(Number(nMatch[1]), 10) : 5;
+  const draft = parseChatBuildDraft(raw, activeDraft(chatId));
+  if (draft) {
+    saveDraft(chatId, draft);
+    const missing = missingChatBuildField(draft);
+    if (missing === "targetOdds") {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: "What combined odds should I target? For example: 5 odds.",
+      });
+      return;
+    }
+    if (missing === "games") {
+      await tg("sendMessage", { chat_id: chatId, text: "How many games should I build? Send a number from 2 to 15." });
+      return;
+    }
+    const request = completeBuildRequest(draft);
+    if (!request) {
+      await tg("sendMessage", { chat_id: chatId, text: "Describe the slip in one message, for example: Cook 5 football games today." });
+      return;
+    }
+    const requestLabel = request.mode === "odds"
+      ? `${formatOdds(request.targetOdds ?? 0)} ${request.sport}`
+      : `${request.games} ${request.sport} games`;
     await tg("sendMessage", {
       chat_id: chatId,
-      text: /safer|safe|safest|high confidence/i.test(lower)
-        ? `Finding safest ${n} ${sport} picks… this can take a moment.`
-        : `Cooking ${n} ${sport}…`,
+      text: `Building ${requestLabel} · ${request.risk} · ${request.window}…`,
     });
-    await cookPredict(chatId, sport, n, window);
-    return;
-  }
-
-  if (/\bodds?\b/i.test(lower)) {
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: "What combined odds should I target? Send it in one message, for example: Cook 5 odds football.",
-    });
+    await cookRequest(chatId, request);
     return;
   }
 

@@ -25,7 +25,11 @@ export default defineHandler(async (event) => {
   const result = await mintReviewedSlip(body.picks as TicketPick[], "ng");
   if (!result.ok) {
     return Response.json(result, {
-      status: result.code === "selection_unavailable" ? 409 : 422,
+      status: result.code === "selection_unavailable"
+        ? 409
+        : result.code === "provider_timeout" || result.code === "provider_unavailable"
+          ? 503
+          : 422,
     });
   }
   const sports = [...new Set(result.picks.map((pick) => pick.sport))];

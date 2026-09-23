@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 const root = new URL("../src/routes/__root.tsx", import.meta.url);
 const miniApp = new URL("../src/components/mini-app-refresh.tsx", import.meta.url);
 const telegram = new URL("../src/lib/telegram.ts", import.meta.url);
+const splash = new URL("../public/slipcut-splash-icon.svg", import.meta.url);
 
 test("loads Telegram Mini App SDK before application scripts", async () => {
   const source = await readFile(root, "utf8");
@@ -34,9 +35,16 @@ test("unknown messages do not repeat the full help options", async () => {
   assert.doesNotMatch(source, /await tg\("sendMessage", \{ chat_id: chatId, text: HELP \}\)/);
 });
 
-test("specific odds requests are resolved before general sport requests", async () => {
+test("bot routes builds through one structured conversation parser", async () => {
   const source = await readFile(telegram, "utf8");
-  const odds = source.indexOf("const oddsMatch = lower.match(/(?:cook");
-  const general = source.indexOf("// Resolve general build requests once");
-  assert.ok(odds >= 0 && odds < general);
+  assert.match(source, /parseChatBuildDraft\(raw, activeDraft\(chatId\)\)/);
+  assert.equal((source.match(/parseChatBuildDraft\(raw/g) ?? []).length, 1);
+  assert.match(source, /missingChatBuildField\(draft\)/);
+});
+
+test("Telegram splash icon is a 512 square SVG with one path", async () => {
+  const source = await readFile(splash, "utf8");
+  assert.match(source, /viewBox="0 0 512 512"/);
+  assert.equal((source.match(/<path\b/g) ?? []).length, 1);
+  assert.doesNotMatch(source, /<(?:rect|circle|polygon|image)\b/);
 });

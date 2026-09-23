@@ -41,6 +41,22 @@ export type BuildSelection = TicketPick & {
   risks: string[];
 };
 
+export type AnalysisDiagnostics = {
+  discovered: number;
+  eligibleBeforeScoring: number;
+  researched: number;
+  researchFallbackUsed: boolean;
+  rejected: {
+    wrongSport: number;
+    notCookable: number;
+    outsideRiskOdds: number;
+    marketFamily: number;
+    belowScore: number;
+    duplicateEvents: number;
+  };
+  selected: number;
+};
+
 export type BuildSlipSuccess = {
   ok: true;
   requested: BuildSlipRequest;
@@ -51,6 +67,7 @@ export type BuildSlipSuccess = {
   actualGames: number;
   selections: BuildSelection[];
   diagnostics?: DiscoveryDiagnostics;
+  analysis: AnalysisDiagnostics;
   notice?: string;
 };
 
@@ -60,6 +77,7 @@ export type BuildSlipFailure = {
   error: string;
   retryable?: boolean;
   diagnostics?: DiscoveryDiagnostics;
+  analysis?: AnalysisDiagnostics;
 };
 
 export type BuildSlipResult = BuildSlipSuccess | BuildSlipFailure;
@@ -187,17 +205,17 @@ function explainSelection(pick: TicketPick, score: number, policy: RiskPolicy): 
   };
 }
 
-function researchWithin<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+function researchWithin<T>(promise: Promise<T>, ms: number): Promise<{ value: T | null; fallback: boolean }> {
   return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(null), ms);
+    const timer = setTimeout(() => resolve({ value: null, fallback: true }), ms);
     promise.then(
       (value) => {
         clearTimeout(timer);
-        resolve(value);
+        resolve({ value, fallback: false });
       },
       () => {
         clearTimeout(timer);
-        resolve(null);
+        resolve({ value: null, fallback: true });
       },
     );
   });
@@ -220,43 +238,82 @@ export async function buildSlip(
   );
   if (isFailure(discovered)) return { ok: false, ...discovered };
 
+  const analysis: AnalysisDiagnostics = {
+    discovered: discovered.length,
+    eligibleBeforeScoring: 0,
+    researched: 0,
+    researchFallbackUsed: false,
+    rejected: {
+      wrongSport: 0,
+      notCookable: 0,
+      outsideRiskOdds: 0,
+      marketFamily: 0,
+      belowScore: 0,
+      duplicateEvents: 0,
+    },
+    selected: 0,
+  };
   const eligible = discovered.filter((pick) => {
     const odds = pick.odds ?? 0;
-    return (
-      pick.sport === request.sport &&
-      cookablePick(pick) &&
-      odds >= policy.minOdds &&
-      odds <= policy.maxOdds &&
-      allowedFamily(pick, request.risk)
-    );
+    if (pick.sport !== request.sport) {
+      analysis.rejected.wrongSport += 1;
+      return false;
+    }
+    if (!cookablePick(pick)) {
+      analysis.rejected.notCookable += 1;
+      return false;
+    }
+    if (odds < policy.minOdds || odds > policy.maxOdds) {
+      analysis.rejected.outsideRiskOdds += 1;
+      return false;
+    }
+    if (!allowedFamily(pick, request.risk)) {
+      analysis.rejected.marketFamily += 1;
+      return false;
+    }
+    return true;
   });
+  analysis.eligibleBeforeScoring = eligible.length;
   if (!eligible.length) {
+    console.info("[slipcut.analysis]", JSON.stringify({ sport: request.sport, risk: request.risk, ...analysis, code: "no_eligible_markets" }));
     return {
       ok: false,
       code: "no_eligible_markets",
       error: `No open ${request.sport} markets matched the ${policy.label.toLowerCase()} rules.`,
+      analysis,
     };
   }
 
-  const research = await researchWithin(
+  const researchResult = await researchWithin(
     dependencies.research(eligible, Math.min(30, Math.max(requestedCount * 2, 12))),
     32_000,
   );
+  const research = researchResult.value;
+  analysis.researchFallbackUsed = researchResult.fallback;
+  analysis.researched = research?.keep.length ?? 0;
   const researchedById = new Map((research?.keep ?? []).map((pick) => [pick.id, pick]));
-  const ranked = eligible
+  const scored = eligible
     .map((pick) => {
       const researched = researchedById.get(pick.id);
       const score = Math.round(researched?.probability ?? deskScore(pick));
       return explainSelection({ ...pick, ...researched }, score, policy);
     })
-    .filter((pick) => pick.modelScore >= policy.minModelScore)
+  const ranked = scored
+    .filter((pick) => {
+      if (pick.modelScore >= policy.minModelScore) return true;
+      analysis.rejected.belowScore += 1;
+      return false;
+    })
     .sort((a, b) => b.modelScore - a.modelScore || (a.odds ?? 99) - (b.odds ?? 99));
   const deduped = uniqueEvents(ranked).picks;
+  analysis.rejected.duplicateEvents = ranked.length - deduped.length;
   if (!deduped.length) {
+    console.info("[slipcut.analysis]", JSON.stringify({ sport: request.sport, risk: request.risk, ...analysis, code: "no_eligible_markets" }));
     return {
       ok: false,
       code: "no_eligible_markets",
       error: `Markets were available, but none passed the ${policy.label.toLowerCase()} analysis rules.`,
+      analysis,
     };
   }
 
@@ -278,6 +335,8 @@ export async function buildSlip(
       ? `${request.games} games were requested, but only ${selections.length} passed the analysis rules.`
       : `The eligible selections reached ${actualCombinedOdds?.toFixed(2) ?? "unknown"} odds, below the requested ${(request.targetOdds ?? 0).toFixed(2)}. No unsupported leg was added.`
     : undefined;
+  analysis.selected = selections.length;
+  console.info("[slipcut.analysis]", JSON.stringify({ sport: request.sport, risk: request.risk, ...analysis }));
 
   return {
     ok: true,
@@ -288,6 +347,7 @@ export async function buildSlip(
     requestedGames: request.mode === "games" ? request.games ?? null : null,
     actualGames: selections.length,
     selections,
+    analysis,
     notice,
   };
 }

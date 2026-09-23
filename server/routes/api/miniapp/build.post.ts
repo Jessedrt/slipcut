@@ -16,7 +16,19 @@ export default defineHandler(async (event) => {
   }
   const request = validateBuildRequest(body);
   if (!request.ok) return Response.json(request, { status: 400 });
+  const startedAt = Date.now();
   const result = await buildSlip(request.value);
+  console.info("[miniapp.build]", JSON.stringify({
+    sport: request.value.sport,
+    mode: request.value.mode,
+    risk: request.value.risk,
+    window: request.value.window,
+    ok: result.ok,
+    code: result.ok ? "ok" : result.code,
+    selected: result.ok ? result.actualGames : 0,
+    targetReached: result.ok ? result.targetReached : null,
+    durationMs: Date.now() - startedAt,
+  }));
   const status = result.ok
     ? 200
     : result.code === "provider_timeout" || result.code === "provider_unavailable"
