@@ -20,12 +20,23 @@ test("hydrates signed Telegram initData after the Web App SDK is ready", async (
   assert.match(source, /telegramWebApp\(\)\?\.initData \?\? ""/);
 });
 
-test("persistent bot keyboard excludes Predict and UCL", async () => {
+test("bot removes the repetitive persistent keyboard", async () => {
   const source = await readFile(telegram, "utf8");
-  const start = source.indexOf("function deskKeyboard()");
-  const end = source.indexOf("\n}\n", start);
-  const keyboard = source.slice(start, end);
-  assert.doesNotMatch(keyboard, /text: "Predict"/);
-  assert.doesNotMatch(keyboard, /text: "UCL"/);
-  assert.match(source, /reply_markup: deskKeyboard\(\)/);
+  assert.doesNotMatch(source, /function deskKeyboard\(\)/);
+  assert.doesNotMatch(source, /is_persistent:\s*true/);
+  assert.match(source, /REMOVE_DESK_KEYBOARD = \{ remove_keyboard: true \}/);
+  assert.match(source, /reply_markup: REMOVE_DESK_KEYBOARD/);
+});
+
+test("unknown messages do not repeat the full help options", async () => {
+  const source = await readFile(telegram, "utf8");
+  assert.match(source, /I couldn't understand that\./);
+  assert.doesNotMatch(source, /await tg\("sendMessage", \{ chat_id: chatId, text: HELP \}\)/);
+});
+
+test("specific odds requests are resolved before general sport requests", async () => {
+  const source = await readFile(telegram, "utf8");
+  const odds = source.indexOf("const oddsMatch = lower.match(/(?:cook");
+  const general = source.indexOf("// Resolve general build requests once");
+  assert.ok(odds >= 0 && odds < general);
 });

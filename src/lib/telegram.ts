@@ -39,22 +39,18 @@ export const chatBridge = new AsyncLocalStorage<ChatBridge>();
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
 const TG_TIMEOUT_MS = 20_000;
 
-const HELP = `SlipCut live · safer cook on
+const HELP = `SlipCut is ready.
 
-Try: Find safer football games today · Cook 5 football games · Cook 30 odds · 2odds · trim · split into 2 · paste a code`;
+Describe the complete slip you want in one message, or paste a SportyBet booking code.
 
-function deskKeyboard() {
-  return {
-    keyboard: [
-      [{ text: "Engine" }, { text: "Analyze" }, { text: "Optimize" }],
-      [{ text: "Live" }, { text: "Book" }, { text: "Convert" }],
-      [{ text: "Help" }],
-    ],
-    resize_keyboard: true,
-    is_persistent: true,
-    input_field_placeholder: "Paste a code, or say 5 football games",
-  };
-}
+Examples:
+• Cook 5 football games today
+• Cook 5 odds basketball
+• 2odds
+
+Use Open SlipCut for the full builder and manual review.`;
+
+const REMOVE_DESK_KEYBOARD = { remove_keyboard: true } as const;
 
 function esc(s: string) {
   return s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
@@ -339,49 +335,22 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   const chatId = msg.chat.id;
   const raw = String(msg.text || "").trim();
   if (!raw) {
-    await tg("sendMessage", { chat_id: chatId, text: HELP });
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: "Send your request as text, paste a SportyBet code, or use /help.",
+      reply_markup: REMOVE_DESK_KEYBOARD,
+    });
     return;
   }
   if (update.update_id && !(await markUpdateSeen(update.update_id).catch(() => true))) return;
   const lower = raw.toLowerCase();
 
-  // FORCE_COOK_V1 — any mention of games/safer/football cooks immediately
-  if (/safer|safe|safest|football|basketball|\bgames?\b|\bpicks?\b/i.test(lower)) {
-    const sport = (parseSport(raw) || "football") as BookSport;
-    const window = parseCookWindow(raw) || "today";
-    const nMatch = lower.match(/\b(\d{1,2})\b/);
-    const n = nMatch ? clampLegs(Number(nMatch[1]), 10) : 5;
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: "✓ Finding safest " + n + " " + sport + " picks… this can take a moment.",
-    });
-    await cookPredict(chatId, sport, n, window);
-    return;
-  }
-
-  // FIND_SAFER_NL_V1
-  if (
-    /\b(safer|safe|safest|high confidence)\b/i.test(lower) ||
-    /\b(find|give me|get me|need|want|cook|build)\b.*\b(game|match|pick|football|basketball)/i.test(lower) ||
-    /\b(football|basketball)\b.*\b(game|match|today)/i.test(lower) ||
-    /\bgames?\b/i.test(lower)
-  ) {
-    const sport = (parseSport(raw) || "football") as BookSport;
-    const window = parseCookWindow(raw) || "today";
-    const nMatch = lower.match(/\b(\d{1,2})\b/);
-    const n = nMatch ? clampLegs(Number(nMatch[1]), 10) : 5;
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: /safer|safe|safest|high confidence/i.test(lower)
-        ? `Finding safest ${n} ${sport} picks… this can take a moment.`
-        : `Cooking ${n} ${sport}…`,
-    });
-    await cookPredict(chatId, sport, n, window);
-    return;
-  }
-
   if (isCmd(raw, "start") || /^\/start\b/i.test(raw) || isCmd(raw, "help") || /^\/?help\b/i.test(raw)) {
-    await tg("sendMessage", { chat_id: chatId, text: HELP, reply_markup: deskKeyboard() });
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: HELP,
+      reply_markup: REMOVE_DESK_KEYBOARD,
+    });
     return;
   }
 
@@ -424,13 +393,31 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     return;
   }
 
-  // Never treat natural language as a booking code
-  if (/\b(find|safer|safe|football|basketball|games?|today|cook|give|odds)\b/i.test(raw)) {
+  // Resolve general build requests once, after more specific odds commands.
+  if (
+    /\b(safer|safe|safest|high confidence|football|basketball|games?|picks?)\b/i.test(lower) ||
+    /\b(find|give me|get me|need|want|cook|build)\b.*\b(game|match|pick|football|basketball)/i.test(lower) ||
+    /\b(football|basketball)\b.*\b(game|match|today)/i.test(lower)
+  ) {
     const sport = (parseSport(raw) || "football") as BookSport;
-    const nMatch = raw.toLowerCase().match(/\b(\d{1,2})\b/);
+    const window = parseCookWindow(raw) || "today";
+    const nMatch = lower.match(/\b(\d{1,2})\b/);
     const n = nMatch ? clampLegs(Number(nMatch[1]), 10) : 5;
-    await tg("sendMessage", { chat_id: chatId, text: "✓ Cooking " + n + " safest " + sport + " picks…" });
-    await cookPredict(chatId, sport, n, parseCookWindow(raw) || "today");
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: /safer|safe|safest|high confidence/i.test(lower)
+        ? `Finding safest ${n} ${sport} picks… this can take a moment.`
+        : `Cooking ${n} ${sport}…`,
+    });
+    await cookPredict(chatId, sport, n, window);
+    return;
+  }
+
+  if (/\bodds?\b/i.test(lower)) {
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: "What combined odds should I target? Send it in one message, for example: Cook 5 odds football.",
+    });
     return;
   }
 
@@ -452,5 +439,9 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     return;
   }
 
-  await tg("sendMessage", { chat_id: chatId, text: HELP });
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: "I couldn't understand that. Describe the slip in one message, paste a SportyBet code, or send /help.",
+    reply_markup: REMOVE_DESK_KEYBOARD,
+  });
 }
