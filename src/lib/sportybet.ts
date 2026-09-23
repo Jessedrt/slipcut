@@ -241,6 +241,57 @@ type EventDetail = {
   markets?: EventMarket[];
 };
 
+export type ProviderErrorCode =
+  | "provider_unavailable"
+  | "provider_timeout"
+  | "provider_rejected"
+  | "no_events"
+  | "no_markets"
+  | "no_eligible_markets"
+  | "analysis_failed"
+  | "mint_failed";
+
+export type DiscoveryDiagnostics = {
+  sport: BookSport;
+  fixturesReturned: number;
+  fixturesInWindow: number;
+  fixturesInEligibleLeagues: number;
+  eventsWithMarkets: number;
+  marketsParsed: number;
+  rejected: {
+    staleOrLive: number;
+    outsideWindow: number;
+    league: number;
+    noMarkets: number;
+    noEligibleMarkets: number;
+    duplicateEvents: number;
+  };
+  finalCandidates: number;
+};
+
+export type SportyFailure = {
+  error: string;
+  code: ProviderErrorCode;
+  retryable?: boolean;
+  diagnostics?: DiscoveryDiagnostics;
+};
+
+class SportyProviderError extends Error {
+  readonly code: ProviderErrorCode;
+  readonly retryable: boolean;
+
+  constructor(
+    code: ProviderErrorCode,
+    message: string,
+    retryable = false,
+  ) {
+    super(message);
+    this.name = "SportyProviderError";
+    this.code = code;
+    this.retryable = retryable;
+  }
+}
+
 async function mapPool<T, R>(items: T[], width: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
   let cursor = 0;
@@ -254,18 +305,66 @@ async function mapPool<T, R>(items: T[], width: number, fn: (item: T) => Promise
   return out;
 }
 
-async function sportyGet(path: string): Promise<unknown> {
+const sportyCache = new Map<string, { expires: number; value: unknown }>();
+
+export function clearSportyCacheForTests() {
+  sportyCache.clear();
+}
+
+async function sportyGet(
+  path: string,
+  options: { timeoutMs?: number; cacheMs?: number } = {},
+): Promise<unknown> {
+  const cacheMs = options.cacheMs ?? 0;
+  const cached = sportyCache.get(path);
+  if (cached && cached.expires > Date.now()) return cached.value;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10_000);
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 10_000);
   try {
     const res = await fetch(`https://www.sportybet.com/api/ng${path}`, {
       signal: controller.signal,
       headers: sportyHeaders(),
     });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
+    if (!res.ok) {
+      throw new SportyProviderError(
+        "provider_rejected",
+        `SportyBet rejected the request (HTTP ${res.status}).`,
+        res.status === 429 || res.status >= 500,
+      );
+    }
+    let value: unknown;
+    try {
+      value = await res.json();
+    } catch {
+      throw new SportyProviderError(
+        "provider_unavailable",
+        "SportyBet returned an unreadable response.",
+        true,
+      );
+    }
+    const payload = value as { bizCode?: number; message?: string } | null;
+    if (payload?.bizCode && payload.bizCode !== 10000) {
+      throw new SportyProviderError(
+        "provider_rejected",
+        payload.message || "SportyBet rejected the request.",
+      );
+    }
+    if (cacheMs > 0) sportyCache.set(path, { expires: Date.now() + cacheMs, value });
+    return value;
+  } catch (error) {
+    if (error instanceof SportyProviderError) throw error;
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new SportyProviderError(
+        "provider_timeout",
+        "SportyBet took too long to respond.",
+        true,
+      );
+    }
+    throw new SportyProviderError(
+      "provider_unavailable",
+      "SportyBet could not be reached.",
+      true,
+    );
   } finally {
     clearTimeout(timer);
   }
@@ -343,7 +442,7 @@ function toPick(
   else if (market.id === "69") label = `1H home total ${total}`.trim();
   else if (market.id === "70") label = `1H away total ${total}`.trim();
   else if (market.id === "66") label = `1st Half Handicap ${hcp}`.trim();
-  else if (market.id === "62") label = `2nd Half O/U ${total}`.trim();
+  else if (market.id === "62" || market.id === "90") label = `2nd Half O/U ${total}`.trim();
   else if (market.id === "63") label = "1st Half Double Chance";
   else if (market.id === "64") label = "1st Half GG";
   else if (market.id === "8") label = "Odd/Even";
@@ -401,8 +500,8 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
   for (const line of ["1.5"]) {
     pull((m) => m.id === "68" && m.specifier === `total=${line}`, true);
   }
-  pull((m) => (m.id === "62" || /2nd half.*over\/under/i.test(m.desc ?? "")) && /total=1\.5/.test(m.specifier ?? ""), true);
-  pull((m) => (m.id === "227" || m.id === "228") && /total=1\.5/.test(m.specifier ?? ""), true);
+  pull((m) => (m.id === "62" || m.id === "90" || /2nd half.*over\/under/i.test(m.desc ?? "")) && /total=1\.5/.test(m.specifier ?? ""), true);
+  pull((m) => (m.id === "23" || m.id === "24" || m.id === "227" || m.id === "228") && /total=1\.5/.test(m.specifier ?? ""), true);
   pull(
     (m) => /corner/i.test(m.desc ?? "") && /over\/under|total/i.test(m.desc ?? "") && /total=(8\.5|9\.5|10\.5|11\.5)/.test(m.specifier ?? ""),
     true,
@@ -649,7 +748,14 @@ function drawFromEvent(ev: EventDetail): TicketPick | null {
   return pick;
 }
 
-export type CookWindow = "soon" | "today" | "week" | "fortnight" | "weekend";
+export type CookWindow =
+  | "soon"
+  | "today"
+  | "tomorrow"
+  | "week"
+  | "fortnight"
+  | "weekend"
+  | "upcoming";
 
 function watDay(ms: number) {
   const d = new Date(ms + 3_600_000);
@@ -665,6 +771,10 @@ function inCookWindow(ts: number, window: CookWindow, now: number) {
     if (watDay(ts).key !== watDay(now).key) return false;
     return ts <= now + 36 * 3_600_000;
   }
+  if (window === "tomorrow") {
+    return watDay(ts).key === watDay(now + 86_400_000).key;
+  }
+  if (window === "upcoming") return ts <= now + 14 * 86_400_000;
   if (window === "week") return ts <= now + 7 * 86_400_000;
   if (window === "fortnight") return ts <= now + 14 * 86_400_000;
   const { dow } = watDay(ts);
@@ -698,6 +808,8 @@ function spreadByDay<T extends { estimateStartTime?: number }>(events: T[], wind
 
 export function windowLabel(window: CookWindow) {
   if (window === "today") return "today";
+  if (window === "tomorrow") return "tomorrow";
+  if (window === "upcoming") return "upcoming";
   if (window === "week") return "1 week";
   if (window === "fortnight") return "2 weeks";
   if (window === "weekend") return "weekends";
@@ -736,6 +848,35 @@ function candidatesFor(sport: BookSport, ev: EventDetail) {
   return footballCandidates(ev);
 }
 
+function requestedMarketIds(sport: BookSport) {
+  if (sport === "basketball") return "219,186,223,14,225,18,227,228,68,69,70,236";
+  if (sport === "tennis") return "186,187,188,189,202,204";
+  if (sport === "handball") return "1,10,11,18,68";
+  return "1,10,11,18,23,24,29,63,68,90,166";
+}
+
+type UpcomingTournament = {
+  name?: string;
+  events?: EventDetail[];
+};
+
+type UpcomingPayload = {
+  data?: {
+    totalNum?: number;
+    tournaments?: UpcomingTournament[];
+  };
+};
+
+function discoveryFailure(
+  code: SportyFailure["code"],
+  error: string,
+  diagnostics: DiscoveryDiagnostics,
+  retryable = false,
+): SportyFailure {
+  console.info("[sportybet.discovery]", JSON.stringify({ ...diagnostics, code }));
+  return { error, code, retryable, diagnostics };
+}
+
 export async function listUpcomingPicks(
   sport: BookSport,
   limit = 14,
@@ -743,35 +884,107 @@ export async function listUpcomingPicks(
   mode: "any" | "draw" = "any",
   skipIds: string[] = [],
   league: string | null = null,
-): Promise<TicketPick[] | { error: string }> {
-  const payload = (await sportyGet(
-    `/factsCenter/commonThumbnailEvents?sportId=${encodeURIComponent(sportIdOf(sport))}`,
-  )) as SharePayload & { data?: Array<{ name?: string; events?: ShareOutcome[] }> } | null;
-  const tours = Array.isArray(payload?.data) ? payload.data : [];
-  if (!tours.length) {
-    return {
-      error:
-        league === "champions"
-          ? "No Champions League fixtures on SportyBet right now."
-          : `No upcoming ${sport} on SportyBet right now.`,
-    };
+): Promise<TicketPick[] | SportyFailure> {
+  const diagnostics: DiscoveryDiagnostics = {
+    sport,
+    fixturesReturned: 0,
+    fixturesInWindow: 0,
+    fixturesInEligibleLeagues: 0,
+    eventsWithMarkets: 0,
+    marketsParsed: 0,
+    rejected: {
+      staleOrLive: 0,
+      outsideWindow: 0,
+      league: 0,
+      noMarkets: 0,
+      noEligibleMarkets: 0,
+      duplicateEvents: 0,
+    },
+    finalCandidates: 0,
+  };
+
+  let tours: UpcomingTournament[];
+  try {
+    const query = new URLSearchParams({
+      sportId: sportIdOf(sport),
+      marketId: requestedMarketIds(sport),
+      pageSize: "100",
+      pageNum: "1",
+      todayGames: "false",
+      timeline: "720",
+    });
+    const payload = (await sportyGet(
+      `/factsCenter/pcUpcomingEvents?${query.toString()}`,
+      { timeoutMs: 12_000, cacheMs: 45_000 },
+    )) as UpcomingPayload;
+    tours = Array.isArray(payload.data?.tournaments) ? payload.data.tournaments : [];
+  } catch (error) {
+    const failure =
+      error instanceof SportyProviderError
+        ? error
+        : new SportyProviderError("provider_unavailable", "SportyBet could not be reached.", true);
+    return discoveryFailure(
+      failure.code,
+      failure.code === "provider_timeout"
+        ? "SportyBet took too long to respond. Try again shortly."
+        : "SportyBet could not be reached. Try again shortly.",
+      diagnostics,
+      failure.retryable,
+    );
+  }
+
+  const rawEvents = tours.flatMap((t) =>
+    (t.events ?? []).map((event) => ({ ...event, leagueHint: t.name ?? leagueName(event.sport) })),
+  );
+  diagnostics.fixturesReturned = rawEvents.length;
+  if (!rawEvents.length) {
+    return discoveryFailure(
+      "no_events",
+      `SportyBet returned no upcoming ${sport} fixtures.`,
+      diagnostics,
+    );
   }
 
   const prefer = preferLeagues(sport);
   const now = Date.now();
   const skip = new Set(skipIds);
-  const ranked = tours
-    .flatMap((t) => (t.events ?? []).map((e) => ({ ...e, leagueHint: t.name ?? leagueName(e.sport) })))
-    .filter(
-      (e) =>
-        e.status === 0 &&
-        !e.banned &&
-        e.eventId &&
-        !SIMULATED_LEAGUE.test(e.leagueHint ?? "") &&
-        isStrongLeague(sport, e.leagueHint ?? "") &&
-        inCookWindow(e.estimateStartTime ?? 0, window, now) &&
-        (league !== "champions" || isChampionsLeague(e.leagueHint ?? "")),
-    )
+  const seenEvents = new Set<string>();
+  const eligible: Array<EventDetail & { leagueHint?: string }> = [];
+  for (const event of rawEvents) {
+    if (!event.eventId || seenEvents.has(String(event.eventId))) {
+      diagnostics.rejected.duplicateEvents += 1;
+      continue;
+    }
+    seenEvents.add(String(event.eventId));
+    if (event.status !== 0 || event.banned || !isPrematch(event, now)) {
+      diagnostics.rejected.staleOrLive += 1;
+      continue;
+    }
+    if (!inCookWindow(event.estimateStartTime ?? 0, window, now)) {
+      diagnostics.rejected.outsideWindow += 1;
+      continue;
+    }
+    diagnostics.fixturesInWindow += 1;
+    const eventLeague = event.leagueHint ?? leagueName(event.sport);
+    if (
+      SIMULATED_LEAGUE.test(eventLeague) ||
+      !isStrongLeague(sport, eventLeague) ||
+      (league === "champions" && !isChampionsLeague(eventLeague))
+    ) {
+      diagnostics.rejected.league += 1;
+      continue;
+    }
+    diagnostics.fixturesInEligibleLeagues += 1;
+    if (!(event.markets ?? []).length) {
+      diagnostics.rejected.noMarkets += 1;
+      continue;
+    }
+    diagnostics.eventsWithMarkets += 1;
+    diagnostics.marketsParsed += event.markets?.length ?? 0;
+    eligible.push(event);
+  }
+
+  const ranked = eligible
     .sort((a, b) => {
       const as = skip.has(String(a.eventId)) ? 1 : 0;
       const bs = skip.has(String(b.eventId)) ? 1 : 0;
@@ -792,52 +1005,46 @@ export async function listUpcomingPicks(
   const upcoming = spreadByDay([...fresh, ...stale], window);
 
   const want = Math.max(1, Math.min(42, limit));
-  const deadline = Date.now() + 45_000;
   const picks: TicketPick[] = [];
-  const batchSize = want > 20 ? 10 : 8;
   let events = 0;
 
-  for (let i = 0; i < upcoming.length && events < want; i += batchSize) {
-    if (Date.now() > deadline) break;
-    const batch = upcoming.slice(i, i + batchSize);
-    const details = await mapPool(batch, batchSize, async (e) => {
-      const body = (await sportyGet(
-        `/factsCenter/event?eventId=${encodeURIComponent(String(e.eventId))}&productId=3`,
-      )) as { data?: EventDetail } | null;
-      return body?.data ?? null;
-    });
-    for (const ev of details) {
-      if (!ev || ev.status !== 0 || ev.banned) continue;
-      if (!isPrematch(ev)) continue;
-      if (SIMULATED_LEAGUE.test(leagueName(ev.sport))) continue;
-      if (!isStrongLeague(sport, leagueName(ev.sport))) continue;
-      if (events >= want) break;
-      if (mode === "draw") {
-        if (sport !== "football") continue;
-        const draw = drawFromEvent(ev);
-        if (draw) {
-          picks.push(draw);
-          events += 1;
-        }
-      } else {
-        const open = candidatesFor(sport, ev);
-        const bookable = open.filter(cookablePick);
-        if (!bookable.length) continue;
-        // Keep 1X2 (and other non-bookable) in the pool so research can see the favourite.
-        picks.push(...open);
+  for (const ev of upcoming) {
+    if (events >= want) break;
+    if (mode === "draw") {
+      if (sport !== "football") continue;
+      const draw = drawFromEvent(ev);
+      if (draw) {
+        picks.push(draw);
         events += 1;
       }
+    } else {
+      const open = candidatesFor(sport, ev);
+      const bookable = open.filter(cookablePick);
+      if (!bookable.length) {
+        diagnostics.rejected.noEligibleMarkets += 1;
+        continue;
+      }
+      // Keep 1X2 in the event group so deterministic scoring can inspect the favourite.
+      picks.push(...open);
+      events += 1;
     }
   }
   if (!picks.length) {
-    return {
-      error:
-        league === "champions"
-          ? "No Champions League fixtures open now. Try later today."
-          : `Could not read ${sport} markets on SportyBet.`,
-    };
+    const noMarketData = diagnostics.fixturesInEligibleLeagues > 0 && diagnostics.eventsWithMarkets === 0;
+    return discoveryFailure(
+      noMarketData ? "no_markets" : diagnostics.fixturesInWindow === 0 ? "no_events" : "no_eligible_markets",
+      league === "champions"
+        ? "No open Champions League markets matched SlipCut's current filters."
+        : diagnostics.fixturesInWindow === 0
+          ? `No upcoming ${sport} fixtures matched that time window.`
+          : `No open ${sport} markets matched SlipCut's current filters.`,
+      diagnostics,
+    );
   }
-  return picks;
+  const uniquePicks = [...new Map(picks.map((pick) => [pick.id, pick])).values()];
+  diagnostics.finalCandidates = uniquePicks.length;
+  console.info("[sportybet.discovery]", JSON.stringify(diagnostics));
+  return uniquePicks;
 }
 
 export type MarketTarget = "ou15" | "ou25" | "ou35" | "gg" | "dc" | "dnb" | "win";
@@ -991,10 +1198,53 @@ export function parseMarketTarget(text: string): MarketTarget | null {
 }
 
 export async function getEventDetail(eventId: string): Promise<EventDetail | null> {
-  const body = (await sportyGet(
-    `/factsCenter/event?eventId=${encodeURIComponent(eventId)}&productId=3`,
-  )) as { data?: EventDetail } | null;
-  return body?.data ?? null;
+  try {
+    const body = (await sportyGet(
+      `/factsCenter/event?eventId=${encodeURIComponent(eventId)}&productId=3`,
+      { timeoutMs: 10_000, cacheMs: 15_000 },
+    )) as { data?: EventDetail } | null;
+    return body?.data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export type RefreshedSelections = {
+  available: TicketPick[];
+  unavailable: Array<{ pick: TicketPick; reason: string }>;
+};
+
+export async function refreshSelections(picks: TicketPick[]): Promise<RefreshedSelections> {
+  const ids = [...new Set(picks.map((pick) => pick.sporty?.eventId).filter(Boolean))] as string[];
+  const details = await mapPool(ids, 6, (id) => getEventDetail(id));
+  const byId = new Map(ids.map((id, index) => [id, details[index]]));
+  const available: TicketPick[] = [];
+  const unavailable: RefreshedSelections["unavailable"] = [];
+
+  for (const pick of picks) {
+    const selection = pick.sporty;
+    const event = selection ? byId.get(selection.eventId) : null;
+    if (!selection || !event || !isPrematch(event)) {
+      unavailable.push({ pick, reason: "The event is no longer available for prematch booking." });
+      continue;
+    }
+    const market = (event.markets ?? []).find(
+      (item) =>
+        item.status === 0 &&
+        String(item.id) === selection.marketId &&
+        String(item.specifier ?? "") === String(selection.specifier ?? ""),
+    );
+    const outcome = market?.outcomes?.find(
+      (item) => item.isActive === 1 && String(item.id) === selection.outcomeId,
+    );
+    const refreshed = market && outcome ? toPick(event, pick.sport as BookSport, market, outcome) : null;
+    if (!refreshed) {
+      unavailable.push({ pick, reason: "The selected market or outcome is no longer open." });
+      continue;
+    }
+    available.push({ ...pick, ...refreshed });
+  }
+  return { available, unavailable };
 }
 
 async function fetchEvent(eventId: string): Promise<EventDetail | null> {
@@ -1020,7 +1270,7 @@ export function eventScore(ev: {
 } | null): EventScore | null {
   if (!ev) return null;
   const raw = ev.setScore || ev.gameScore?.[0] || "";
-  const m = String(raw).match(/(\d+)\s*[:\-]\s*(\d+)/);
+  const m = String(raw).match(/(\d+)\s*[:-]\s*(\d+)/);
   if (!m) {
     const ms0 = String(ev.matchStatus ?? "").toUpperCase();
     if (ev.status === 0 || !ms0) return null;
@@ -1158,6 +1408,7 @@ function sportyHeaders(): Record<string, string> {
   return {
     Accept: "application/json",
     "User-Agent": "Mozilla/5.0 SlipCut",
+    "Current-Country": "NG",
     Clientid: "web",
     OperId: "2",
     Platform: "web",

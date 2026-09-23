@@ -252,7 +252,7 @@ function settleTennis(
   finished: boolean,
   setScore?: string,
 ): { result: LegResult; note: string } {
-  const parts = [...String(setScore ?? "").matchAll(/(\d+)\s*[:\-]\s*(\d+)/g)].map((m) => [
+  const parts = [...String(setScore ?? "").matchAll(/(\d+)\s*[:-]\s*(\d+)/g)].map((m) => [
     Number(m[1]),
     Number(m[2]),
   ]);
