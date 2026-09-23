@@ -44,7 +44,11 @@ test("bot routes builds through one structured conversation parser", async () =>
 
 test("Telegram splash icon is a 512 square SVG with one path", async () => {
   const source = await readFile(splash, "utf8");
+  assert.match(source, /width="512" height="512"/);
   assert.match(source, /viewBox="0 0 512 512"/);
   assert.equal((source.match(/<path\b/g) ?? []).length, 1);
   assert.doesNotMatch(source, /<(?:rect|circle|polygon|image)\b/);
+  assert.doesNotMatch(source, /(?:fill-rule|clip-rule)/);
+  const pathData = source.match(/<path d="([^"]+)"/)?.[1] ?? "";
+  assert.doesNotMatch(pathData, /[AaCcQqSsTt]/);
 });
