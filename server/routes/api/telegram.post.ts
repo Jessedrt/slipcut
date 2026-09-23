@@ -26,14 +26,6 @@ export default defineHandler(async (event) => {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  // PGLite's in-memory fallback is for local development, not Vercel Functions.
-  // Without a persistent database this route previously crashed while loading
-  // its WASM asset but still appeared to acknowledge Telegram's update.
-  if (process.env.VERCEL === "1" && !process.env.DATABASE_URL?.trim()) {
-    console.error("[telegram] DATABASE_URL is required on Vercel; refusing update");
-    return new Response("Bot storage unavailable", { status: 503 });
-  }
-
   let update: unknown;
   try {
     update = await event.req.json();

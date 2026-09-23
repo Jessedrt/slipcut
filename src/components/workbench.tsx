@@ -1,5 +1,5 @@
 import { Copy, GitBranch, Loader2, Scissors, Send, Ticket, WandSparkles } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PickCard } from "@/components/pick-card";
 import { Button } from "@/components/ui/button";
@@ -43,13 +43,6 @@ export function Workbench({
   const [minting, setMinting] = useState(false);
   const [minted, setMinted] = useState<Minted | null>(null);
   const [splitMints, setSplitMints] = useState<Minted[] | null>(null);
-
-  useEffect(() => {
-    setWorkingIds(result.kept.map((p) => p.id));
-    setSplits(null);
-    setMinted(null);
-    setSplitMints(null);
-  }, [result]);
 
   const byId = useMemo(() => new Map(result.picks.map((p) => [p.id, p])), [result.picks]);
   const working = workingIds.map((id) => byId.get(id)).filter((p): p is AnalyzedPick => Boolean(p));

@@ -1,27 +1,18 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { researchPicks } from "./research";
+import { buildSlip, type BuildWindow } from "./build-slip";
 import {
   loadBookingCode,
-  listUpcomingPicks,
   mintShare,
   sportyOf,
   windowLabel,
-  cookablePick,
   type CookWindow,
 } from "./sportybet";
 import {
-  listBlocks,
-  listAllows,
-  loadOddsBand,
-  loadRecentEventIds,
   markUpdateSeen,
   recordSlip,
-  blockedBy,
-  allowedBy,
   latestCode,
 } from "./study";
 import {
-  buildToOdds,
   combinedOdds,
   formatKickoff,
   formatOdds,
@@ -32,13 +23,11 @@ import {
 } from "./workbench";
 import {
   MAX_LEGS,
-  applyBand,
   clampLegs,
   clampOddsTarget,
   isCmd,
   parseCookWindow,
   parseSport,
-  type OddsBand,
 } from "./intent";
 import type { AnalyzedPick, BookSport, TicketPick } from "./types";
 
@@ -88,11 +77,6 @@ async function tg(method: string, payload: Record<string, unknown> = {}) {
 
 function playable(picks: TicketPick[]) {
   return picks.filter((p) => p.sport !== "other" && p.sporty);
-}
-
-async function cookPool(picks: TicketPick[], band: OddsBand | null) {
-  const [blocks, allows] = await Promise.all([listBlocks(), listAllows()]);
-  return applyBand(allowedBy(blockedBy(picks, blocks), allows), band);
 }
 
 function codeKeyboard(code: string) {
@@ -241,33 +225,22 @@ async function splitCode(chatId: number, code: string, parts: number) {
 
 async function cookPredict(chatId: number, sport: BookSport, n: number, window: CookWindow) {
   try {
-    const band = await loadOddsBand();
-    const listed = await listUpcomingPicks(sport, Math.min(Math.max(n + 20, 40), 50), window);
-    if ("error" in listed) {
-      await tg("sendMessage", { chat_id: chatId, text: listed.error });
+    if (sport !== "football" && sport !== "basketball") {
+      await tg("sendMessage", { chat_id: chatId, text: "The shared builder currently supports football and basketball." });
       return;
     }
-    let pool = await cookPool(listed.filter(cookablePick), band);
-    const safeish = pool.filter((p) => !p.odds || (p.odds >= 1.15 && p.odds <= 2.4));
-    if (safeish.length >= n) pool = safeish;
-    const researched = await researchPicks(pool, Math.max(n * 2, 12));
-    const ranked = [...researched.keep].sort(
-      (a, b) => (b.probability ?? 0) - (a.probability ?? 0) || (a.odds ?? 99) - (b.odds ?? 99),
-    );
-    const seen = new Set();
-    const take = [];
-    for (const p of ranked) {
-      const key = p.eventId || p.home + "|" + p.away;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      take.push(p);
-      if (take.length >= n) break;
-    }
-    if (!take.length) {
-      await tg("sendMessage", { chat_id: chatId, text: `No ${sport} picks open now. Try later.` });
+    const result = await buildSlip({
+      sport,
+      mode: "games",
+      games: Math.min(15, Math.max(2, n)),
+      risk: "conservative",
+      window: miniWindow(window),
+    });
+    if (!result.ok) {
+      await tg("sendMessage", { chat_id: chatId, text: result.error });
       return;
     }
-    await mintAndReply(chatId, take, `Safest · ${take.length} ${sport}`);
+    await mintAndReply(chatId, result.selections, `Safest · ${result.actualGames} ${sport}`);
   } catch (err) {
     console.error("cookPredict:", err instanceof Error ? err.message : err);
     await tg("sendMessage", {
@@ -278,59 +251,54 @@ async function cookPredict(chatId: number, sport: BookSport, n: number, window: 
 }
 
 async function cookOddsSlip(chatId: number, sport: BookSport, target: number, window: CookWindow) {
-  const band = await loadOddsBand();
-  const listed = await listUpcomingPicks(sport, 35, window, "any", await loadRecentEventIds());
-  if ("error" in listed) {
-    await tg("sendMessage", { chat_id: chatId, text: listed.error });
+  if (sport !== "football" && sport !== "basketball") {
+    await tg("sendMessage", { chat_id: chatId, text: "The shared builder currently supports football and basketball." });
     return;
   }
-  const pool = await cookPool(listed.filter(cookablePick), band);
-  const researched = await researchPicks(pool, 16);
-  const only = researched.keep.filter((p) => p.sport === sport);
-  const take = buildToOdds(only, target).slice(0, MAX_LEGS);
-  if (!take.length) {
-    await tg("sendMessage", { chat_id: chatId, text: `Could not build ${formatOdds(target)} ${sport} right now.` });
+  const result = await buildSlip({
+    sport,
+    mode: "odds",
+    targetOdds: Math.min(50, Math.max(1.5, target)),
+    risk: "balanced",
+    window: miniWindow(window),
+  });
+  if (!result.ok) {
+    await tg("sendMessage", { chat_id: chatId, text: result.error });
     return;
   }
-  const actual = combinedOdds(take);
+  const actual = result.actualCombinedOdds;
   const span = windowLabel(window);
   await mintAndReply(
     chatId,
-    take,
-    `${take.length} games ${sport}${span ? ` · ${span}` : ""}${actual ? ` · ${formatOdds(actual)}` : ""}`,
+    result.selections,
+    `${result.actualGames} games ${sport}${span ? ` · ${span}` : ""}${actual ? ` · ${formatOdds(actual)}` : ""}`,
   );
 }
 
 async function cookDaily2(chatId: number) {
-  const listed = await listUpcomingPicks("football", 28, "today");
-  if ("error" in listed) {
-    await tg("sendMessage", { chat_id: chatId, text: listed.error });
-    return;
-  }
-  const now = Date.now();
-  const dayPool = listed.filter((p) => {
-    const ko = p.kickoff ?? 0;
-    return cookablePick(p) && ko >= now + 15 * 60_000 && ko <= now + 36 * 3_600_000;
+  const result = await buildSlip({
+    sport: "football",
+    mode: "odds",
+    targetOdds: 2,
+    risk: "conservative",
+    window: "today",
   });
-  const short = dayPool.filter((p) => p.odds && p.odds >= 1.15 && p.odds <= 1.55);
-  const pool = await cookPool(short.length ? short : dayPool.length ? dayPool : listed, null);
-  const researched = await researchPicks(pool, 12);
-  const safe = [...researched.keep].sort(
-    (a, b) => (b.probability ?? 0) - (a.probability ?? 0) || (a.odds ?? 99) - (b.odds ?? 99),
-  );
-  let take = buildToOdds(safe, 2).slice(0, 3);
-  if (!take.length) take = safe.slice(0, 2);
-  if (!take.length) {
-    await tg("sendMessage", { chat_id: chatId, text: "No football open for a 2-odds card today." });
+  if (!result.ok) {
+    await tg("sendMessage", { chat_id: chatId, text: result.error });
     return;
   }
-  await mintAndReply(chatId, take, "SportyBet · Daily 2 odds");
+  await mintAndReply(chatId, result.selections, "SportyBet · Daily 2 odds");
+}
+
+function miniWindow(window: CookWindow): BuildWindow {
+  if (window === "tomorrow" || window === "weekend" || window === "today") return window;
+  return window === "soon" ? "today" : "upcoming";
 }
 
 type TgUpdate = {
   update_id?: number;
-  message?: { chat?: { id: number }; text?: string; photo?: { file_id: string }[] };
-  callback_query?: { id: string; data?: string; message?: { chat?: { id: number } } };
+  message?: { message_id?: number; chat?: { id: number }; text?: string; photo?: { file_id: string }[] };
+  callback_query?: { id: string; from?: { id: number }; data?: string; message?: { message_id?: number; chat?: { id: number }; text?: string } };
 };
 
 export async function sendScheduledLongshot() {

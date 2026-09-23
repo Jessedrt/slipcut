@@ -1,7 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { applyThreshold, combinedChance } from "./format";
 import { extractShareCode, parseTicketText } from "./parse-ticket";
-import { loadBookingCode, mintShare, sportyOf } from "./sportybet";
+import { loadBookingCode } from "./sportybet";
+import { mintReviewedSlip } from "./book-slip";
 import { firstUrl, youAnswer, youContents, youKeys } from "./you";
 import { seekaiReady, seekChat } from "./seekai";
 import { geminiReady, geminiChat } from "./gemini";
@@ -418,12 +419,8 @@ export const bookSlip = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<
     { ok: true; shareCode: string; shareURL: string; unavailable: number } | { ok: false; error: string }
   > => {
-    const selections = sportyOf(data.picks ?? []);
-    if (!selections.length) {
-      return { ok: false, error: "These legs can't be booked on SportyBet." };
-    }
-    const minted = await mintShare(selections, data.country);
-    if ("error" in minted) return { ok: false, error: minted.error };
+    const minted = await mintReviewedSlip(data.picks ?? [], data.country);
+    if (!minted.ok) return { ok: false, error: minted.error };
     return {
       ok: true,
       shareCode: minted.shareCode,

@@ -51,7 +51,7 @@ const newHeaders = `function sportyHeaders(method: "GET" | "POST" = "GET", count
     "Content-Type": "application/json;charset=UTF-8",
     "Current-Country": country.toUpperCase(),
     Origin: base,
-    Referer: \`${base}/${country}/\`,
+    Referer: \`\${base}/\${country}/\`,
     "User-Agent":
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0 Safari/537.36",
     "Accept-Language": "en-US,en;q=0.9",
