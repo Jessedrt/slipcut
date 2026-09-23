@@ -11,7 +11,7 @@ if (!existsSync(path)) {
   process.exit(0);
 }
 let t = readFileSync(path, "utf8");
-if (t.includes("FIND_SAFER_NL_V1")) {
+if (t.includes("FIND_SAFER_NL_V1") || t.includes("Resolve general build requests once")) {
   console.log("patch-safer-nl: already applied");
   process.exit(0);
 }
