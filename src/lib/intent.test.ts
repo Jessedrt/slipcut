@@ -25,6 +25,9 @@ import {
   wantsLive,
   wantsMix,
   isChampionsLeague,
+  missingChatBuildField,
+  parseChatBuildDraft,
+  parseRisk,
 } from "./intent.ts";
 
 describe("commands", () => {
@@ -116,6 +119,32 @@ describe("sport, window, flags", () => {
     assert.equal(parseSport("10 champions league"), "football");
     assert.equal(parseSport("ucl"), "football");
   });
+  it("parses risk without claiming safety", () => {
+    assert.equal(parseRisk("conservative football"), "conservative");
+    assert.equal(parseRisk("balanced please"), "balanced");
+    assert.equal(parseRisk("high risk basketball"), "aggressive");
+  });
+  it("builds one structured request and applies short corrections", () => {
+    const request = parseChatBuildDraft("Cook 5 odds basketball tomorrow balanced");
+    assert.deepEqual(request, {
+      sport: "basketball",
+      mode: "odds",
+      targetOdds: 5,
+      risk: "balanced",
+      window: "tomorrow",
+    });
+    const corrected = parseChatBuildDraft("make it football instead", request ?? {});
+    assert.equal(corrected?.sport, "football");
+    assert.equal(corrected?.targetOdds, 5);
+  });
+  it("asks only for the missing target in a vague odds request", () => {
+    const request = parseChatBuildDraft("cook odds basketball");
+    assert.equal(request?.mode, "odds");
+    assert.equal(missingChatBuildField(request ?? {}), "targetOdds");
+    const completed = parseChatBuildDraft("5", request ?? {});
+    assert.equal(completed?.targetOdds, 5);
+    assert.equal(missingChatBuildField(completed ?? {}), null);
+  });
   it("detects Champions League", () => {
     assert.equal(isChampionsLeague("UEFA Champions League"), true);
     assert.equal(isChampionsLeague("TotalEnergies CAF Champions League"), true);
@@ -132,6 +161,7 @@ describe("sport, window, flags", () => {
     assert.equal(parseCookWindow("tonight bola"), "today");
     assert.equal(parseCookWindow("2 weeks 12 games"), "fortnight");
     assert.equal(parseCookWindow("longshot"), "week");
+    assert.equal(parseCookWindow("upcoming games"), "upcoming");
     assert.equal(parseCookWindow("12 games"), "soon");
   });
   it("detects flags", () => {

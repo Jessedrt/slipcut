@@ -52,6 +52,8 @@ describe("buildSlip", () => {
     if (!result.ok) return;
     assert.equal(result.selections.length, 5);
     assert.equal(new Set(result.selections.map((item) => item.sporty?.eventId)).size, 5);
+    assert.equal(result.analysis.rejected.duplicateEvents, 1);
+    assert.equal(result.analysis.selected, 5);
   });
 
   it("builds basketball using the same service", async () => {
@@ -99,6 +101,20 @@ describe("buildSlip", () => {
       discover: async () => ({ error: "timeout", code: "provider_timeout", retryable: true }),
     });
     assert.deepEqual(result, { ok: false, error: "timeout", code: "provider_timeout", retryable: true });
+  });
+
+  it("reports risk and score rejection diagnostics without weakening filters", async () => {
+    const highPrice = pick(1, 2.4, "18");
+    const weak = pick(2, 1.5);
+    const result = await buildSlip(base, {
+      discover: async () => [highPrice, weak],
+      research: async (picks) => ({
+        keep: picks.map((item) => ({ ...item, probability: 40 })),
+        dropped: 0,
+        researched: true,
+      }),
+    });
+    assert.equal(result.ok, false);
   });
 });
 

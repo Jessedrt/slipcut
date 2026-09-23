@@ -79,4 +79,19 @@ describe("SportyBet discovery diagnostics", () => {
       }
     } finally { globalThis.fetch = original; }
   });
+
+  it("requests the provider's dedicated today feed for a today build", async () => {
+    const original = globalThis.fetch;
+    let requested = "";
+    try {
+      clearSportyCacheForTests();
+      globalThis.fetch = async (input) => {
+        requested = String(input);
+        return response([]);
+      };
+      await listUpcomingPicks("football", 5, "today");
+      assert.match(requested, /todayGames=true/);
+      assert.match(requested, /timeline=48/);
+    } finally { globalThis.fetch = original; }
+  });
 });

@@ -145,7 +145,14 @@ export function MiniAppRefresh() {
     const request: BuildSlipRequest = { sport, mode, risk, window: windowChoice, ...(mode === "games" ? { games } : { targetOdds }) };
     try {
       const result = await api<BuildSlipResult>("/api/miniapp/build", { method: "POST", body: JSON.stringify(request) });
-      if (!result.ok) setError(result.error);
+      if (!result.ok) {
+        const suggestion = result.code === "no_events" && windowChoice === "today"
+          ? " Try Upcoming to widen the fixture window."
+          : result.code === "no_eligible_markets"
+            ? " The filters were not weakened and no unsupported selection was added."
+            : "";
+        setError(`${result.error}${suggestion}`);
+      }
       else { setBuildResult(result); setBuildSelected(new Set(result.selections.map((pick) => pick.id))); telegramWebApp()?.HapticFeedback?.impactOccurred?.("light"); }
     } catch (caught) {
       if (caught instanceof Error && caught.name === "AbortError") setError("You stopped waiting. The server may still finish its current request.");
@@ -175,10 +182,26 @@ export function MiniAppRefresh() {
       const result = await api<BookApiResult>("/api/miniapp/book", { method: "POST", body: JSON.stringify({ picks: activePicks }) });
       if (!result.ok) {
         if (result.code === "selection_unavailable" && result.available) {
-          const ids = new Set(result.available.map((pick) => pick.id));
-          if (tab === "build") setBuildSelected(ids); else setCutSelected(ids);
+          const available = result.available;
+          const ids = new Set(available.map((pick) => pick.id));
+          if (tab === "build") {
+            setBuildSelected(ids);
+            setBuildResult((current) => current ? {
+              ...current,
+              selections: available as BuildSelection[],
+              actualGames: available.length,
+              actualCombinedOdds: combinedOdds(available),
+            } : current);
+          } else {
+            setCutSelected(ids);
+            setCutResult((current) => current ? {
+              ...current,
+              kept: available as AnalyzedPick[],
+            } : current);
+          }
         }
-        setError(result.error); return;
+        const unavailableNames = result.unavailable?.slice(0, 3).map(({ pick }) => `${pick.home} vs ${pick.away}`).join(", ");
+        setError(unavailableNames ? `${result.error} Unavailable: ${unavailableNames}.` : result.error); return;
       }
       const next = { code: result.shareCode, url: result.shareURL, combinedOdds: result.combinedOdds, games: result.picks.length };
       setMinted(next);
@@ -211,7 +234,14 @@ export function MiniAppRefresh() {
     catch { setError("Copy failed. Press and hold the code to copy it manually."); }
   }
   function openBot() { const app = telegramWebApp(); if (app?.openTelegramLink) app.openTelegramLink(BOT_URL); else window.open(BOT_URL, "_blank", "noopener,noreferrer"); }
-  const allHistory = history.length ? history : sessionSlips;
+  const allHistory = useMemo(() => {
+    const seen = new Set<string>();
+    return [...sessionSlips, ...history].filter((item) => {
+      if (seen.has(item.bookingCode)) return false;
+      seen.add(item.bookingCode);
+      return true;
+    });
+  }, [history, sessionSlips]);
 
   return <div className="mini-app min-h-dvh text-[#f7ead8]">
     <main className="mx-auto min-h-dvh max-w-lg px-3 pb-28" style={{ paddingTop: "calc(max(env(safe-area-inset-top), var(--tg-content-safe-area-inset-top, 0px)) + 16px)" }}>
