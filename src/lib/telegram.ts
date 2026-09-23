@@ -43,6 +43,19 @@ const HELP = `SlipCut live · safer cook on
 
 Try: Find safer football games today · Cook 5 football games · Cook 30 odds · 2odds · trim · split into 2 · paste a code`;
 
+function deskKeyboard() {
+  return {
+    keyboard: [
+      [{ text: "Engine" }, { text: "Analyze" }, { text: "Optimize" }],
+      [{ text: "Live" }, { text: "Book" }, { text: "Convert" }],
+      [{ text: "Help" }],
+    ],
+    resize_keyboard: true,
+    is_persistent: true,
+    input_field_placeholder: "Paste a code, or say 5 football games",
+  };
+}
+
 function esc(s: string) {
   return s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
 }
@@ -368,7 +381,7 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   }
 
   if (isCmd(raw, "start") || /^\/start\b/i.test(raw) || isCmd(raw, "help") || /^\/?help\b/i.test(raw)) {
-    await tg("sendMessage", { chat_id: chatId, text: HELP });
+    await tg("sendMessage", { chat_id: chatId, text: HELP, reply_markup: deskKeyboard() });
     return;
   }
 

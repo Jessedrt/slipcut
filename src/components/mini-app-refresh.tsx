@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   AlertTriangle,
   Check,
@@ -51,6 +51,14 @@ function telegramWebApp() {
   return (window as Window & { Telegram?: { WebApp?: { initData?: string; ready?: () => void; expand?: () => void; openTelegramLink?: (url: string) => void; HapticFeedback?: { impactOccurred?: (style: "light" | "medium") => void } } } }).Telegram?.WebApp;
 }
 
+function subscribeTelegramInitData() {
+  return () => undefined;
+}
+
+function telegramInitData() {
+  return typeof window === "undefined" ? "" : telegramWebApp()?.initData ?? "";
+}
+
 function errorText(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
 }
@@ -101,9 +109,13 @@ export function MiniAppRefresh() {
   const [sessionSlips, setSessionSlips] = useState<HistoryItem[]>([]);
   const [copied, setCopied] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
-  const initData = typeof window === "undefined" ? "" : telegramWebApp()?.initData ?? "";
+  const initData = useSyncExternalStore(subscribeTelegramInitData, telegramInitData, () => "");
 
-  useEffect(() => { telegramWebApp()?.ready?.(); telegramWebApp()?.expand?.(); }, []);
+  useEffect(() => {
+    const app = telegramWebApp();
+    app?.ready?.();
+    app?.expand?.();
+  }, []);
   useEffect(() => {
     if (pending !== "build") return;
     const timer = window.setInterval(() => setStage((value) => Math.min(value + 1, STAGES.length - 1)), 2200);

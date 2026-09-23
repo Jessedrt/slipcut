@@ -36,6 +36,7 @@ export const Route = createRootRoute({
     <html lang="en" className="antialiased" suppressHydrationWarning>
       <head>
         <HeadContent />
+        <script src="https://telegram.org/js/telegram-web-app.js?59" />
       </head>
       <body className="bg-background text-foreground">
         <PreviewHostBridge />
