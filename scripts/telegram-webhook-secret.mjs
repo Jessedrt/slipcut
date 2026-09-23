@@ -31,7 +31,14 @@ export function verifyTelegramWebhookSecret(received, expected) {
   return actual.length === wanted.length && timingSafeEqual(actual, wanted);
 }
 
-/** @param {string | undefined} environment Only production may mutate Telegram's webhook. */
-export function shouldSetTelegramWebhook(environment) {
-  return environment === "production";
+/**
+ * Production deployments may mutate Telegram's webhook. Some Vercel projects
+ * build main as a preview and promote that immutable deployment afterwards, so
+ * use the protected main branch as a Vercel-only fallback.
+ * @param {string | undefined} environment
+ * @param {string | undefined} gitRef
+ * @param {string | undefined} isVercel
+ */
+export function shouldSetTelegramWebhook(environment, gitRef, isVercel) {
+  return environment === "production" || (isVercel === "1" && gitRef === "main");
 }
