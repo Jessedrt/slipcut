@@ -4,9 +4,11 @@ import {
   Check,
   ChevronRight,
   Copy,
+  CircleGauge,
   ExternalLink,
   History,
   Loader2,
+  RefreshCw,
   Scissors,
   ShieldCheck,
   Sparkles,
@@ -24,7 +26,7 @@ import type {
 import type { AnalyzedPick, BookmakerId, BookSport, TicketPick } from "@/lib/types";
 import { combinedOdds, formatKickoff, formatOdds } from "@/lib/workbench";
 
-type Tab = "build" | "cut" | "predict" | "slips";
+type Tab = "build" | "cut" | "predict" | "engine" | "slips";
 type Pending = "build" | "cut" | "ingest" | "predict" | "book" | "history" | null;
 type BuildMode = "games" | "odds";
 type CutApiResult =
@@ -86,6 +88,26 @@ type PredictionApiResult =
         provider: string;
         calibrated: false;
       };
+    }
+  | { ok: false; error: string };
+
+type EngineCard = {
+  n: number;
+  code: string;
+  url: string;
+  odds: number | null;
+  games: number;
+  hit?: boolean;
+  graded?: boolean;
+};
+type EngineApiResult =
+  | {
+      ok: true;
+      cards: EngineCard[];
+      hitRate: number | null;
+      sampleCount: number;
+      qualifyingBar: number | null;
+      average: number;
     }
   | { ok: false; error: string };
 
@@ -277,6 +299,9 @@ export function MiniAppRefresh() {
   const [predictHome, setPredictHome] = useState("");
   const [predictAway, setPredictAway] = useState("");
   const [prediction, setPrediction] = useState<Extract<PredictionApiResult, { ok: true }>["prediction"] | null>(null);
+  const [engineResult, setEngineResult] = useState<EngineApiResult | null>(null);
+  const [engineBusy, setEngineBusy] = useState(false);
+  const [engineCopied, setEngineCopied] = useState<string | null>(null);
   const [cutResult, setCutResult] = useState<Extract<CutApiResult, { ok: true }> | null>(null);
   const [cutSelected, setCutSelected] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Pending>(null);
@@ -636,10 +661,37 @@ export function MiniAppRefresh() {
     }
   }, [api, initData]);
 
+  async function loadEngine() {
+    if (engineBusy) return;
+    setEngineBusy(true);
+    try {
+      const response = await fetch("/api/engine", { headers: { Accept: "application/json" } });
+      setEngineResult((await response.json()) as EngineApiResult);
+    } catch {
+      setEngineResult({ ok: false, error: "Engine data is temporarily unavailable." });
+    } finally {
+      setEngineBusy(false);
+    }
+  }
+
+  async function copyEngineCode(code: string) {
+    try {
+      await navigator.clipboard.writeText(code);
+      setEngineCopied(code);
+      window.setTimeout(
+        () => setEngineCopied((current) => (current === code ? null : current)),
+        1500,
+      );
+    } catch {
+      setError("Copy failed. Press and hold the code to copy it manually.");
+    }
+  }
+
   function changeTab(next: Tab) {
     setTab(next);
     clearBookingReview();
     if (next === "slips") void loadHistory();
+    if (next === "engine" && !engineResult) void loadEngine();
   }
 
   function cancel() {
@@ -787,13 +839,13 @@ export function MiniAppRefresh() {
                 </div>
                 <div>
                   <p className="mb-2 text-xs font-bold text-[#5f4635]">When</p>
-                  <div className="grid grid-cols-4 gap-1 rounded-xl bg-[#15120e] p-1">
+                  <div className="grid grid-cols-4 gap-1 rounded-xl border border-[#7b5439]/12 bg-[#efe2d6] p-1">
                     {(["today", "tomorrow", "weekend", "upcoming"] as BuildWindow[]).map((item) => (
                       <button
                         key={item}
                         type="button"
                         onClick={() => setWindowChoice(item)}
-                        className={`min-h-10 rounded-lg px-1 text-[11px] font-bold capitalize ${windowChoice === item ? "bg-[#5a432c] text-[#f4d3a2]" : "text-[#a8967e]"}`}
+                        className={`min-h-10 rounded-lg px-1 text-[11px] font-bold capitalize ${windowChoice === item ? "bg-[#6b452d] text-white shadow-sm" : "text-[#7d6553]"}`}
                       >
                         {item}
                       </button>
@@ -1142,6 +1194,125 @@ export function MiniAppRefresh() {
           </section>
         )}
 
+        {tab === "engine" && (
+          <section className="space-y-3">
+            <div className={panel}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-[#8f694e]">
+                    Accuracy-led
+                  </p>
+                  <h2 className="mt-1 text-xl font-black tracking-[-.04em]">Engine Accumulators</h2>
+                  <p className="mt-2 text-xs leading-5 text-[#7a6656]">
+                    Daily cards built from market families that pass SlipCut's accuracy and quality gates.
+                    Longer cards are still longer shots.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadEngine()}
+                  disabled={engineBusy}
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[#7b5439]/15 bg-[#f3e7dc] text-[#6b452d]"
+                >
+                  <RefreshCw className={`h-4 w-4 ${engineBusy ? "animate-spin" : ""}`} />
+                </button>
+              </div>
+            </div>
+
+            {engineResult?.ok && (
+              <div className="grid grid-cols-3 gap-2">
+                <div className={panel}>
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-[#8f7663]">Hit rate</p>
+                  <p className="mt-2 text-2xl font-black text-[#6b452d]">
+                    {engineResult.hitRate == null ? "—" : `${Math.round(engineResult.hitRate * 100)}%`}
+                  </p>
+                  <p className="mt-1 text-[9px] text-[#8f7663]">{engineResult.sampleCount} settled</p>
+                </div>
+                <div className={panel}>
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-[#8f7663]">Qualify</p>
+                  <p className="mt-2 text-2xl font-black text-[#6b452d]">
+                    {engineResult.qualifyingBar == null ? "—" : `${Math.round(engineResult.qualifyingBar * 100)}%`}
+                  </p>
+                  <p className="mt-1 text-[9px] text-[#8f7663]">rolling bar</p>
+                </div>
+                <div className={panel}>
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-[#8f7663]">Cards</p>
+                  <p className="mt-2 text-2xl font-black text-[#6b452d]">{engineResult.cards.length}</p>
+                  <p className="mt-1 text-[9px] text-[#8f7663]">today</p>
+                </div>
+              </div>
+            )}
+
+            {engineBusy && !engineResult && (
+              <div className={`${panel} flex items-center gap-3`}>
+                <Loader2 className="h-5 w-5 animate-spin text-[#6b452d]" />
+                <p className="text-xs font-bold">Loading today's engine ladder…</p>
+              </div>
+            )}
+
+            {engineResult && !engineResult.ok && (
+              <div className={`${panel} text-center`}>
+                <CircleGauge className="mx-auto h-7 w-7 text-[#8b654d]" />
+                <p className="mt-2 text-sm font-black">No engine cards right now</p>
+                <p className="mt-1 text-xs leading-5 text-[#7a6656]">{engineResult.error}</p>
+              </div>
+            )}
+
+            {engineResult?.ok &&
+              engineResult.cards.map((card, index) => (
+                <article key={card.code} className={panel}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[9px] font-black uppercase tracking-[.16em] text-[#8f694e]">
+                        Card {index + 1} · {card.n}-leg ladder
+                      </p>
+                      <div className="mt-2 flex items-end gap-2">
+                        <p className="font-mono text-3xl font-black tracking-[-.04em] text-[#5d3d29]">
+                          {card.odds ? formatOdds(card.odds) : "—"}
+                        </p>
+                        <span className="pb-1 text-[10px] font-bold text-[#8f7663]">odds</span>
+                      </div>
+                    </div>
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-wider ${
+                        card.graded
+                          ? card.hit
+                            ? "bg-[#e4eee2] text-[#4d7452]"
+                            : "bg-[#f5e3df] text-[#8b4e45]"
+                          : "bg-[#f2e5c8] text-[#81632f]"
+                      }`}
+                    >
+                      {card.graded ? (card.hit ? "Hit" : "Missed") : "Pending"}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <div className="rounded-xl bg-[#f3e7dc] p-3">
+                      <p className="text-[9px] font-bold uppercase tracking-wider text-[#8f7663]">Games</p>
+                      <p className="mt-1 text-lg font-black">{card.games}</p>
+                    </div>
+                    <div className="rounded-xl bg-[#f3e7dc] p-3">
+                      <p className="text-[9px] font-bold uppercase tracking-wider text-[#8f7663]">Code</p>
+                      <p className="mt-1 truncate font-mono text-sm font-black">{card.code}</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void copyEngineCode(card.code)}
+                      className={secondary}
+                    >
+                      {engineCopied === card.code ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                      {engineCopied === card.code ? "Copied" : "Copy"}
+                    </button>
+                    <a href={card.url} target="_blank" rel="noreferrer" className={primary}>
+                      Open <ExternalLink className="h-4 w-4" />
+                    </a>
+                  </div>
+                </article>
+              ))}
+          </section>
+        )}
+
         {tab === "slips" && (
           <section className="space-y-3">
             <div className={panel}>
@@ -1216,12 +1387,13 @@ export function MiniAppRefresh() {
             "calc(max(env(safe-area-inset-bottom), var(--tg-content-safe-area-inset-bottom, 0px)) + 8px)",
         }}
       >
-        <div className="grid grid-cols-4 gap-1">
+        <div className="grid grid-cols-5 gap-1">
           {(
             [
               { id: "build", label: "Build", icon: Sparkles },
               { id: "cut", label: "Cut", icon: Scissors },
               { id: "predict", label: "Predict", icon: Sparkles },
+              { id: "engine", label: "Engine", icon: CircleGauge },
               { id: "slips", label: "My Slips", icon: History },
             ] as const
           ).map(({ id, label, icon: Icon }) => (
@@ -1229,7 +1401,7 @@ export function MiniAppRefresh() {
               key={id}
               type="button"
               onClick={() => changeTab(id)}
-              className={`flex min-h-12 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-bold transition ${tab === id ? "bg-[#4a3825] text-[#7d4e31]" : "text-[#958672]"}`}
+              className={`flex min-h-12 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-bold transition ${tab === id ? "bg-[#6b452d] text-white shadow-sm" : "text-[#8a735f]"}`}
             >
               <Icon className="h-[18px] w-[18px]" />
               {label}
