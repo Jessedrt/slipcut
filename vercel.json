@@ -8,5 +8,8 @@
       "path": "/api/cron/longshot",
       "schedule": "0 7 * * *"
     }
+  ],
+  "alias": [
+    "slipcut.vercel.app"
   ]
 }
