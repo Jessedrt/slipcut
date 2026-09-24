@@ -241,7 +241,7 @@ async function reviewBatch(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
           durationMs: Date.now() - started,
         }),
       );
-      // Try the next configured provider; never use a deterministic fallback.
+      // Try the next configured provider before falling back to the internal market model.
     }
   }
   const fallback = fallbackMarketReviews(groups);
@@ -255,7 +255,8 @@ async function reviewBatch(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
       durationMs: 0,
     }),
   );
-  return fallback;}
+  return fallback;
+}
 
 /** AI must choose one of the supplied, already-eligible outcomes for each returned event. */
 export async function reviewBuildMarkets(picks: TicketPick[]): Promise<AIReviewResult> {
