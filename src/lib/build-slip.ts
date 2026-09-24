@@ -183,7 +183,10 @@ function allowedFamily(pick: TicketPick, risk: BuildRisk) {
     const balanced = new Set([...conservative, "gg"]);
     return (risk === "conservative" ? conservative : balanced).has(family);
   }
-  const conservative = new Set(["win", "ou", "teamou"]);
+  // Basketball team/period totals can look deceptively safe at short prices.
+  // Keep conservative and balanced builds on full-game winner/total/handicap
+  // markets; team totals and other derivative periods are aggressive-only.
+  const conservative = new Set(["win", "ou"]);
   const balanced = new Set([...conservative, "hcp"]);
   return (risk === "conservative" ? conservative : balanced).has(family);
 }
