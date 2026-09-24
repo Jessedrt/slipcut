@@ -1,28 +1,28 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: #e8f0fb;
-  --color-foreground: #10203c;
-  --color-card: #ffffffd9;
-  --color-card-foreground: #10203c;
-  --color-muted: #d9e6f7;
-  --color-muted-foreground: #5a6e8c;
-  --color-border: #c5d6ee;
-  --color-primary: #2563eb;
-  --color-primary-foreground: #f7fbff;
-  --color-ring: #3b82f6;
-  --color-paper: #ffffffcc;
-  --color-ink: #10203c;
-  --color-linen: #eef4fe;
-  --color-sheet: #f4f8ff;
+  --color-background: #f6efe8;
+  --color-foreground: #2f2118;
+  --color-card: #fffdfa;
+  --color-card-foreground: #2f2118;
+  --color-muted: #efe2d6;
+  --color-muted-foreground: #7f6958;
+  --color-border: #dbc8b8;
+  --color-primary: #6b452d;
+  --color-primary-foreground: #fffaf4;
+  --color-ring: #8b5e3c;
+  --color-paper: #fffdfa;
+  --color-ink: #2f2118;
+  --color-linen: #f3e8de;
+  --color-sheet: #faf5ef;
   --color-keep: #17803d;
   --color-keep-dim: #d9f3e4;
   --color-keep-ink: #146534;
   --color-drop: #c2413b;
   --color-drop-dim: #fde4e3;
   --color-drop-ink: #9f2d28;
-  --color-warn: #2563eb;
-  --color-glass: #ffffff99;
+  --color-warn: #8b5e3c;
+  --color-glass: #fffdfaee;
   --font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -55,19 +55,19 @@
   p { text-wrap: pretty; }
 }
 
-/* Telegram Mini App — bronze desk */
+/* Telegram Mini App — warm white / brown desk */
 .mini-app {
   background:
-    radial-gradient(120% 80% at 50% -10%, #3d2a1c 0%, transparent 55%),
-    linear-gradient(180deg, #1c120c 0%, #120c09 45%, #0d0907 100%);
-  color: #f3e6d4;
+    radial-gradient(100% 55% at 50% -5%, rgba(188, 139, 99, 0.16) 0%, transparent 58%),
+    linear-gradient(180deg, #fbf7f2 0%, #f5ede5 52%, #f1e6dc 100%);
+  color: #2f2118;
 }
 .mini-range {
   -webkit-appearance: none;
   appearance: none;
   height: 6px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #c9a06a 0%, #5c4030 100%);
+  background: linear-gradient(90deg, #6b452d 0%, #c9a27f 100%);
   outline: none;
 }
 .mini-range::-webkit-slider-thumb {
@@ -76,16 +76,16 @@
   width: 18px;
   height: 18px;
   border-radius: 999px;
-  background: #e8c896;
-  border: 2px solid #1a110c;
-  box-shadow: 0 0 0 3px rgba(201, 160, 106, 0.35);
+  background: #6b452d;
+  border: 2px solid #fffaf5;
+  box-shadow: 0 0 0 3px rgba(107, 69, 45, 0.18);
   cursor: pointer;
 }
 .mini-range::-moz-range-thumb {
   width: 18px;
   height: 18px;
   border-radius: 999px;
-  background: #e8c896;
-  border: 2px solid #1a110c;
+  background: #6b452d;
+  border: 2px solid #fffaf5;
   cursor: pointer;
 }
