@@ -37,9 +37,10 @@ test("unknown messages do not repeat the full help options", async () => {
 
 test("bot routes builds through one structured conversation parser", async () => {
   const source = await readFile(telegram, "utf8");
-  assert.match(source, /parseChatBuildDraft\(raw, activeDraft\(chatId\)\)/);
+  assert.match(source, /parseChatBuildDraft\(raw, await loadTelegramDraft\(String\(chatId\)\)\)/);
   assert.equal((source.match(/parseChatBuildDraft\(raw/g) ?? []).length, 1);
   assert.match(source, /missingChatBuildField\(draft\)/);
+  assert.match(source, /await clearTelegramDraft\(String\(chatId\)\);/);
 });
 
 test("Telegram splash icon is a 512 square SVG with one path", async () => {
