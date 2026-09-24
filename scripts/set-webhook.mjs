@@ -24,23 +24,33 @@ if (
   const miniAppUrl = `${publicBase}/app?build=${encodeURIComponent(buildId)}`;
 
   async function telegramPost(method, payload = {}) {
-    const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(15_000),
-    });
-    const data = await res.json();
-    if (!res.ok || !data.ok) {
-      // Never print Telegram's response body, token, webhook secret, or bot credentials.
-      throw new Error(`Telegram rejected ${method} (HTTP ${res.status})`);
+    let lastError;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(15_000),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          // Never print Telegram's response body, token, webhook secret, or bot credentials.
+          throw new Error(`Telegram rejected ${method} (HTTP ${res.status})`);
+        }
+        return data.result;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) {
+          await new Promise((resolve) => setTimeout(resolve, attempt * 750));
+        }
+      }
     }
-    return data.result;
+    throw lastError instanceof Error ? lastError : new Error(`Telegram ${method} failed`);
   }
 
   if (!token) {
-    console.error("[set-webhook] TELEGRAM_BOT_TOKEN missing; cannot configure Telegram");
-    process.exitCode = 1;
+    console.warn("[set-webhook] TELEGRAM_BOT_TOKEN missing; leaving the existing Telegram webhook unchanged");
   } else {
     try {
       const secret = telegramWebhookSecret(token, process.env.TELEGRAM_WEBHOOK_SECRET);
@@ -78,11 +88,13 @@ if (
       }
       console.log(`[set-webhook] default Telegram Mini App menu registered at ${miniAppUrl}`);
     } catch (err) {
-      console.error(
-        "[set-webhook] registration failed:",
+      // A deploy must never be blocked by a transient Telegram outage. The
+      // currently registered production webhook remains valid and can be
+      // refreshed on the next deploy or from the app's connect action.
+      console.warn(
+        "[set-webhook] registration failed; keeping the existing webhook:",
         err instanceof Error ? err.message : "unknown error",
       );
-      process.exitCode = 1;
     }
   }
 }
