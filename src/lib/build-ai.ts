@@ -1,7 +1,8 @@
-import { analyzePicks } from "./analyze";
 import { geminiChat } from "./gemini";
+import { deskScore } from "./research";
 import { refreshKeys, geminiKeys, seekaiKeys } from "./keys";
 import { seekChat } from "./seekai";
+import { marketFamily } from "./sportybet";
 import type { AnalyzedPick, TicketPick } from "./types";
 import { youAnswer, youKeys } from "./you";
 
@@ -17,6 +18,7 @@ export type AIReviewResult = {
   reviews: ReviewedMarket[];
   attemptedEvents: number;
   reviewedEvents: number;
+  fallbackUsed?: boolean;
 };
 
 export class AIAnalysisError extends Error {
@@ -126,6 +128,47 @@ export function selectExistingAIScores(
           },
         ]
       : [];
+  });
+}
+
+function fallbackMarketReviews(groups: TicketPick[][]): ReviewedMarket[] {
+  return groups.flatMap((options) => {
+    const ranked = options
+      .filter((pick) => Number.isFinite(pick.odds) && (pick.odds ?? 0) > 1)
+      .map((pick) => {
+        const implied = Math.min(95, Math.max(4, 100 / (pick.odds ?? 9)));
+        const family = marketFamily(pick.sporty?.marketId, pick.market);
+        const volatilityPenalty =
+          family === "hcp" || family === "gg" || family === "corners"
+            ? 5
+            : family === "win"
+              ? 3
+              : 0;
+        const score = Math.max(
+          4,
+          Math.min(96, Math.round(0.68 * deskScore(pick) + 0.32 * implied - volatilityPenalty)),
+        );
+        return { pick, score, family };
+      })
+      .sort((a, b) => b.score - a.score || (a.pick.odds ?? 99) - (b.pick.odds ?? 99));
+    const best = ranked[0];
+    if (!best) return [];
+    return [
+      {
+        pickId: best.pick.id,
+        score: best.score,
+        summary:
+          "Live AI providers were unavailable, so SlipCut used its internal market-risk model for this event.",
+        reasons: [
+          `Current price ${best.pick.odds?.toFixed(2) ?? "unknown"} and ${best.family.toUpperCase()} market shape ranked best among the eligible options.`,
+          "The pick passed the existing league, kickoff, market-family and odds filters.",
+        ],
+        risks: [
+          "This fallback does not include live injury, lineup or form verification.",
+          "Provider recovery may change the preferred market on a later run.",
+        ],
+      },
+    ];
   });
 }
 
@@ -260,38 +303,18 @@ async function reviewBatch(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
       );
     }
   }
-  // Reuse the established per-market AI scorer if a provider cannot follow the
-  // compact comparison schema. Never accept its built-in missing-analysis rows.
-  const started = Date.now();
-  try {
-    const scored = await analyzePicks(groups.flat());
-    const reviews = selectExistingAIScores(groups, scored.picks);
-    console.info(
-      "[slipcut.ai.review]",
-      JSON.stringify({
-        provider: "existing_ai_scorer",
-        status: reviews.length ? "accepted" : "invalid_response",
-        games: groups.length,
-        accepted: reviews.length,
-        durationMs: Date.now() - started,
-      }),
-    );
-    if (reviews.length) return reviews;
-  } catch (error) {
-    console.info(
-      "[slipcut.ai.review]",
-      JSON.stringify({
-        provider: "existing_ai_scorer",
-        status: "request_failed",
-        games: groups.length,
-        accepted: 0,
-        error: safeProviderError(error),
-        durationMs: Date.now() - started,
-      }),
-    );
-  }
-  return [];
-}
+  const fallback = fallbackMarketReviews(groups);
+  console.warn(
+    "[slipcut.ai.review]",
+    JSON.stringify({
+      provider: "internal_market_model",
+      status: fallback.length ? "fallback" : "invalid_response",
+      games: groups.length,
+      accepted: fallback.length,
+      durationMs: 0,
+    }),
+  );
+  return fallback;}
 
 /** AI must choose one of the supplied, already-eligible outcomes for each returned event. */
 export async function reviewBuildMarkets(picks: TicketPick[]): Promise<AIReviewResult> {
@@ -325,13 +348,16 @@ export async function reviewBuildMarkets(picks: TicketPick[]): Promise<AIReviewR
       }
     }),
   );
+  const fallbackUsed = reviews.some((review) =>
+    review.summary.startsWith("Live AI providers were unavailable"),
+  );
   if (!reviews.length)
     throw new AIAnalysisError(
       "AI could not analyse the available markets. No slip was built; try again shortly.",
     );
   console.info(
     "[slipcut.ai.result]",
-    JSON.stringify({ attemptedEvents: games.length, reviewedEvents: reviews.length }),
+    JSON.stringify({ attemptedEvents: games.length, reviewedEvents: reviews.length, fallbackUsed }),
   );
-  return { reviews, attemptedEvents: games.length, reviewedEvents: reviews.length };
+  return { reviews, attemptedEvents: games.length, reviewedEvents: reviews.length, fallbackUsed };
 }
