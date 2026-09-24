@@ -15,7 +15,7 @@ import type { BookSport, TicketPick } from "./types";
 
 /** Five cards, short to long. A longer card is a longer shot. */
 export const ENGINE_LADDER = [2, 3, 5, 8, 12] as const;
-const ENGINE_POLICY_VERSION = "overs-v1";
+const ENGINE_POLICY_VERSION = "conservative-overs-v2";
 
 export type EngineMarketKind = "first_half_over" | "team_over" | "full_time_over";
 const ENGINE_MARKET_ORDER: EngineMarketKind[] = [
@@ -105,6 +105,32 @@ export function engineMarketKind(pick: TicketPick): EngineMarketKind | null {
   return null;
 }
 
+export function enginePriceAllowed(pick: TicketPick): boolean {
+  const odds = pick.odds;
+  if (!odds || !Number.isFinite(odds)) return false;
+  if (odds < 1.2) return false;
+
+  const kind = engineMarketKind(pick);
+  if (!kind) return false;
+
+  // Engine Accumulators are intentionally more conservative than the normal
+  // Build flow. Football first-half overs are the highest-variance family, so
+  // they get the tightest ceiling.
+  if (pick.sport === "football") {
+    if (kind === "first_half_over") return odds <= 1.45;
+    if (kind === "team_over") return odds <= 1.5;
+    return odds <= 1.55;
+  }
+
+  if (pick.sport === "basketball") {
+    if (kind === "team_over") return odds <= 1.5;
+    return odds <= 1.55;
+  }
+
+  return odds <= 1.55;
+}
+
+
 function rankEngineOvers(picks: TicketPick[]): TicketPick[] {
   const groups = new Map<EngineMarketKind, TicketPick[]>(
     ENGINE_MARKET_ORDER.map((kind) => [kind, []]),
@@ -180,12 +206,15 @@ async function poolForEngine(): Promise<TicketPick[] | { error: string }> {
   }
 
   const allowedOvers = listed.filter(
-    (pick) => cookablePick(pick) && engineMarketKind(pick) !== null,
+    (pick) =>
+      cookablePick(pick) &&
+      engineMarketKind(pick) !== null &&
+      enginePriceAllowed(pick),
   );
   if (!allowedOvers.length) {
     return {
       error:
-        "No 1st-half, team-total or full-time Over market is available in the engine price range right now.",
+        "No conservative 1.20-1.55 Over market is available for the engine right now.",
     };
   }
 
@@ -270,7 +299,7 @@ export function engineIntro(accSample: number, average: number) {
     "<b>Engine Accumulators</b>",
     "",
     "The engine builds these itself. It may only use sports and prediction types whose settled record beats its own average hit rate.",
-    "Handicaps are excluded. The engine only uses 1st-half Overs, team-total Overs and full-time Overs.",
+    "Handicaps are excluded. The engine only uses conservative-priced 1st-half Overs, team-total Overs and full-time Overs.",
     "",
     `Five cards go out daily. Settled hit rate: <b>${rate}</b> · ${accSample} legs.`,
     "Nothing here is advice — a longer card is a longer shot.",
