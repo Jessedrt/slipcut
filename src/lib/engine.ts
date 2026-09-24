@@ -15,12 +15,22 @@ import type { TicketPick } from "./types";
 /** Five cards, short to long. A longer card is a longer shot. */
 export const ENGINE_LADDER = [2, 3, 5, 8, 12] as const;
 
+export type EngineLeg = {
+  home: string;
+  away: string;
+  market: string;
+  selection: string;
+  odds?: number;
+  sport: string;
+};
+
 export type EngineCard = {
   n: number;
   code: string;
   url: string;
   odds: number | null;
   games: number;
+  legs?: EngineLeg[];
   hit?: boolean;
   graded?: boolean;
 };
@@ -100,6 +110,14 @@ export async function buildEngineCards(): Promise<EngineCard[] | { error: string
       url: minted.shareURL,
       odds: combinedOdds(take),
       games: take.length,
+      legs: take.map((pick) => ({
+        home: pick.home,
+        away: pick.away,
+        market: pick.market,
+        selection: pick.selection,
+        odds: pick.odds,
+        sport: pick.sport,
+      })),
     });
   }
   if (!cards.length) return { error: "Engine could not mint cards from today's pool." };
