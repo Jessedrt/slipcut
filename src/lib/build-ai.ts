@@ -32,7 +32,7 @@ function eventKey(pick: TicketPick): string {
 
 export function parseBuildAIReviews(answer: string, groups: TicketPick[][]): ReviewedMarket[] {
   const fenced = answer.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const text = fenced?.[1] ?? answer;
+  const text = (fenced?.[1] ?? answer).replace(/\\?\[\[\d+(?:\s*,\s*\d+)*\]\]/g, "");
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start < 0 || end <= start) return [];
@@ -129,6 +129,42 @@ export function selectExistingAIScores(
   });
 }
 
+function compact(value: string, max: number) {
+  const clean = value.replace(/\s+/g, " ").trim();
+  return clean.length <= max ? clean : `${clean.slice(0, Math.max(1, max - 1))}…`;
+}
+
+function safeProviderError(error: unknown) {
+  const message = error instanceof Error ? error.message : "unknown";
+  return message.replace(/(?:AIza|ydc-|sk-)[A-Za-z0-9._-]+/g, "[redacted]").slice(0, 140);
+}
+
+async function reviewWithYou(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
+  const rows = await Promise.all(
+    groups.map(async (options) => {
+      const first = options[0]!;
+      const choices = options
+        .slice(0, 3)
+        .map(
+          (pick, index) =>
+            `${index + 1})${compact(pick.market, 24)}→${compact(pick.selection, 18)}@${pick.odds?.toFixed(2) ?? "?"}`,
+        )
+        .join("; ");
+      const query =
+        `Review game 1: ${compact(first.home, 22)} v ${compact(first.away, 22)} (${compact(first.league, 18)}). ` +
+        `Choose max one offered option; score 0-100 as ranking, not win probability. Options: ${choices}. ` +
+        'Return ONLY JSON {"games":[{"g":1,"o":1,"score":65,"summary":"why","reasons":["reason"],"risks":["risk"]}]}';
+      try {
+        const answer = await youAnswer(query, 9_000);
+        return parseBuildAIReviews(answer, [options]);
+      } catch {
+        return [];
+      }
+    }),
+  );
+  return rows.flat();
+}
+
 async function reviewBatch(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
   const games = groups.map((options, index) => ({
     g: index + 1,
@@ -162,8 +198,6 @@ async function reviewBatch(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
           9_000,
         ),
     });
-  if (youKeys().length)
-    engines.push({ name: "you", run: () => youAnswer(`${system}\n${user}`, 9_000) });
   for (const engine of engines) {
     const started = Date.now();
     try {
@@ -180,7 +214,7 @@ async function reviewBatch(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
         }),
       );
       if (reviews.length) return reviews;
-    } catch {
+    } catch (error) {
       console.info(
         "[slipcut.ai.review]",
         JSON.stringify({
@@ -188,10 +222,42 @@ async function reviewBatch(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
           status: "request_failed",
           games: groups.length,
           accepted: 0,
+          error: safeProviderError(error),
           durationMs: Date.now() - started,
         }),
       );
-      // Try the next configured provider; never use a deterministic fallback.
+    }
+  }
+
+  // You.com's Answer API caps query length. Review each game separately so the
+  // full fixture + option set fits instead of sending one oversized batch.
+  if (youKeys().length) {
+    const started = Date.now();
+    try {
+      const reviews = await reviewWithYou(groups);
+      console.info(
+        "[slipcut.ai.review]",
+        JSON.stringify({
+          provider: "you",
+          status: reviews.length ? "accepted" : "invalid_response",
+          games: groups.length,
+          accepted: reviews.length,
+          durationMs: Date.now() - started,
+        }),
+      );
+      if (reviews.length) return reviews;
+    } catch (error) {
+      console.info(
+        "[slipcut.ai.review]",
+        JSON.stringify({
+          provider: "you",
+          status: "request_failed",
+          games: groups.length,
+          accepted: 0,
+          error: safeProviderError(error),
+          durationMs: Date.now() - started,
+        }),
+      );
     }
   }
   // Reuse the established per-market AI scorer if a provider cannot follow the
@@ -211,7 +277,7 @@ async function reviewBatch(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
       }),
     );
     if (reviews.length) return reviews;
-  } catch {
+  } catch (error) {
     console.info(
       "[slipcut.ai.review]",
       JSON.stringify({
@@ -219,6 +285,7 @@ async function reviewBatch(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
         status: "request_failed",
         games: groups.length,
         accepted: 0,
+        error: safeProviderError(error),
         durationMs: Date.now() - started,
       }),
     );
@@ -251,7 +318,7 @@ export async function reviewBuildMarkets(picks: TicketPick[]): Promise<AIReviewR
   const reviews: ReviewedMarket[] = [];
   let index = 0;
   await Promise.all(
-    Array.from({ length: Math.min(3, batches.length) }, async () => {
+    Array.from({ length: Math.min(2, batches.length) }, async () => {
       while (index < batches.length) {
         const batch = batches[index++];
         if (batch) reviews.push(...(await reviewBatch(batch)));

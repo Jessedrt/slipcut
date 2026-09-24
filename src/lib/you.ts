@@ -14,6 +14,14 @@ function takeKey(keys: string[]) {
   return keys[seq++ % keys.length] ?? "";
 }
 
+export function compactYouAnswerQuery(query: string): string {
+  const normalized = query.replace(/\s+/g, " ").trim();
+  if (normalized.length <= 400) return normalized;
+  const head = normalized.slice(0, 245).trimEnd();
+  const tail = normalized.slice(-150).trimStart();
+  return `${head} … ${tail}`.slice(0, 400);
+}
+
 async function youPost(
   path: string,
   body: Record<string, unknown>,
@@ -61,7 +69,7 @@ async function youPost(
 export async function youAnswer(query: string, timeoutMs = 8_000): Promise<string> {
   const body = (await youPost(
     "/v1/answer",
-    { query, freshness: "week" },
+    { query: compactYouAnswerQuery(query), freshness: "week" },
     timeoutMs,
   )) as { answer?: string };
   return body.answer ?? "";
