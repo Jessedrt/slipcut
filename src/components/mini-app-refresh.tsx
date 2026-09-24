@@ -115,7 +115,7 @@ type EngineApiResult =
       average: number;
       sampleCount: number;
       qualifyingBar: number | null;
-      average: number;
+      ladder?: number[];
     }
   | { ok: false; error: string };
 
