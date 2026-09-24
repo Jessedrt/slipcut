@@ -3,6 +3,7 @@ import { deskScore } from "./research";
 import {
   cookablePick,
   listUpcomingPicks,
+  marketFamily,
   mintShare,
   sportyOf,
   type CookWindow,
@@ -14,6 +15,14 @@ import type { BookSport, TicketPick } from "./types";
 
 /** Five cards, short to long. A longer card is a longer shot. */
 export const ENGINE_LADDER = [2, 3, 5, 8, 12] as const;
+const ENGINE_POLICY_VERSION = "overs-v1";
+
+export type EngineMarketKind = "first_half_over" | "team_over" | "full_time_over";
+const ENGINE_MARKET_ORDER: EngineMarketKind[] = [
+  "first_half_over",
+  "team_over",
+  "full_time_over",
+];
 
 export type EngineLeg = {
   home: string;
@@ -41,7 +50,9 @@ function watDay(offset = 0) {
 }
 
 function keyFor(day: string) {
-  return `engine_${day}`;
+  // Version the daily cache so a market-policy change immediately replaces
+  // cards already issued earlier in the same day.
+  return `engine_${ENGINE_POLICY_VERSION}_${day}`;
 }
 
 export async function loadEngineDay(day = watDay()): Promise<EngineCard[] | null> {
@@ -76,6 +87,70 @@ export async function gradeEngineDay(day: string): Promise<EngineCard[] | null> 
   return cards;
 }
 
+export function engineMarketKind(pick: TicketPick): EngineMarketKind | null {
+  if (!/\bover\b/i.test(pick.selection ?? "")) return null;
+
+  const id = pick.sporty?.marketId ?? "";
+  const family = marketFamily(id, pick.market);
+
+  if (family === "ou1h") return "first_half_over";
+  if (family === "teamou") return "team_over";
+
+  // Only the main full-game totals are allowed here. This deliberately keeps
+  // 2nd-half totals, handicaps, winners, BTTS and other derivative markets out.
+  if (family === "ou" && (id === "18" || id === "225")) {
+    return "full_time_over";
+  }
+
+  return null;
+}
+
+function rankEngineOvers(picks: TicketPick[]): TicketPick[] {
+  const groups = new Map<EngineMarketKind, TicketPick[]>(
+    ENGINE_MARKET_ORDER.map((kind) => [kind, []]),
+  );
+
+  for (const pick of picks) {
+    const kind = engineMarketKind(pick);
+    if (!kind) continue;
+    groups.get(kind)!.push(pick);
+  }
+
+  for (const kind of ENGINE_MARKET_ORDER) {
+    groups.get(kind)!.sort(
+      (a, b) =>
+        deskScore(b) - deskScore(a) ||
+        (a.odds ?? 99) - (b.odds ?? 99),
+    );
+  }
+
+  // Cycle through the three requested market types instead of letting one
+  // family dominate the whole ladder. Each event still appears only once.
+  const ranked: TicketPick[] = [];
+  const usedEvents = new Set<string>();
+  while (ranked.length < 24) {
+    let added = false;
+
+    for (const kind of ENGINE_MARKET_ORDER) {
+      const bucket = groups.get(kind)!;
+      while (bucket.length) {
+        const pick = bucket.shift()!;
+        const eventKey = pick.sporty?.eventId ?? pick.id;
+        if (usedEvents.has(eventKey)) continue;
+        usedEvents.add(eventKey);
+        ranked.push(pick);
+        added = true;
+        break;
+      }
+      if (ranked.length >= 24) break;
+    }
+
+    if (!added) break;
+  }
+
+  return ranked;
+}
+
 async function discoverEngineMarkets(
   window: CookWindow,
   skip: string[],
@@ -104,21 +179,27 @@ async function poolForEngine(): Promise<TicketPick[] | { error: string }> {
     return { error: "No eligible football or basketball events are available right now." };
   }
 
+  const allowedOvers = listed.filter(
+    (pick) => cookablePick(pick) && engineMarketKind(pick) !== null,
+  );
+  if (!allowedOvers.length) {
+    return {
+      error:
+        "No 1st-half, team-total or full-time Over market is available in the engine price range right now.",
+    };
+  }
+
   const acc = await loadAccuracy();
-  const gated = accuracyFilter(listed.filter(cookablePick), acc);
+  const gated = accuracyFilter(allowedOvers, acc);
   if (!gated.kept.length) {
-    return { error: "No market passed the engine accuracy gate right now." };
+    return { error: "No requested Over market passed the engine accuracy gate right now." };
   }
 
   const band = await loadOddsBand();
   const pool = applyBand(gated.kept, band);
-  const ranked = uniqueEvents(
-    [...pool].sort(
-      (a, b) => deskScore(b) - deskScore(a) || (a.odds ?? 99) - (b.odds ?? 99),
-    ),
-  ).picks.slice(0, 24);
+  const ranked = rankEngineOvers(pool);
   if (ranked.length < 2) {
-    return { error: "The engine did not find enough reviewed events to issue a card." };
+    return { error: "The engine did not find enough reviewed Over markets to issue a card." };
   }
   return ranked;
 }
@@ -189,7 +270,7 @@ export function engineIntro(accSample: number, average: number) {
     "<b>Engine Accumulators</b>",
     "",
     "The engine builds these itself. It may only use sports and prediction types whose settled record beats its own average hit rate.",
-    "Draws and straight home wins do not make the cut. Double chance and the goal lines usually do.",
+    "Handicaps are excluded. The engine only uses 1st-half Overs, team-total Overs and full-time Overs.",
     "",
     `Five cards go out daily. Settled hit rate: <b>${rate}</b> · ${accSample} legs.`,
     "Nothing here is advice — a longer card is a longer shot.",
