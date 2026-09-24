@@ -995,9 +995,12 @@ export function MiniAppRefresh() {
                 returned={`${chosenCut.length}/${allCut.length} selected`}
                 odds={activeOdds}
                 notice={
-                  cutResult.dropped.length || cutResult.ignored.length
-                    ? `${cutResult.dropped.length} weak and ${cutResult.ignored.length} unscored selection(s) start deselected. You can restore them manually.`
-                    : undefined
+                  [
+                    ...(cutResult.warnings ?? []),
+                    ...(cutResult.dropped.length || cutResult.ignored.length
+                      ? [`${cutResult.dropped.length} weak and ${cutResult.ignored.length} unscored selection(s) start deselected. You can restore them manually.`]
+                      : []),
+                  ].join(" ") || undefined
                 }
               />
             )}
@@ -1374,6 +1377,13 @@ function BookingAction({
             {minted.games} games ·{" "}
             {minted.combinedOdds ? formatOdds(minted.combinedOdds) : "odds unavailable"}
           </p>
+          {minted.warnings?.length ? (
+            <div className="mt-3 rounded-xl border border-[#b18451]/35 bg-[#392b1d]/75 p-3 text-[11px] leading-4 text-[#e4c69f]">
+              {minted.warnings.map((warning, index) => (
+                <p key={`${warning}-${index}`}>{warning}</p>
+              ))}
+            </div>
+          ) : null}
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button type="button" onClick={onCopy} className={secondary}>
               {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
