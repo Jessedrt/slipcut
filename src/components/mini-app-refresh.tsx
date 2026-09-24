@@ -1234,8 +1234,8 @@ export function MiniAppRefresh() {
                   <h2 className="mt-1 text-xl font-black tracking-[-.04em]">Engine Accumulators</h2>
                   <p className="mt-2 text-xs leading-5 text-[#7a6656]">
                     {engineSport === "football" ? "Football" : "Basketball"} cards use conservative-priced
-                    1st-half Overs, team-total Overs and full-time Overs only. Handicaps are excluded;
-                    longer cards are still longer shots.
+                    Over markets. Each card must mix market families instead of filling the ladder with
+                    the same market type. Handicaps are excluded; longer cards are still longer shots.
                   </p>
                 </div>
                 <button

@@ -15,7 +15,7 @@ import type { BookSport, TicketPick } from "./types";
 
 /** Five cards, short to long. A longer card is a longer shot. */
 export const ENGINE_LADDER = [2, 3, 5, 8, 12] as const;
-const ENGINE_POLICY_VERSION = "conservative-overs-v2";
+const ENGINE_POLICY_VERSION = "conservative-diversified-v3";
 
 export type EngineMarketKind = "first_half_over" | "team_over" | "full_time_over";
 const ENGINE_MARKET_ORDER: EngineMarketKind[] = [
@@ -160,6 +160,53 @@ export function enginePriceAllowed(pick: TicketPick): boolean {
   return odds <= 1.55;
 }
 
+function engineLineKey(pick: TicketPick): string {
+  const kind = engineMarketKind(pick) ?? "other";
+  const specifier = pick.sporty?.specifier ?? "";
+  const total =
+    specifier.match(/(?:^|[;,&])\s*total=([+-]?\d+(?:\.\d+)?)/i)?.[1] ??
+    pick.market.match(/([+-]?\d+(?:\.\d+)?)/)?.[1] ??
+    pick.selection.match(/([+-]?\d+(?:\.\d+)?)/)?.[1] ??
+    "na";
+  return `${kind}:${total}`;
+}
+
+export function selectDiversifiedEngineCard(
+  ranked: TicketPick[],
+  n: number,
+): TicketPick[] {
+  if (n < 1) return [];
+
+  const familyCap = n === 1 ? 1 : Math.ceil(n / 2);
+  const lineCap = n <= 3 ? 1 : Math.ceil(n / 3);
+  const familyCount = new Map<EngineMarketKind, number>();
+  const lineCount = new Map<string, number>();
+  const selected: TicketPick[] = [];
+
+  for (const pick of ranked) {
+    const kind = engineMarketKind(pick);
+    if (!kind) continue;
+
+    const familyUsed = familyCount.get(kind) ?? 0;
+    if (familyUsed >= familyCap) continue;
+
+    const lineKey = engineLineKey(pick);
+    const lineUsed = lineCount.get(lineKey) ?? 0;
+    if (lineUsed >= lineCap) continue;
+
+    selected.push(pick);
+    familyCount.set(kind, familyUsed + 1);
+    lineCount.set(lineKey, lineUsed + 1);
+
+    if (selected.length >= n) break;
+  }
+
+  if (selected.length < n) return selected;
+  if (n >= 2 && familyCount.size < 2) return [];
+  return selected;
+}
+
+
 
 function rankEngineOvers(picks: TicketPick[]): TicketPick[] {
   const groups = new Map<EngineMarketKind, TicketPick[]>(
@@ -282,7 +329,7 @@ export async function buildEngineCards(
     // Cards are separate products, so a strong event may appear on more than
     // one ladder card. Requiring disjoint cards needed 30 unique events and was
     // the main reason the daily engine often issued nothing.
-    const take = ranked.slice(0, n);
+    const take = selectDiversifiedEngineCard(ranked, n);
     if (take.length < n) continue;
     const selections = sportyOf(take);
     if (selections.length !== take.length) continue;
@@ -309,7 +356,12 @@ export async function buildEngineCards(
       })),
     });
   }
-  if (!cards.length) return { error: "Engine could not mint cards from today's pool." };
+  if (!cards.length) {
+    return {
+      error:
+        "Engine found picks, but not enough market-family diversity to issue a non-repetitive card.",
+    };
+  }
   return cards;
 }
 
@@ -345,7 +397,7 @@ export function engineIntro(accSample: number, average: number) {
     "<b>Engine Accumulators</b>",
     "",
     "The engine builds these itself. It may only use sports and prediction types whose settled record beats its own average hit rate.",
-    "Handicaps are excluded. The engine only uses conservative-priced 1st-half Overs, team-total Overs and full-time Overs.",
+    "Handicaps are excluded. Cards must mix at least two eligible Over families, so the engine will not fill a ladder with one repeated market type.",
     "",
     `Five cards go out daily. Settled hit rate: <b>${rate}</b> · ${accSample} legs.`,
     "Nothing here is advice — a longer card is a longer shot.",
