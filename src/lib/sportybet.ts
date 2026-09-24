@@ -489,24 +489,49 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
       else pushMarket(picks, ev, "football", market);
     }
   };
+  const totalBetween = (m: EventMarket, min: number, max: number) => {
+    const total = specTotal(m);
+    return total != null && total >= min && total <= max;
+  };
 
-  // Keep 1X2 in the event pool so research can see the favourite — cookablePick strips it before booking.
+  // Keep 1X2 in the event pool for favourite/context scoring. Risk policy still
+  // decides whether a straight win can ever become a final selection.
   pull((m) => m.id === "1");
   pull((m) => m.id === "10");
   pull((m) => m.id === "11");
   pull((m) => m.id === "63" || /1st half.*double chance/i.test(m.desc ?? ""));
 
-  for (const line of ["1.5", "2", "2.5", "3", "3.5"]) {
-    pull((m) => m.id === "18" && m.specifier === `total=${line}`, true);
-  }
-  for (const line of ["1.5"]) {
-    pull((m) => m.id === "68" && m.specifier === `total=${line}`, true);
-  }
-  pull((m) => (m.id === "62" || m.id === "90" || /2nd half.*over\/under/i.test(m.desc ?? "")) && /total=1\.5/.test(m.specifier ?? ""), true);
-  pull((m) => (m.id === "23" || m.id === "24" || m.id === "227" || m.id === "228") && /total=1\.5/.test(m.specifier ?? ""), true);
+  // Balanced/aggressive builds may consider BTTS while conservative still
+  // filters it out later.
+  pull((m) => m.id === "29" || /gg\/ng|both teams to score/i.test(m.desc ?? ""));
+  pull((m) => m.id === "64" || /1st half.*(?:gg|both teams to score)/i.test(m.desc ?? ""));
+
+  // Do not collapse totals to one hard-coded line. Give the reviewer several
+  // full-time, half-time and team-total lines, including both Over and Under.
+  pull((m) => m.id === "18" && totalBetween(m, 1.5, 4.5));
+  pull((m) => m.id === "68" && totalBetween(m, 1, 2.5));
   pull(
-    (m) => /corner/i.test(m.desc ?? "") && /over\/under|total/i.test(m.desc ?? "") && /total=(8\.5|9\.5|10\.5|11\.5)/.test(m.specifier ?? ""),
-    true,
+    (m) =>
+      (m.id === "62" || /2nd half.*over\/under/i.test(m.desc ?? "")) &&
+      totalBetween(m, 1, 2.5),
+  );
+  pull(
+    (m) =>
+      (m.id === "23" || m.id === "24" || m.id === "227" || m.id === "228") &&
+      totalBetween(m, 0.5, 2.5),
+  );
+  pull(
+    (m) =>
+      (m.id === "69" || m.id === "70") &&
+      totalBetween(m, 0.5, 2),
+  );
+
+  // Compare a wider set of corner lines instead of only four preset overs.
+  pull(
+    (m) =>
+      /corner/i.test(m.desc ?? "") &&
+      /over\/under|total/i.test(m.desc ?? "") &&
+      totalBetween(m, 6.5, 13.5),
   );
   return picks;
 }
@@ -702,7 +727,7 @@ export function cookablePick(p: TicketPick) {
   const line = Number((p.sporty.specifier ?? p.market).match(/([\d.]+)/)?.[1]);
   const over = /over/i.test(p.selection ?? "");
   if (p.sport === "football") {
-    if (fam === "win" || fam === "hcp" || fam === "gg" || fam === "odd") return false;
+    if (fam === "win" || fam === "hcp" || fam === "odd") return false;
     if (over && fam === "ou1h" && (line === 0.5 || line === 1)) return false;
     if (over && (fam === "teamou" || p.sporty.marketId === "69" || p.sporty.marketId === "70") && (line === 0.5 || line === 1)) return false;
     if (over && /2nd half|2h |second half/.test(label) && (line === 0.5 || line === 1)) return false;
@@ -854,7 +879,7 @@ function requestedMarketIds(sport: BookSport) {
   if (sport === "basketball") return "219,186,223,14,225,18,227,228,68,69,70,236";
   if (sport === "tennis") return "186,187,188,189,202,204";
   if (sport === "handball") return "1,10,11,18,68";
-  return "1,10,11,18,23,24,29,63,68,90,166";
+  return "1,10,11,18,23,24,29,62,63,64,68,69,70,90,166,227,228";
 }
 
 type UpcomingTournament = {
