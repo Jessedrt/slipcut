@@ -97,6 +97,14 @@ type EngineCard = {
   url: string;
   odds: number | null;
   games: number;
+  legs?: Array<{
+    home: string;
+    away: string;
+    market: string;
+    selection: string;
+    odds?: number;
+    sport: string;
+  }>;
   hit?: boolean;
   graded?: boolean;
 };
@@ -418,6 +426,34 @@ export function Landing() {
                               {card.graded ? (card.hit ? "Hit" : "Missed") : "Pending"}
                             </span>
                           </div>
+
+                          {card.legs?.length ? (
+                            <div className="mt-4 max-h-48 space-y-2 overflow-y-auto rounded-2xl border border-[#6e4a32]/10 bg-[#fbf7f2] p-3">
+                              {card.legs.slice(0, 6).map((leg, legIndex) => (
+                                <div key={`${card.code}-${legIndex}`} className="grid grid-cols-[22px_1fr_auto] items-center gap-2">
+                                  <span className="grid h-5 w-5 place-items-center rounded-full bg-[#6b452d] text-[9px] font-black text-white">
+                                    {legIndex + 1}
+                                  </span>
+                                  <div className="min-w-0">
+                                    <p className="truncate text-[10px] font-black text-[#493124]">
+                                      {leg.home} vs {leg.away}
+                                    </p>
+                                    <p className="truncate text-[9px] text-[#8f7663]">
+                                      {leg.market} · {leg.selection}
+                                    </p>
+                                  </div>
+                                  <span className="font-mono text-[10px] font-black text-[#6b452d]">
+                                    {leg.odds ? leg.odds.toFixed(2) : "—"}
+                                  </span>
+                                </div>
+                              ))}
+                              {card.legs.length > 6 ? (
+                                <p className="pt-1 text-center text-[9px] font-bold text-[#8f7663]">
+                                  +{card.legs.length - 6} more selections
+                                </p>
+                              ) : null}
+                            </div>
+                          ) : null}
 
                           <div className="mt-5 grid grid-cols-2 gap-2">
                             <div className="rounded-xl bg-[#f4ece4] p-3">
