@@ -213,14 +213,17 @@ export function Landing() {
 
   return (
     <div
-      className="min-h-dvh overflow-x-hidden"
+      className="live-page relative min-h-dvh overflow-x-hidden"
       style={{
         color: C.ink,
         background:
           "radial-gradient(circle at 8% 2%, rgba(200,155,109,.22), transparent 24rem), radial-gradient(circle at 96% 18%, rgba(111,74,45,.12), transparent 28rem), #F8F3ED",
       }}
     >
-      <header className="sticky top-0 z-50 border-b backdrop-blur-2xl" style={{ borderColor: C.line, background: "rgba(255,253,249,.88)" }}>
+      <div className="ambient-orb ambient-orb-a" aria-hidden="true" />
+      <div className="ambient-orb ambient-orb-b" aria-hidden="true" />
+      <div className="ambient-orb ambient-orb-c" aria-hidden="true" />
+      <header className="live-header sticky top-0 z-50 border-b backdrop-blur-2xl" style={{ borderColor: C.line, background: "rgba(255,253,249,.88)" }}>
         <div className="mx-auto flex h-16 max-w-[1480px] items-center justify-between px-4 sm:px-6 lg:h-[72px] lg:px-8">
           <a href="/" className="flex items-center gap-3">
             <div className="grid size-10 place-items-center rounded-2xl border bg-white shadow-sm" style={{ borderColor: C.line }}>
@@ -293,7 +296,7 @@ export function Landing() {
         ) : null}
       </header>
 
-      <div className="border-b bg-[#2E2016] py-2.5 text-[#F8F3ED]" style={{ borderColor: C.brown }}>
+      <div className="live-ticker border-b bg-[#2E2016] py-2.5 text-[#F8F3ED]" style={{ borderColor: C.brown }}>
         <div className="marquee">
           {[...MARQUEE, ...MARQUEE].map((item, index) => (
             <span key={`${item}-${index}`} className="marquee-item text-[10px] font-black tracking-[0.22em]">
@@ -305,8 +308,8 @@ export function Landing() {
       </div>
 
       <main>
-        <section className="mx-auto grid max-w-[1480px] gap-6 px-4 pb-8 pt-6 sm:px-6 lg:grid-cols-[1.35fr_.65fr] lg:px-8 lg:pb-10 lg:pt-8">
-          <div className="relative overflow-hidden rounded-[32px] border bg-[#FFFDF9] p-6 shadow-[0_30px_80px_-48px_rgba(46,32,22,.42)] sm:p-8 lg:p-11" style={{ borderColor: C.line }}>
+        <section className="hero-stage mx-auto grid max-w-[1480px] gap-6 px-4 pb-8 pt-6 sm:px-6 lg:grid-cols-[1.35fr_.65fr] lg:px-8 lg:pb-10 lg:pt-8">
+          <div className="hero-panel hero-enter relative overflow-hidden rounded-[32px] border bg-[#FFFDF9] p-6 shadow-[0_30px_80px_-48px_rgba(46,32,22,.42)] sm:p-8 lg:p-11" style={{ borderColor: C.line }}>
             <div
               aria-hidden="true"
               className="absolute inset-0 opacity-40"
@@ -325,7 +328,7 @@ export function Landing() {
                   Telegram + Mini App
                 </span>
                 <span className="rounded-full border bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.18em]" style={{ borderColor: C.line, color: C.muted }}>
-                  Accuracy-led engine
+                  <span className="live-dot mr-1 inline-block size-1.5 rounded-full bg-[#6F4A2D]" />Accuracy-led engine
                 </span>
               </div>
 
@@ -344,7 +347,7 @@ export function Landing() {
               <div className="mt-8 flex flex-wrap gap-3">
                 <a
                   href={APP}
-                  className="inline-flex h-13 items-center gap-2 rounded-2xl px-6 text-sm font-black text-white shadow-[0_18px_40px_-18px_rgba(111,74,45,.85)]"
+                  className="shine-action inline-flex h-13 items-center gap-2 rounded-2xl px-6 text-sm font-black text-white shadow-[0_18px_40px_-18px_rgba(111,74,45,.85)]"
                   style={{ background: C.brown }}
                 >
                   Launch Mini App
@@ -352,7 +355,7 @@ export function Landing() {
                 </a>
                 <a
                   href={BOT}
-                  className="inline-flex h-13 items-center gap-2 rounded-2xl border bg-white px-6 text-sm font-black"
+                  className="soft-action inline-flex h-13 items-center gap-2 rounded-2xl border bg-white px-6 text-sm font-black"
                   style={{ borderColor: C.line, color: C.brown }}
                 >
                   <Bot className="size-4" />
@@ -376,7 +379,7 @@ export function Landing() {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
-            <div className="rounded-[28px] border bg-[#2E2016] p-6 text-[#FFFDF9] shadow-[0_28px_60px_-38px_rgba(46,32,22,.7)]" style={{ borderColor: C.brown }}>
+            <div className="motion-card motion-card-1 rounded-[28px] border bg-[#2E2016] p-6 text-[#FFFDF9] shadow-[0_28px_60px_-38px_rgba(46,32,22,.7)]" style={{ borderColor: C.brown }}>
               <div className="flex items-center justify-between">
                 <span className="rounded-full border border-white/20 px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.2em] text-[#E8C7A6]">
                   Live engine
@@ -398,7 +401,7 @@ export function Landing() {
               </div>
             </div>
 
-            <div className="rounded-[28px] border bg-[#F1E5D6] p-6" style={{ borderColor: C.line }}>
+            <div className="motion-card motion-card-2 rounded-[28px] border bg-[#F1E5D6] p-6" style={{ borderColor: C.line }}>
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-black uppercase tracking-[0.18em]" style={{ color: C.brown }}>Desk status</p>
                 <Zap className="size-4" style={{ color: C.brown }} />
@@ -423,7 +426,7 @@ export function Landing() {
         <section className="mx-auto max-w-[1480px] px-4 sm:px-6 lg:px-8">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             {statCards.map((card) => (
-              <article key={card.label} className="rounded-[24px] border bg-[#FFFDF9] p-5 shadow-[0_16px_45px_-34px_rgba(46,32,22,.45)]" style={{ borderColor: C.line }}>
+              <article key={card.label} className="motion-card stat-glow rounded-[24px] border bg-[#FFFDF9] p-5 shadow-[0_16px_45px_-34px_rgba(46,32,22,.45)]" style={{ borderColor: C.line }}>
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-[0.17em]" style={{ color: C.muted }}>{card.label}</p>
@@ -491,7 +494,7 @@ export function Landing() {
                 {(engineCards.length ? engineCards : ladder.map((n) => ({ n, code: "", url: "", odds: null, games: n } as EngineCard))).map((card, index) => (
                   <article
                     key={card.code || `pending-${card.n}`}
-                    className={`overflow-hidden rounded-[26px] border bg-[#FFFDF9] ${index === 0 ? "lg:col-span-2" : ""}`}
+                    className={`engine-card overflow-hidden rounded-[26px] border bg-[#FFFDF9] ${index === 0 ? "lg:col-span-2" : ""}`}
                     style={{ borderColor: C.line }}
                   >
                     <div className="flex items-start justify-between gap-4 border-b p-5" style={{ borderColor: C.line, background: index === 0 ? "#F1E5D6" : "#FFFDF9" }}>
@@ -594,7 +597,7 @@ export function Landing() {
 
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {FEATURES.map((feature, index) => (
-                  <article key={feature.title} className="group rounded-[24px] border border-white/12 bg-white/[.055] p-5 transition hover:-translate-y-1 hover:bg-white/[.08]">
+                  <article key={feature.title} className="feature-pop group rounded-[24px] border border-white/12 bg-white/[.055] p-5 transition hover:-translate-y-1 hover:bg-white/[.08]">
                     <div className="flex items-center justify-between">
                       <div className="grid size-10 place-items-center rounded-2xl bg-[#C89B6D] text-[#2E2016]">
                         <feature.icon className="size-4" />
@@ -744,7 +747,7 @@ function ChatPanel() {
           {lines.map(([who, text], index) => (
             <div
               key={index}
-              className={`max-w-[88%] rounded-2xl px-3.5 py-3 text-xs leading-5 ${
+              className={`chat-pop max-w-[88%] rounded-2xl px-3.5 py-3 text-xs leading-5 ${
                 who === "you"
                   ? "ml-auto rounded-br-md bg-[#C89B6D] text-[#2E2016]"
                   : "rounded-bl-md bg-white/8 text-[#EEE2D6]"
