@@ -1,15 +1,19 @@
-import { defineHandler } from "nitro";
 import { createHash } from "node:crypto";
-import { defaultBookDependencies, mintReviewedSlip } from "../../../../src/lib/book-slip";
+import { defineHandler } from "nitro";
+import { mintReviewedSlip, defaultBookDependencies } from "../../../../src/lib/book-slip";
 import { runIdempotent } from "../../../../src/lib/booking-idempotency";
+import { convertTicket } from "../../../../src/lib/bookmakers/convert";
+import { isBookmakerId } from "../../../../src/lib/bookmakers/adapters";
+import { normalizeTicket } from "../../../../src/lib/bookmakers/normalize";
 import { recordMiniAppSlip } from "../../../../src/lib/miniapp-history";
 import { authenticateMiniAppRequest } from "../../../../src/lib/telegram-miniapp-auth";
-import type { TicketPick } from "../../../../src/lib/types";
+import type { BookmakerId, TicketPick } from "../../../../src/lib/types";
+import { combinedOdds } from "../../../../src/lib/workbench";
 
 export default defineHandler(async (event) => {
   const auth = authenticateMiniAppRequest(event.req);
   if (!auth.ok) return Response.json(auth, { status: 401 });
-  let body: { picks?: unknown; requestId?: unknown };
+  let body: { picks?: unknown; requestId?: unknown; bookmaker?: unknown; country?: unknown };
   try {
     body = (await event.req.json()) as typeof body;
   } catch {
@@ -41,15 +45,64 @@ export default defineHandler(async (event) => {
       { status: 400 },
     );
   }
-  const picks = body.picks as TicketPick[];
-  const requestHash = createHash("sha256").update(JSON.stringify(picks)).digest("hex");
-  const userId = String(auth.auth.user.id);
-  const result = await runIdempotent(userId, requestId, requestHash, async () => {
-    const booked = await mintReviewedSlip(picks, "ng", defaultBookDependencies, {
-      acceptOddsChanges: false,
-    });
-    if (!booked.ok) return booked;
 
+  const bookmaker: BookmakerId = isBookmakerId(body.bookmaker) ? body.bookmaker : "sportybet";
+  const country = typeof body.country === "string" && body.country.trim() ? body.country.trim() : "ng";
+  const picks = body.picks as TicketPick[];
+  const requestHash = createHash("sha256")
+    .update(JSON.stringify({ bookmaker, country, picks }))
+    .digest("hex");
+  const userId = String(auth.auth.user.id);
+
+  const result = await runIdempotent(userId, requestId, requestHash, async () => {
+    let booked:
+      | Awaited<ReturnType<typeof mintReviewedSlip>>
+      | {
+          ok: true;
+          shareCode: string;
+          shareURL: string;
+          unavailable: 0;
+          picks: TicketPick[];
+          combinedOdds: number | null;
+          warnings: string[];
+          bookmaker: BookmakerId;
+        };
+
+    if (bookmaker === "sportybet") {
+      booked = await mintReviewedSlip(picks, country, defaultBookDependencies, {
+        acceptOddsChanges: false,
+      });
+    } else {
+      const converted = await convertTicket(
+        normalizeTicket({
+          sourceBookmaker: "sportybet",
+          picks,
+          country,
+          currency: country === "ng" ? "NGN" : undefined,
+        }),
+        bookmaker,
+        { country, fallback: "drop-unavailable" },
+      );
+      if (!converted.ok) {
+        return {
+          ok: false as const,
+          code: converted.code,
+          error: converted.error,
+        };
+      }
+      booked = {
+        ok: true,
+        shareCode: converted.code,
+        shareURL: converted.url ?? "",
+        unavailable: 0,
+        picks: converted.ticket.picks,
+        combinedOdds: combinedOdds(converted.ticket.picks),
+        warnings: converted.warnings,
+        bookmaker,
+      };
+    }
+
+    if (!booked.ok) return booked;
     const sports = [...new Set(booked.picks.map((pick) => pick.sport))];
     let historyStored = false;
     try {
@@ -66,8 +119,14 @@ export default defineHandler(async (event) => {
         error instanceof Error ? error.message : "unknown error",
       );
     }
-    return { ...booked, historyStored };
+    return {
+      ...booked,
+      bookmaker,
+      warnings: "warnings" in booked ? booked.warnings : [],
+      historyStored,
+    };
   });
+
   if (!result.ok) {
     return Response.json(result, {
       status:
