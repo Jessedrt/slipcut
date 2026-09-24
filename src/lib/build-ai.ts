@@ -190,13 +190,13 @@ async function reviewWithYou(groups: TicketPick[][]): Promise<ReviewedMarket[]> 
         .slice(0, 8)
         .map(
           (pick, index) =>
-            `${index + 1})${compact(pick.market, 15)}→${compact(pick.selection, 10)}@${pick.odds?.toFixed(2) ?? "?"}`,
+            `${index + 1})${compact(pick.market, 12)}>${compact(pick.selection, 8)}@${pick.odds?.toFixed(2) ?? "?"}`,
         )
         .join(";");
       const query =
-        `Game: ${compact(first.home, 16)} v ${compact(first.away, 16)}. ` +
-        `Choose one offered option or omit; score 0-100 ranking, not win probability. ${choices}. ` +
-        'JSON only {"games":[{"g":1,"o":1,"score":65,"summary":"why"}]}';
+        `Game ${compact(first.home, 14)} v ${compact(first.away, 14)}. ` +
+        `Pick one option or omit; score 0-100 ranking, not win probability. ${choices}. ` +
+        'JSON {"games":[{"g":1,"o":1,"score":65,"summary":"why"}]}';
       try {
         const answer = await youAnswer(query, 9_000);
         return parseBuildAIReviews(answer, [options]);
