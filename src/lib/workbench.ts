@@ -90,68 +90,85 @@ export function splitEven<T>(items: T[], parts: number): T[][] {
 }
 
 /**
- * Select a subset whose combined odds is as close as possible to the target.
- * If the target can be reached, an at-or-above result always wins over a
- * below-target result. Among those, prefer the smallest overshoot and then
- * the strongest combined probability.
+ * Remove risk from an existing accumulator until its price is near the requested
+ * target. The weakest model probability is removed first whenever doing so does
+ * not materially undershoot the target; implied probability is the fallback.
  */
-export function trimToOdds(picks: AnalyzedPick[], target: number): AnalyzedPick[] {
-  const requested = Number.isFinite(target) ? Math.max(1.2, Math.min(1000, target)) : 500;
-  const eligible = picks
-    .filter((p) => p.sport !== "other" && Number.isFinite(p.odds) && (p.odds as number) > 1.08 && (p.odds as number) < 6)
-    .slice();
-  if (!eligible.length) return [];
+export function riskTrimToOdds<T extends { odds?: number; probability?: number }>(
+  picks: T[],
+  target: number,
+): { kept: T[]; removed: T[]; combinedOdds: number | null } {
+  const requested = Number.isFinite(target) ? Math.max(1.2, Math.min(1000, target)) : 50;
+  const kept = picks.filter(
+    (pick) => Number.isFinite(pick.odds) && (pick.odds as number) > 1.0001,
+  );
+  const removed = picks.filter(
+    (pick) => !Number.isFinite(pick.odds) || (pick.odds as number) <= 1.0001,
+  );
 
-  type State = { ids: string[]; product: number; score: number };
-  const beamWidth = 5000;
-  const sorted = eligible.sort((a, b) => {
-    const pa = Math.max(1, a.probability) / Math.max(1.01, a.odds as number);
-    const pb = Math.max(1, b.probability) / Math.max(1.01, b.odds as number);
-    return pb - pa;
-  });
-  let states: State[] = [{ ids: [], product: 1, score: 0 }];
+  const probabilityOf = (pick: T) => {
+    const model = Number(pick.probability);
+    if (Number.isFinite(model) && model > 0 && model <= 100) return model;
+    const odds = Number(pick.odds);
+    return odds > 1 ? 100 / odds : 100;
+  };
+  const productOf = (rows: T[]) =>
+    rows.length ? rows.reduce((product, pick) => product * Number(pick.odds), 1) : 1;
 
-  for (const pick of sorted) {
-    const odds = pick.odds as number;
-    const probability = Math.max(1, Math.min(99, pick.probability));
-    const next: State[] = states.slice();
-    for (const state of states) {
-      const product = state.product * odds;
-      if (product > requested * 1.35 && state.ids.length > 0) continue;
-      next.push({
-        ids: [...state.ids, pick.id],
-        product,
-        score: state.score + Math.log(probability / 100),
-      });
-    }
-
-    next.sort((a, b) => {
-      const distance = (x: State) => {
-        if (x.product >= requested) return x.product / requested - 1;
-        return 1 + (requested / x.product - 1);
-      };
-      const da = distance(a);
-      const db = distance(b);
-      if (Math.abs(da - db) > 0.015) return da - db;
-      if (Math.abs(a.score - b.score) > 0.03) return b.score - a.score;
-      return a.ids.length - b.ids.length;
-    });
-    states = next.slice(0, beamWidth);
+  let current = productOf(kept);
+  if (current <= requested * 1.05) {
+    return { kept, removed, combinedOdds: kept.length ? current : null };
   }
 
-  const nonEmpty = states.filter((s) => s.ids.length > 0);
-  if (!nonEmpty.length) return [sorted[0]!];
-  const byId = new Map(eligible.map((p) => [p.id, p]));
-  const distance = (s: State) => (s.product >= requested ? s.product / requested - 1 : 1 + (requested / s.product - 1));
-  const best = nonEmpty.sort((a, b) => {
-    const da = distance(a);
-    const db = distance(b);
-    if (Math.abs(da - db) > 0.005) return da - db;
-    if (Math.abs(a.score - b.score) > 0.02) return b.score - a.score;
-    return a.ids.length - b.ids.length;
-  })[0]!;
+  while (kept.length > 1 && current > requested * 1.05) {
+    const candidates = kept.map((pick, index) => {
+      const next = current / Number(pick.odds);
+      const below = next < requested;
+      const undershoot = below ? requested / Math.max(1, next) - 1 : 0;
+      const overshoot = next >= requested ? next / requested - 1 : 0;
+      return {
+        pick,
+        index,
+        next,
+        probability: probabilityOf(pick),
+        acceptable: next >= requested * 0.85,
+        distance: below ? 1 + undershoot : overshoot,
+      };
+    });
 
-  return best.ids.map((id) => byId.get(id)).filter((p): p is AnalyzedPick => Boolean(p));
+    const acceptable = candidates.filter((candidate) => candidate.acceptable);
+    const pool = acceptable.length ? acceptable : candidates;
+    pool.sort((a, b) => {
+      // Primary goal: cut the riskiest leg. If two legs are similarly risky,
+      // choose the one that lands closest to the requested multiplier.
+      if (Math.abs(a.probability - b.probability) > 3) return a.probability - b.probability;
+      if (Math.abs(a.distance - b.distance) > 0.01) return a.distance - b.distance;
+      return Number(b.pick.odds) - Number(a.pick.odds);
+    });
+
+    let chosen = pool[0]!;
+    if (!acceptable.length) {
+      // Every single removal would undershoot. At that point hitting the target
+      // matters more than blindly deleting the absolute weakest leg.
+      chosen = candidates.slice().sort((a, b) => {
+        if (Math.abs(a.distance - b.distance) > 0.01) return a.distance - b.distance;
+        return a.probability - b.probability;
+      })[0]!;
+    }
+
+    removed.push(chosen.pick);
+    kept.splice(chosen.index, 1);
+    current = chosen.next;
+  }
+
+  return { kept, removed, combinedOdds: kept.length ? productOf(kept) : null };
+}
+
+export function trimToOdds(picks: AnalyzedPick[], target: number): AnalyzedPick[] {
+  return riskTrimToOdds(
+    picks.filter((pick) => pick.sport !== "other"),
+    target,
+  ).kept;
 }
 
 export function keepTop(picks: AnalyzedPick[], count: number): AnalyzedPick[] {
