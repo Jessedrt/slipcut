@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { buildSlip, type BuildSlipRequest } from "./build-slip";
 import { mintReviewedSlip } from "./book-slip";
+import { todayEngineCards } from "./engine";
 import { loadBookingCode } from "./sportybet";
 import { markUpdateSeen, recordSlip, latestCode } from "./study";
 import {
@@ -312,7 +313,13 @@ export async function sendScheduledLongshot() {
   console.log("longshot");
 }
 export async function runDeskCron() {
-  console.log("cron");
+  const cards = await todayEngineCards();
+  if ("error" in cards) {
+    console.warn("[engine.cron]", cards.error);
+    return { ok: false as const, error: cards.error };
+  }
+  console.info("[engine.cron]", JSON.stringify({ cards: cards.length }));
+  return { ok: true as const, cards: cards.length };
 }
 
 export async function handleTelegramUpdate(update: TgUpdate) {
