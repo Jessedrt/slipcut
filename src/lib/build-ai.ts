@@ -19,7 +19,7 @@ export type AIReviewResult = {
   reviews: ReviewedMarket[];
   attemptedEvents: number;
   reviewedEvents: number;
-  fallbackUsed: boolean;
+  fallbackUsed?: boolean;
 };
 
 export class AIAnalysisError extends Error {
