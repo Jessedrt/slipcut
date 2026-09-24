@@ -59,6 +59,11 @@ export function deskScore(pick: TicketPick): number {
     const total = Number((pick.sporty?.specifier ?? pick.market).match(/([\d.]+)/)?.[1] ?? NaN);
     if ((fam === "ou" || pick.sporty?.marketId === "225") && Number.isFinite(total) && total >= 220)
       s -= 8;
+    // Short-priced derivative markets can look safer than they are. Prefer
+    // full-game winner/total lines unless a higher-risk mode explicitly keeps
+    // team or period totals in the pool.
+    if (fam === "teamou") s -= 12;
+    if (fam === "ou1h" || pick.sporty?.marketId === "236") s -= 8;
   }
   if (pick.kickoff && pick.kickoff < Date.now() + 8 * 60_000) s -= 22;
   return clamp(Math.round(s), 4, 96);
