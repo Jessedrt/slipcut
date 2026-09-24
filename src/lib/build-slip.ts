@@ -9,7 +9,7 @@ import {
   type SportyFailure,
 } from "./sportybet";
 import { buildToOdds, combinedOdds, uniqueEvents } from "./workbench";
-import type { AnalyzedPick, BookSport, TicketPick } from "./types";
+import type { BookSport, TicketPick } from "./types";
 
 export type BuildSport = Extract<BookSport, "football" | "basketball">;
 export type BuildMode = "games" | "odds";
@@ -35,7 +35,8 @@ export type RiskPolicy = {
 
 export type BuildSelection = TicketPick & {
   modelScore: number;
-  confidenceLabel: "higher evidence" | "moderate evidence" | "limited evidence";
+  confidenceLabel: "higher ranking" | "moderate ranking" | "lower ranking";
+  analysisBasis: "market_rules" | "ai_assisted_unverified";
   summary: string;
   reasons: string[];
   risks: string[];
@@ -81,9 +82,7 @@ export type BuildSlipFailure = {
 };
 
 export type BuildSlipResult = BuildSlipSuccess | BuildSlipFailure;
-export type BuildRequestValidation =
-  | { ok: true; value: BuildSlipRequest }
-  | BuildSlipFailure;
+export type BuildRequestValidation = { ok: true; value: BuildSlipRequest } | BuildSlipFailure;
 
 export const RISK_POLICIES: Record<BuildRisk, RiskPolicy> = {
   conservative: {
@@ -158,7 +157,11 @@ export function validateBuildRequest(input: unknown): BuildRequestValidation {
   }
   const targetOdds = Number(value.targetOdds);
   if (!Number.isFinite(targetOdds) || targetOdds < 1.5 || targetOdds > 50) {
-    return { ok: false, code: "invalid_request", error: "Target odds must be between 1.50 and 50.00." };
+    return {
+      ok: false,
+      code: "invalid_request",
+      error: "Target odds must be between 1.50 and 50.00.",
+    };
   }
   return { ok: true, value: { ...base, mode: "odds", targetOdds } };
 }
@@ -177,19 +180,24 @@ function allowedFamily(pick: TicketPick, risk: BuildRisk) {
 }
 
 function scoreLabel(score: number): BuildSelection["confidenceLabel"] {
-  if (score >= 70) return "higher evidence";
-  if (score >= 56) return "moderate evidence";
-  return "limited evidence";
+  if (score >= 70) return "higher ranking";
+  if (score >= 56) return "moderate ranking";
+  return "lower ranking";
 }
 
-function explainSelection(pick: TicketPick, score: number, policy: RiskPolicy): BuildSelection {
+function explainSelection(
+  pick: TicketPick,
+  score: number,
+  policy: RiskPolicy,
+  analysisBasis: BuildSelection["analysisBasis"],
+): BuildSelection {
   const family = marketFamily(pick.sporty?.marketId, pick.market);
   const reasons = [
-    `Passed the ${policy.label.toLowerCase()} score and odds rules.`,
-    `${pick.league || "The competition"} passed SlipCut's competition filter.`,
-    `${family.toUpperCase()} was the highest-ranked eligible family for this event.`,
+    `Current SportyBet price ${pick.odds?.toFixed(2) ?? "unknown"} is inside the ${policy.label.toLowerCase()} range (${policy.minOdds.toFixed(2)}–${policy.maxOdds.toFixed(2)}).`,
+    `${pick.league || "Competition"} and ${family.toUpperCase()} passed the configured filters.`,
   ];
   const risks = [
+    "No match-specific form, injury or lineup facts were independently verified for this pick.",
     "Odds and market availability can change before the code is created.",
     family === "hcp" || family === "gg" || family === "corners"
       ? "This market can be more volatile than a short double-chance or total line."
@@ -199,13 +207,20 @@ function explainSelection(pick: TicketPick, score: number, policy: RiskPolicy): 
     ...pick,
     modelScore: score,
     confidenceLabel: scoreLabel(score),
-    summary: `${pick.selection} in ${pick.home} vs ${pick.away} ranked within the selected ${policy.label.toLowerCase()} rules.`,
+    analysisBasis,
+    summary:
+      analysisBasis === "ai_assisted_unverified"
+        ? "AI adjusted this market-based ranking, but its match-specific claims have no verified source attached."
+        : "Market-only ranking based on SportyBet odds, competition and market rules; match form was not verified.",
     reasons,
     risks,
   };
 }
 
-function researchWithin<T>(promise: Promise<T>, ms: number): Promise<{ value: T | null; fallback: boolean }> {
+function researchWithin<T>(
+  promise: Promise<T>,
+  ms: number,
+): Promise<{ value: T | null; fallback: boolean }> {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve({ value: null, fallback: true }), ms);
     promise.then(
@@ -229,13 +244,9 @@ export async function buildSlip(
   if (!validated.ok) return validated;
   const request = validated.value;
   const policy = RISK_POLICIES[request.risk];
-  const requestedCount = request.mode === "games" ? request.games ?? 5 : 15;
+  const requestedCount = request.mode === "games" ? (request.games ?? 5) : 15;
   const discoveryLimit = Math.min(42, Math.max(20, requestedCount * 3));
-  const discovered = await dependencies.discover(
-    request.sport,
-    discoveryLimit,
-    request.window,
-  );
+  const discovered = await dependencies.discover(request.sport, discoveryLimit, request.window);
   if (isFailure(discovered)) return { ok: false, ...discovered };
 
   const analysis: AnalysisDiagnostics = {
@@ -275,7 +286,15 @@ export async function buildSlip(
   });
   analysis.eligibleBeforeScoring = eligible.length;
   if (!eligible.length) {
-    console.info("[slipcut.analysis]", JSON.stringify({ sport: request.sport, risk: request.risk, ...analysis, code: "no_eligible_markets" }));
+    console.info(
+      "[slipcut.analysis]",
+      JSON.stringify({
+        sport: request.sport,
+        risk: request.risk,
+        ...analysis,
+        code: "no_eligible_markets",
+      }),
+    );
     return {
       ok: false,
       code: "no_eligible_markets",
@@ -289,15 +308,22 @@ export async function buildSlip(
     32_000,
   );
   const research = researchResult.value;
-  analysis.researchFallbackUsed = researchResult.fallback;
-  analysis.researched = research?.keep.length ?? 0;
+  analysis.researchFallbackUsed = researchResult.fallback || !research?.researched;
+  const aiScoredIds = new Set(research?.aiScoredIds ?? []);
+  analysis.researched = aiScoredIds.size;
   const researchedById = new Map((research?.keep ?? []).map((pick) => [pick.id, pick]));
-  const scored = eligible
-    .map((pick) => {
-      const researched = researchedById.get(pick.id);
-      const score = Math.round(researched?.probability ?? deskScore(pick));
-      return explainSelection({ ...pick, ...researched }, score, policy);
-    })
+  const scored = eligible.map((pick) => {
+    const researched = researchedById.get(pick.id);
+    const score = Math.round(
+      aiScoredIds.has(pick.id) ? (researched?.probability ?? deskScore(pick)) : deskScore(pick),
+    );
+    return explainSelection(
+      pick,
+      score,
+      policy,
+      aiScoredIds.has(pick.id) ? "ai_assisted_unverified" : "market_rules",
+    );
+  });
   const ranked = scored
     .filter((pick) => {
       if (pick.modelScore >= policy.minModelScore) return true;
@@ -308,7 +334,15 @@ export async function buildSlip(
   const deduped = uniqueEvents(ranked).picks;
   analysis.rejected.duplicateEvents = ranked.length - deduped.length;
   if (!deduped.length) {
-    console.info("[slipcut.analysis]", JSON.stringify({ sport: request.sport, risk: request.risk, ...analysis, code: "no_eligible_markets" }));
+    console.info(
+      "[slipcut.analysis]",
+      JSON.stringify({
+        sport: request.sport,
+        risk: request.risk,
+        ...analysis,
+        code: "no_eligible_markets",
+      }),
+    );
     return {
       ok: false,
       code: "no_eligible_markets",
@@ -327,16 +361,17 @@ export async function buildSlip(
       ? actualCombinedOdds >= (request.targetOdds ?? 2)
       : null;
   const short =
-    request.mode === "games"
-      ? selections.length < (request.games ?? 0)
-      : targetReached === false;
+    request.mode === "games" ? selections.length < (request.games ?? 0) : targetReached === false;
   const notice = short
     ? request.mode === "games"
       ? `${request.games} games were requested, but only ${selections.length} passed the analysis rules.`
       : `The eligible selections reached ${actualCombinedOdds?.toFixed(2) ?? "unknown"} odds, below the requested ${(request.targetOdds ?? 0).toFixed(2)}. No unsupported leg was added.`
     : undefined;
   analysis.selected = selections.length;
-  console.info("[slipcut.analysis]", JSON.stringify({ sport: request.sport, risk: request.risk, ...analysis }));
+  console.info(
+    "[slipcut.analysis]",
+    JSON.stringify({ sport: request.sport, risk: request.risk, ...analysis }),
+  );
 
   return {
     ok: true,
@@ -344,24 +379,10 @@ export async function buildSlip(
     policy,
     actualCombinedOdds,
     targetReached,
-    requestedGames: request.mode === "games" ? request.games ?? null : null,
+    requestedGames: request.mode === "games" ? (request.games ?? null) : null,
     actualGames: selections.length,
     selections,
     analysis,
     notice,
-  };
-}
-
-export function asAnalyzedPick(selection: BuildSelection): AnalyzedPick {
-  return {
-    ...selection,
-    probability: selection.modelScore,
-    confidence:
-      selection.confidenceLabel === "higher evidence"
-        ? "high"
-        : selection.confidenceLabel === "limited evidence"
-          ? "low"
-          : "medium",
-    verdict: "keep",
   };
 }
