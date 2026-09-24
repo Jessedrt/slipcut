@@ -431,13 +431,13 @@ export function Landing() {
                 </span>
                 <h2 className="mt-5 text-4xl font-black tracking-[-0.055em] sm:text-5xl">Engine Accumulators</h2>
                 <p className="mt-4 text-sm leading-6" style={{ color: C.muted }}>
-                  The engine builds these itself under one restriction: a market family must beat the engine's settled baseline before it is allowed into the ladder.
+                  The engine is now focused on Overs: 1st-half Overs, team-total Overs and full-time Overs. Handicap markets are excluded from the ladder.
                 </p>
 
                 <div className="mt-6 rounded-2xl border bg-[#2E2016] p-5 text-white" style={{ borderColor: C.brown }}>
                   <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#C89B6D]">How the gate works</p>
                   <p className="mt-3 text-sm leading-6 text-[#E7D7C7]">
-                    Settled results are grouped by sport and market family. Underperforming groups are filtered before research and card construction.
+                    Eligible Over markets still pass the price, league and accuracy gates before card construction, with the three requested Over types mixed across the ladder when available.
                   </p>
                 </div>
 
