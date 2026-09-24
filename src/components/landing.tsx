@@ -64,10 +64,11 @@ type EngineCard = {
 };
 
 type EnginePayload = {
-  ok: true;
+  ok: boolean;
+  error?: string;
   average: number;
   sampleCount: number;
-  qualifyingBar: number;
+  qualifyingBar: number | null;
   ladder: number[];
   cards: EngineCard[];
 };
@@ -79,17 +80,6 @@ const NAV = [
   { href: APP, label: "Mini App" },
 ];
 
-const MARQUEE = [
-  "MULTI-BOOKMAKER",
-  "ENGINE ACCUMULATORS",
-  "BUILD TO TARGET ODDS",
-  "CUT WEAK LEGS",
-  "SPORTYBET CODES",
-  "BET9JA + 1XBET",
-  "AI MARKET REVIEW",
-  "SCREENSHOT INGESTION",
-  "TRACK EVERY RESULT",
-];
 
 const FEATURES = [
   {
@@ -157,7 +147,7 @@ export function Landing() {
     try {
       const response = await fetch("/api/engine", { headers: { Accept: "application/json" } });
       const data = (await response.json()) as EnginePayload;
-      if (response.ok && data.ok) setEngine(data);
+      if (response.ok) setEngine(data);
     } catch {
       // Landing page stays useful even if the data layer is unavailable.
     } finally {
@@ -295,17 +285,6 @@ export function Landing() {
           </div>
         ) : null}
       </header>
-
-      <div className="live-ticker border-b bg-[#2E2016] py-2.5 text-[#F8F3ED]" style={{ borderColor: C.brown }}>
-        <div className="marquee">
-          {[...MARQUEE, ...MARQUEE].map((item, index) => (
-            <span key={`${item}-${index}`} className="marquee-item text-[10px] font-black tracking-[0.22em]">
-              <span className="mr-3 inline-block size-1.5 rounded-full bg-[#C89B6D]" />
-              {item}
-            </span>
-          ))}
-        </div>
-      </div>
 
       <main>
         <section className="hero-stage mx-auto grid max-w-[1480px] gap-6 px-4 pb-8 pt-6 sm:px-6 lg:grid-cols-[1.35fr_.65fr] lg:px-8 lg:pb-10 lg:pt-8">
@@ -489,6 +468,15 @@ export function Landing() {
                   Refresh
                 </button>
               </div>
+
+              {engine && !engine.ok && engine.error ? (
+                <div
+                  className="mb-4 rounded-2xl border bg-[#FFF7EE] px-4 py-3 text-xs font-bold leading-5"
+                  style={{ borderColor: "#E2C8AD", color: C.brown }}
+                >
+                  {engine.error}
+                </div>
+              ) : null}
 
               <div className="grid gap-4 lg:grid-cols-2">
                 {(engineCards.length ? engineCards : ladder.map((n) => ({ n, code: "", url: "", odds: null, games: n } as EngineCard))).map((card, index) => (

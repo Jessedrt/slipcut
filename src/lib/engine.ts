@@ -1,5 +1,5 @@
 import { accuracyFilter, loadAccuracy } from "./accuracy";
-import { researchPicks } from "./research";
+import { deskScore } from "./research";
 import {
   cookablePick,
   listUpcomingPicks,
@@ -10,7 +10,7 @@ import {
 import { getSetting, listChats, loadOddsBand, loadRecentEventIds, recordSlip, rememberEventIds, setSetting, studyCode } from "./study";
 import { combinedOdds, formatOdds, uniqueEvents } from "./workbench";
 import { applyBand } from "./intent";
-import type { TicketPick } from "./types";
+import type { BookSport, TicketPick } from "./types";
 
 /** Five cards, short to long. A longer card is a longer shot. */
 export const ENGINE_LADDER = [2, 3, 5, 8, 12] as const;
@@ -76,32 +76,67 @@ export async function gradeEngineDay(day: string): Promise<EngineCard[] | null> 
   return cards;
 }
 
+async function discoverEngineMarkets(
+  window: CookWindow,
+  skip: string[],
+): Promise<TicketPick[]> {
+  const sports: BookSport[] = ["football", "basketball"];
+  const batches = await Promise.all(
+    sports.map((sport) => listUpcomingPicks(sport, 42, window, "any", skip)),
+  );
+  return batches.flatMap((batch) => ("error" in batch ? [] : batch));
+}
+
 async function poolForEngine(): Promise<TicketPick[] | { error: string }> {
   const skip = await loadRecentEventIds();
-  const listed = await listUpcomingPicks("football", 42, "today" as CookWindow, "any", skip);
-  if ("error" in listed) return listed;
+  let listed = await discoverEngineMarkets("today" as CookWindow, skip);
+
+  // A five-card ladder only needs twelve distinct events when cards may share
+  // strong selections. If today is thin, widen to upcoming instead of leaving
+  // the entire engine empty.
+  if (uniqueEvents(listed).picks.length < ENGINE_LADDER[ENGINE_LADDER.length - 1]) {
+    const upcoming = await discoverEngineMarkets("upcoming" as CookWindow, skip);
+    const seen = new Set(listed.map((pick) => pick.id));
+    listed = [...listed, ...upcoming.filter((pick) => !seen.has(pick.id))];
+  }
+
+  if (!listed.length) {
+    return { error: "No eligible football or basketball events are available right now." };
+  }
+
   const acc = await loadAccuracy();
   const gated = accuracyFilter(listed.filter(cookablePick), acc);
-  if (!gated.kept.length) return { error: "No football market passed the accuracy gate right now." };
+  if (!gated.kept.length) {
+    return { error: "No market passed the engine accuracy gate right now." };
+  }
+
   const band = await loadOddsBand();
   const pool = applyBand(gated.kept, band);
-  const researched = await researchPicks(pool, 24);
-  return uniqueEvents(researched.keep).picks;
+  const ranked = uniqueEvents(
+    [...pool].sort(
+      (a, b) => deskScore(b) - deskScore(a) || (a.odds ?? 99) - (b.odds ?? 99),
+    ),
+  ).picks.slice(0, 24);
+  if (ranked.length < 2) {
+    return { error: "The engine did not find enough reviewed events to issue a card." };
+  }
+  return ranked;
 }
 
 export async function buildEngineCards(): Promise<EngineCard[] | { error: string }> {
   const ranked = await poolForEngine();
   if ("error" in ranked) return ranked;
   const cards: EngineCard[] = [];
-  const used = new Set<string>();
   for (const n of ENGINE_LADDER) {
-    const take = ranked.filter((p) => !used.has(p.sporty?.eventId ?? p.id)).slice(0, n);
-    if (take.length < Math.min(2, n)) continue;
+    // Cards are separate products, so a strong event may appear on more than
+    // one ladder card. Requiring disjoint cards needed 30 unique events and was
+    // the main reason the daily engine often issued nothing.
+    const take = ranked.slice(0, n);
+    if (take.length < n) continue;
     const selections = sportyOf(take);
-    if (!selections.length) continue;
+    if (selections.length !== take.length) continue;
     const minted = await mintShare(selections, "ng");
     if ("error" in minted) continue;
-    for (const p of take) used.add(p.sporty?.eventId ?? p.id);
     await recordSlip(minted.shareCode, take);
     await rememberEventIds(take.map((p) => p.sporty?.eventId).filter((id): id is string => Boolean(id)));
     cards.push({
@@ -128,11 +163,24 @@ export async function todayEngineCards(): Promise<EngineCard[] | { error: string
   const day = watDay();
   const existing = await loadEngineDay(day);
   if (existing?.length) return existing;
-  await gradeEngineDay(watDay(-1));
-  const built = await buildEngineCards();
-  if ("error" in built) return built;
-  await saveEngineDay(day, built);
-  return built;
+
+  const lockKey = `engine_build_lock_${day}`;
+  const lockRaw = await getSetting(lockKey);
+  const lockAt = Number(lockRaw);
+  if (Number.isFinite(lockAt) && Date.now() - lockAt < 2 * 60_000) {
+    return { error: "Engine cards are being prepared. Refresh again in a moment." };
+  }
+
+  await setSetting(lockKey, String(Date.now()));
+  try {
+    await gradeEngineDay(watDay(-1));
+    const built = await buildEngineCards();
+    if ("error" in built) return built;
+    await saveEngineDay(day, built);
+    return built;
+  } finally {
+    await setSetting(lockKey, "0");
+  }
 }
 
 export function engineIntro(accSample: number, average: number) {
