@@ -221,48 +221,48 @@ function SelectionCard({
   const score = "modelScore" in pick ? pick.modelScore : pick.probability;
   return (
     <article
-      className={`rounded-2xl border p-3 ${selected ? "border-[#9a7d59]/50 bg-[#191611]/80" : "border-[#5b5042]/30 bg-[#15130f]/45 opacity-60"}`}
+      className={`rounded-2xl border p-3 transition ${selected ? "border-[#8b5e3c]/35 bg-[#fffdfa] shadow-[0_14px_34px_-28px_rgba(82,50,31,.45)]" : "border-[#9a7d59]/20 bg-[#f4ece4]"}`}
     >
       <div className="flex items-start gap-3">
         <button
           type="button"
           onClick={onToggle}
           aria-label={`${selected ? "Remove" : "Restore"} ${pick.home} versus ${pick.away}`}
-          className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${selected ? "border-[#d8ad72] bg-[#d8ad72] text-[#21170e]" : "border-[#6f6252] text-[#8d7c68]"}`}
+          className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition ${selected ? "border-[#7a4f33] bg-[#7a4f33] text-white" : "border-[#a78a73] bg-[#efe2d6] text-[#7a5d49]"}`}
         >
           {selected ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
         </button>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-[#a9967d]">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-[#7f6653]">
                 {index + 1} · {pick.league || pick.sport}
               </p>
-              <h4 className="mt-1 text-sm font-bold leading-5">
+              <h4 className="mt-1 text-sm font-extrabold leading-5 text-[#2f2016]">
                 {pick.home} vs {pick.away}
               </h4>
             </div>
             <div className="shrink-0 text-right">
-              <p className="font-mono text-sm font-bold text-[#7d4e31]">
+              <p className="font-mono text-sm font-black text-[#6f482f]">
                 {pick.odds ? formatOdds(pick.odds) : "—"}
               </p>
-              <p className="text-[10px] text-[#a9967d]">
+              <p className="text-[10px] text-[#7f6653]">
                 {"analysisBasis" in pick ? "Ranking score" : "Uncalibrated AI score"}{" "}
                 {Math.round(score)}/100
               </p>
             </div>
           </div>
-          <p className="mt-1 text-xs font-semibold text-[#d8b982]">
+          <p className="mt-1 text-xs font-bold text-[#8a5a38]">
             {pick.selection} · {pick.market}
           </p>
-          <p className="mt-1 text-[11px] text-[#7d6959]">{formatKickoff(pick.kickoff)}</p>
+          <p className="mt-1 text-[11px] font-medium text-[#7a6758]">{formatKickoff(pick.kickoff)}</p>
           {"analysisBasis" in pick && (
             <>
-              <p className="mt-2 text-[11px] font-semibold text-[#e4bd83]">
+              <p className="mt-2 text-[11px] font-bold text-[#765039]">
                 AI-reviewed · match facts unverified
                 {` · ${pick.confidenceLabel}`}
               </p>
-              <p className="mt-1 text-[11px] text-[#7d6959]">
+              <p className="mt-1 text-[11px] font-medium text-[#7a6758]">
                 {pick.trackRecord.status === "qualified"
                   ? `Settled record: ${pick.trackRecord.settled} comparable picks · ${Math.round((pick.trackRecord.hitRate ?? 0) * 100)}% hit rate (not a forecast)`
                   : pick.trackRecord.status === "insufficient_history"
@@ -273,14 +273,14 @@ function SelectionCard({
               </p>
             </>
           )}
-          <p className="mt-2 text-xs leading-5 text-[#6e5948]">{pick.summary}</p>
+          <p className="mt-2 text-xs leading-5 text-[#4f3b2d]">{pick.summary}</p>
           {pick.reasons.length > 0 && (
-            <p className="mt-1 text-[11px] leading-4 text-[#766151]">
+            <p className="mt-1 text-[11px] leading-4 text-[#5f4939]">
               Basis: {pick.reasons.slice(0, 2).join(" ")}
             </p>
           )}
           {pick.risks[0] && (
-            <p className="mt-1 text-[11px] leading-4 text-[#8b5547]">Risk: {pick.risks[0]}</p>
+            <p className="mt-1 text-[11px] font-medium leading-4 text-[#9a4f3f]">Risk: {pick.risks[0]}</p>
           )}
         </div>
       </div>
@@ -1215,7 +1215,7 @@ export function MiniAppRefresh() {
                   <p className="mt-2 text-[11px] leading-4 text-[#766151]">Basis: {prediction.reasons.join(" · ")}</p>
                 )}
                 {prediction.risks.length > 0 && (
-                  <p className="mt-1 text-[11px] leading-4 text-[#8b5547]">Risks: {prediction.risks.join(" · ")}</p>
+                  <p className="mt-1 text-[11px] font-medium leading-4 text-[#9a4f3f]">Risks: {prediction.risks.join(" · ")}</p>
                 )}
                 <p className="mt-2 text-[10px] text-[#9a8371]">Model estimate is not calibrated probability.</p>
               </article>
