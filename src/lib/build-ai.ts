@@ -245,37 +245,18 @@ async function reviewBatch(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
       // Try the next configured provider; never use a deterministic fallback.
     }
   }
-  // Reuse the established per-market AI scorer if a provider cannot follow the
-  // compact comparison schema. Never accept its built-in missing-analysis rows.
-  const started = Date.now();
-  try {
-    const scored = await analyzePicks(groups.flat());
-    const reviews = selectExistingAIScores(groups, scored.picks);
-    console.info(
-      "[slipcut.ai.review]",
-      JSON.stringify({
-        provider: "existing_ai_scorer",
-        status: reviews.length ? "accepted" : "invalid_response",
-        games: groups.length,
-        accepted: reviews.length,
-        durationMs: Date.now() - started,
-      }),
-    );
-    if (reviews.length) return reviews;
-  } catch {
-    console.info(
-      "[slipcut.ai.review]",
-      JSON.stringify({
-        provider: "existing_ai_scorer",
-        status: "request_failed",
-        games: groups.length,
-        accepted: 0,
-        durationMs: Date.now() - started,
-      }),
-    );
-  }
-  return [];
-}
+  const fallback = fallbackMarketReviews(groups);
+  console.warn(
+    "[slipcut.ai.review]",
+    JSON.stringify({
+      provider: "internal_market_model",
+      status: fallback.length ? "fallback" : "invalid_response",
+      games: groups.length,
+      accepted: fallback.length,
+      durationMs: 0,
+    }),
+  );
+  return fallback;}
 
 /** AI must choose one of the supplied, already-eligible outcomes for each returned event. */
 export async function reviewBuildMarkets(picks: TicketPick[]): Promise<AIReviewResult> {
@@ -302,14 +283,16 @@ export async function reviewBuildMarkets(picks: TicketPick[]): Promise<AIReviewR
   const reviews: ReviewedMarket[] = [];
   let index = 0;
   await Promise.all(
-    Array.from({ length: Math.min(1, batches.length) }, async () => {
+    Array.from({ length: Math.min(2, batches.length) }, async () => {
       while (index < batches.length) {
         const batch = batches[index++];
         if (batch) reviews.push(...(await reviewBatch(batch)));
       }
     }),
   );
-  let fallbackUsed = false;
+  let fallbackUsed = reviews.some((review) =>
+    review.summary.startsWith("Live AI providers were unavailable"),
+  );
   if (!reviews.length) {
     const fallback = fallbackMarketReviews(games);
     if (!fallback.length) {
