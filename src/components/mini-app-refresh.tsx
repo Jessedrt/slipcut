@@ -1212,8 +1212,8 @@ export function MiniAppRefresh() {
                   </p>
                   <h2 className="mt-1 text-xl font-black tracking-[-.04em]">Engine Accumulators</h2>
                   <p className="mt-2 text-xs leading-5 text-[#7a6656]">
-                    Daily cards built from market families that pass SlipCut's accuracy and quality gates.
-                    Longer cards are still longer shots.
+                    Daily cards now use 1st-half Overs, team-total Overs and full-time Overs only.
+                    Handicaps are excluded; longer cards are still longer shots.
                   </p>
                 </div>
                 <button
