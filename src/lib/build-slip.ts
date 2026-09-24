@@ -372,7 +372,7 @@ export async function buildSlip(
     dependencies.analysisTimeoutMs ?? 38_000,
   );
   const aiReview = reviewResult.value;
-  analysis.researchFallbackUsed = false;
+  analysis.researchFallbackUsed = Boolean(aiReview?.fallbackUsed);
   analysis.researched = aiReview?.reviewedEvents ?? 0;
   if (!aiReview?.reviews.length) {
     return {
@@ -435,11 +435,15 @@ export async function buildSlip(
       : null;
   const short =
     request.mode === "games" ? selections.length < (request.games ?? 0) : targetReached === false;
-  const notice = short
+  const shortNotice = short
     ? request.mode === "games"
       ? `${request.games} games were requested, but only ${selections.length} passed the analysis rules.`
       : `The eligible selections reached ${actualCombinedOdds?.toFixed(2) ?? "unknown"} odds, below the requested ${(request.targetOdds ?? 0).toFixed(2)}. No unsupported leg was added.`
     : undefined;
+  const fallbackNotice = analysis.researchFallbackUsed
+    ? "Live AI providers were temporarily unavailable, so SlipCut used its internal market-risk fallback for this build."
+    : undefined;
+  const notice = [fallbackNotice, shortNotice].filter(Boolean).join(" ") || undefined;
   analysis.selected = selections.length;
   console.info(
     "[slipcut.analysis]",
