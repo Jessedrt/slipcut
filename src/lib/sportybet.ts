@@ -660,18 +660,27 @@ function pushMarket(
 function basketballCandidates(ev: EventDetail): TicketPick[] {
   const markets = (ev.markets ?? []).filter((m) => m.status === 0);
   const picks: TicketPick[] = [];
-  pushMarket(picks, ev, "basketball", markets.find((m) => m.id === "219") || markets.find((m) => m.id === "186"));
-  pushMarket(picks, ev, "basketball", mostBalanced(markets.filter((m) => m.id === "223" || m.id === "14")));
-  for (const id of ["225", "18", "227", "228", "68", "69", "70"]) {
-    const best = lowerOverLine(markets.filter((m) => m.id === id)) || mostBalanced(markets.filter((m) => m.id === id));
-    if (best) pushMarket(picks, ev, "basketball", best);
-  }
-  pushMarket(
-    picks,
-    ev,
-    "basketball",
-    lowerOverLine(markets.filter((m) => m.id === "236" && (m.specifier ?? "").includes("quarternr=1"))),
-  );
+  const pushAll = (predicate: (market: EventMarket) => boolean) => {
+    for (const market of markets) {
+      if (predicate(market)) pushMarket(picks, ev, "basketball", market);
+    }
+  };
+
+  // Full-game winner.
+  pushAll((m) => m.id === "219" || m.id === "186");
+
+  // Give the reviewer several real lines instead of collapsing each family to
+  // one "balanced" line before analysis. Candidate pooling later caps each
+  // family, so this stays bounded while still exposing meaningful alternatives.
+  pushAll((m) => m.id === "223" || m.id === "14");
+  pushAll((m) => m.id === "225" || m.id === "18");
+
+  // Derivative markets remain available for aggressive mode, but conservative
+  // and balanced policies filter these out before the AI review.
+  pushAll((m) => m.id === "227" || m.id === "228");
+  pushAll((m) => m.id === "68" || m.id === "69" || m.id === "70");
+  pushAll((m) => m.id === "236" && (m.specifier ?? "").includes("quarternr=1"));
+
   return picks;
 }
 
