@@ -1,4 +1,6 @@
 import { analyzePicks } from "./analyze";
+import { deskScore } from "./research";
+import { marketFamily } from "./sportybet";
 import { geminiChat } from "./gemini";
 import { refreshKeys, geminiKeys, seekaiKeys } from "./keys";
 import { seekChat } from "./seekai";
@@ -17,6 +19,7 @@ export type AIReviewResult = {
   reviews: ReviewedMarket[];
   attemptedEvents: number;
   reviewedEvents: number;
+  fallbackUsed: boolean;
 };
 
 export class AIAnalysisError extends Error {
@@ -129,6 +132,43 @@ export function selectExistingAIScores(
   });
 }
 
+function fallbackMarketReviews(groups: TicketPick[][]): ReviewedMarket[] {
+  return groups.flatMap((options) => {
+    const ranked = options
+      .filter((pick) => Number.isFinite(pick.odds) && (pick.odds ?? 0) > 1)
+      .map((pick) => {
+        const implied = Math.min(95, Math.max(4, 100 / (pick.odds ?? 9)));
+        const family = marketFamily(pick.sporty?.marketId, pick.market);
+        const volatilityPenalty =
+          family === "hcp" || family === "gg" || family === "corners" ? 5 : family === "win" ? 3 : 0;
+        const score = Math.max(
+          4,
+          Math.min(96, Math.round(0.68 * deskScore(pick) + 0.32 * implied - volatilityPenalty)),
+        );
+        return { pick, score, family };
+      })
+      .sort((a, b) => b.score - a.score || (a.pick.odds ?? 99) - (b.pick.odds ?? 99));
+    const best = ranked[0];
+    if (!best) return [];
+    return [
+      {
+        pickId: best.pick.id,
+        score: best.score,
+        summary: "Live AI providers were unavailable, so SlipCut used its internal market-risk model for this event.",
+        reasons: [
+          `Current price ${best.pick.odds?.toFixed(2) ?? "unknown"} and ${best.family.toUpperCase()} market shape ranked best among the eligible options.`,
+          "The pick passed the existing league, kickoff, market-family and odds filters.",
+        ],
+        risks: [
+          "This fallback does not include live injury, lineup or form verification.",
+          "Provider recovery may change the preferred market on a later run.",
+        ],
+      },
+    ];
+  });
+}
+
+
 async function reviewBatch(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
   const games = groups.map((options, index) => ({
     g: index + 1,
@@ -167,7 +207,18 @@ async function reviewBatch(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
   for (const engine of engines) {
     const started = Date.now();
     try {
-      const answer = await engine.run();
+      let answer = "";
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          answer = await engine.run();
+          break;
+        } catch (error) {
+          lastError = error;
+          if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 450));
+        }
+      }
+      if (!answer) throw lastError instanceof Error ? lastError : new Error("AI provider failed");
       const reviews = parseBuildAIReviews(answer, groups);
       console.info(
         "[slipcut.ai.review]",
@@ -251,20 +302,31 @@ export async function reviewBuildMarkets(picks: TicketPick[]): Promise<AIReviewR
   const reviews: ReviewedMarket[] = [];
   let index = 0;
   await Promise.all(
-    Array.from({ length: Math.min(3, batches.length) }, async () => {
+    Array.from({ length: Math.min(1, batches.length) }, async () => {
       while (index < batches.length) {
         const batch = batches[index++];
         if (batch) reviews.push(...(await reviewBatch(batch)));
       }
     }),
   );
-  if (!reviews.length)
-    throw new AIAnalysisError(
-      "AI could not analyse the available markets. No slip was built; try again shortly.",
+  let fallbackUsed = false;
+  if (!reviews.length) {
+    const fallback = fallbackMarketReviews(games);
+    if (!fallback.length) {
+      throw new AIAnalysisError(
+        "AI could not analyse the available markets. No slip was built; try again shortly.",
+      );
+    }
+    reviews.push(...fallback);
+    fallbackUsed = true;
+    console.warn(
+      "[slipcut.ai.fallback]",
+      JSON.stringify({ attemptedEvents: games.length, reviewedEvents: reviews.length }),
     );
+  }
   console.info(
     "[slipcut.ai.result]",
-    JSON.stringify({ attemptedEvents: games.length, reviewedEvents: reviews.length }),
+    JSON.stringify({ attemptedEvents: games.length, reviewedEvents: reviews.length, fallbackUsed }),
   );
-  return { reviews, attemptedEvents: games.length, reviewedEvents: reviews.length };
+  return { reviews, attemptedEvents: games.length, reviewedEvents: reviews.length, fallbackUsed };
 }
