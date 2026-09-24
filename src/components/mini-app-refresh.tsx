@@ -108,13 +108,13 @@ const STAGES = [
   "Reviewing final slip…",
 ];
 const panel =
-  "rounded-[20px] border border-[#917657]/30 bg-[#28231c]/88 p-4 shadow-[0_14px_38px_-28px_rgba(0,0,0,.85)] backdrop-blur-xl";
+  "rounded-[22px] border border-[#7b5439]/16 bg-[#fffdfa] p-4 shadow-[0_18px_45px_-32px_rgba(82,50,31,.32)]";
 const field =
-  "w-full rounded-xl border border-[#80674f]/55 bg-[#171510]/85 px-3 py-3 text-[15px] text-[#f9f1e4] outline-none focus:border-[#edc486] focus-visible:ring-2 focus-visible:ring-[#edc486]/30";
+  "w-full rounded-xl border border-[#7b5439]/20 bg-white px-3 py-3 text-[15px] text-[#352317] outline-none placeholder:text-[#a88f7d] focus:border-[#8b5e3c] focus-visible:ring-2 focus-visible:ring-[#8b5e3c]/15";
 const primary =
-  "flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#e9bb7b] px-4 py-3 text-sm font-extrabold text-[#21170e] transition active:scale-[.99] disabled:cursor-not-allowed disabled:opacity-45";
+  "flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#6b452d] px-4 py-3 text-sm font-extrabold text-white transition active:scale-[.99] disabled:cursor-not-allowed disabled:opacity-45";
 const secondary =
-  "flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#a88b64]/45 bg-[#30291f]/90 px-3 py-2.5 text-sm font-semibold text-[#f1d5ae] transition active:scale-[.99] disabled:opacity-45";
+  "flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#7b5439]/18 bg-[#f3e7dc] px-3 py-2.5 text-sm font-semibold text-[#5d3d29] transition active:scale-[.99] disabled:opacity-45";
 
 function telegramWebApp() {
   return (
@@ -158,7 +158,7 @@ function Segmented<T extends string>({
   return (
     <div
       aria-label={label}
-      className="grid grid-flow-col auto-cols-fr gap-1 rounded-xl bg-[#15120e] p-1"
+      className="grid grid-flow-col auto-cols-fr gap-1 rounded-xl border border-[#7b5439]/12 bg-[#efe2d6] p-1"
     >
       {options.map((option) => (
         <button
@@ -166,7 +166,7 @@ function Segmented<T extends string>({
           type="button"
           aria-pressed={value === option.value}
           onClick={() => onChange(option.value)}
-          className={`min-h-10 rounded-lg px-2 text-xs font-bold transition ${value === option.value ? "bg-[#e1b678] text-[#21170e]" : "text-[#bba98f]"}`}
+          className={`min-h-10 rounded-lg px-2 text-xs font-bold transition ${value === option.value ? "bg-[#6b452d] text-white shadow-sm" : "text-[#7d6553]"}`}
         >
           {option.label}
         </button>
@@ -211,7 +211,7 @@ function SelectionCard({
               </h4>
             </div>
             <div className="shrink-0 text-right">
-              <p className="font-mono text-sm font-bold text-[#efc88f]">
+              <p className="font-mono text-sm font-bold text-[#7d4e31]">
                 {pick.odds ? formatOdds(pick.odds) : "—"}
               </p>
               <p className="text-[10px] text-[#a9967d]">
@@ -223,14 +223,14 @@ function SelectionCard({
           <p className="mt-1 text-xs font-semibold text-[#d8b982]">
             {pick.selection} · {pick.market}
           </p>
-          <p className="mt-1 text-[11px] text-[#a99a87]">{formatKickoff(pick.kickoff)}</p>
+          <p className="mt-1 text-[11px] text-[#7d6959]">{formatKickoff(pick.kickoff)}</p>
           {"analysisBasis" in pick && (
             <>
               <p className="mt-2 text-[11px] font-semibold text-[#e4bd83]">
                 AI-reviewed · match facts unverified
                 {` · ${pick.confidenceLabel}`}
               </p>
-              <p className="mt-1 text-[11px] text-[#a99a87]">
+              <p className="mt-1 text-[11px] text-[#7d6959]">
                 {pick.trackRecord.status === "qualified"
                   ? `Settled record: ${pick.trackRecord.settled} comparable picks · ${Math.round((pick.trackRecord.hitRate ?? 0) * 100)}% hit rate (not a forecast)`
                   : pick.trackRecord.status === "insufficient_history"
@@ -241,14 +241,14 @@ function SelectionCard({
               </p>
             </>
           )}
-          <p className="mt-2 text-xs leading-5 text-[#c9bca9]">{pick.summary}</p>
+          <p className="mt-2 text-xs leading-5 text-[#6e5948]">{pick.summary}</p>
           {pick.reasons.length > 0 && (
-            <p className="mt-1 text-[11px] leading-4 text-[#b9ab98]">
+            <p className="mt-1 text-[11px] leading-4 text-[#766151]">
               Basis: {pick.reasons.slice(0, 2).join(" ")}
             </p>
           )}
           {pick.risks[0] && (
-            <p className="mt-1 text-[11px] leading-4 text-[#d8a99b]">Risk: {pick.risks[0]}</p>
+            <p className="mt-1 text-[11px] leading-4 text-[#8b5547]">Risk: {pick.risks[0]}</p>
           )}
         </div>
       </div>
@@ -670,7 +670,7 @@ export function MiniAppRefresh() {
   }, [history, sessionSlips]);
 
   return (
-    <div className="mini-app min-h-dvh text-[#f7ead8]">
+    <div className="mini-app min-h-dvh bg-[#f6efe8] text-[#2f2118]">
       <main
         className="mx-auto min-h-dvh max-w-lg px-3 pb-28"
         style={{
@@ -680,11 +680,11 @@ export function MiniAppRefresh() {
       >
         <header className="mb-4 flex items-center justify-between gap-3 px-1">
           <div>
-            <p className="text-[10px] font-extrabold uppercase tracking-[.2em] text-[#b79b75]">
+            <p className="text-[10px] font-extrabold uppercase tracking-[.2em] text-[#8d6d56]">
               Multi-bookmaker betting desk
             </p>
             <h1 className="mt-1 text-[27px] font-black leading-none tracking-[-.055em]">
-              Slip<span className="text-[#e9bb7b]">Cut.</span>
+              Slip<span className="text-[#7a4f33]">Cut.</span>
             </h1>
           </div>
           <button
@@ -696,7 +696,7 @@ export function MiniAppRefresh() {
           </button>
         </header>
         {!initData && (
-          <div className="mb-3 flex gap-2 rounded-xl border border-[#a67a49]/40 bg-[#3b2c1d]/75 p-3 text-xs leading-5 text-[#e7cba5]">
+          <div className="mb-3 flex gap-2 rounded-xl border border-[#9b6f4e]/20 bg-[#f3e5d8] p-3 text-xs leading-5 text-[#6f4d35]">
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
             Live building, cutting and booking require the signed Mini App opened from @slipcut_bot.
           </div>
@@ -707,16 +707,16 @@ export function MiniAppRefresh() {
             <div className={panel}>
               <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-[#bd9e73]">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-[#8f694e]">
                     New slip
                   </p>
                   <h2 className="mt-1 text-lg font-extrabold">Build from live markets</h2>
                 </div>
-                <Sparkles className="h-5 w-5 text-[#e9bb7b]" />
+                <Sparkles className="h-5 w-5 text-[#7a4f33]" />
               </div>
               <div className="space-y-4">
                 <div>
-                  <p className="mb-2 text-xs font-bold text-[#d6c0a1]">Sport</p>
+                  <p className="mb-2 text-xs font-bold text-[#5f4635]">Sport</p>
                   <Segmented
                     value={sport}
                     onChange={setSport}
@@ -728,7 +728,7 @@ export function MiniAppRefresh() {
                   />
                 </div>
                 <div>
-                  <p className="mb-2 text-xs font-bold text-[#d6c0a1]">Build method</p>
+                  <p className="mb-2 text-xs font-bold text-[#5f4635]">Build method</p>
                   <Segmented
                     value={mode}
                     onChange={setMode}
@@ -740,8 +740,8 @@ export function MiniAppRefresh() {
                   />
                 </div>
                 {mode === "games" ? (
-                  <label className="block text-xs font-bold text-[#d6c0a1]">
-                    Games <span className="float-right font-mono text-[#efc88f]">{games}</span>
+                  <label className="block text-xs font-bold text-[#5f4635]">
+                    Games <span className="float-right font-mono text-[#7d4e31]">{games}</span>
                     <input
                       aria-label="Number of games"
                       type="range"
@@ -754,7 +754,7 @@ export function MiniAppRefresh() {
                   </label>
                 ) : (
                   <div>
-                    <p className="mb-2 text-xs font-bold text-[#d6c0a1]">Target combined odds</p>
+                    <p className="mb-2 text-xs font-bold text-[#5f4635]">Target combined odds</p>
                     <div className="grid grid-cols-5 gap-1">
                       {ODDS_PRESETS.map((odds) => (
                         <button
@@ -770,7 +770,7 @@ export function MiniAppRefresh() {
                   </div>
                 )}
                 <div>
-                  <p className="mb-2 text-xs font-bold text-[#d6c0a1]">Risk mode</p>
+                  <p className="mb-2 text-xs font-bold text-[#5f4635]">Risk mode</p>
                   <Segmented
                     value={risk}
                     onChange={setRisk}
@@ -781,12 +781,12 @@ export function MiniAppRefresh() {
                       { value: "aggressive", label: "Aggressive" },
                     ]}
                   />
-                  <p className="mt-2 text-[11px] leading-4 text-[#9f917e]">
+                  <p className="mt-2 text-[11px] leading-4 text-[#7f6b5b]">
                     Changes score, odds and market-family limits. It is not a safety guarantee.
                   </p>
                 </div>
                 <div>
-                  <p className="mb-2 text-xs font-bold text-[#d6c0a1]">When</p>
+                  <p className="mb-2 text-xs font-bold text-[#5f4635]">When</p>
                   <div className="grid grid-cols-4 gap-1 rounded-xl bg-[#15120e] p-1">
                     {(["today", "tomorrow", "weekend", "upcoming"] as BuildWindow[]).map((item) => (
                       <button
@@ -834,7 +834,7 @@ export function MiniAppRefresh() {
                   odds={activeOdds}
                   notice={buildResult.notice}
                 />
-                <p className="px-1 text-[11px] leading-4 text-[#c9bca9]">
+                <p className="px-1 text-[11px] leading-4 text-[#6e5948]">
                   AI reviewed the eligible options for every returned game. Unreviewed games are
                   excluded. It only has the supplied fixture and odds data here; match-specific form
                   and injuries are not source-verified. Scores are rankings, not win probabilities.
@@ -878,11 +878,11 @@ export function MiniAppRefresh() {
         {tab === "cut" && (
           <section className="space-y-3">
             <div className={panel}>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-[#bd9e73]">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#8f694e]">
                 Existing code
               </p>
               <h2 className="mt-1 text-lg font-extrabold">Analyse and cut a slip</h2>
-              <label className="mt-4 block text-xs font-bold text-[#d6c0a1]">
+              <label className="mt-4 block text-xs font-bold text-[#5f4635]">
                 Source bookmaker
                 <select
                   value={sourceBookmaker}
@@ -900,7 +900,7 @@ export function MiniAppRefresh() {
                   ))}
                 </select>
               </label>
-              <label className="mt-4 block text-xs font-bold text-[#d6c0a1]">
+              <label className="mt-4 block text-xs font-bold text-[#5f4635]">
                 {bookmakerLabel(sourceBookmaker)} booking code
                 <input
                   value={code}
@@ -913,9 +913,9 @@ export function MiniAppRefresh() {
                   className={`${field} mt-2 font-mono tracking-widest`}
                 />
               </label>
-              <label className="mt-4 block text-xs font-bold text-[#d6c0a1]">
+              <label className="mt-4 block text-xs font-bold text-[#5f4635]">
                 Model-score threshold{" "}
-                <span className="float-right font-mono text-[#efc88f]">{threshold}/100</span>
+                <span className="float-right font-mono text-[#7d4e31]">{threshold}/100</span>
                 <input
                   aria-label="Model score threshold"
                   type="range"
@@ -926,7 +926,7 @@ export function MiniAppRefresh() {
                   className="mini-range mt-3 w-full"
                 />
               </label>
-              <p className="mt-2 text-[11px] text-[#9f917e]">
+              <p className="mt-2 text-[11px] text-[#7f6b5b]">
                 Scores are model estimates, not calibrated win probabilities.
               </p>
               <button
@@ -948,7 +948,7 @@ export function MiniAppRefresh() {
                   Stop waiting
                 </button>
               )}
-              <div className="my-4 flex items-center gap-3 text-[10px] uppercase tracking-widest text-[#817564]">
+              <div className="my-4 flex items-center gap-3 text-[10px] uppercase tracking-widest text-[#9a8371]">
                 <span className="h-px flex-1 bg-[#6b5843]/35" />
                 or import
                 <span className="h-px flex-1 bg-[#6b5843]/35" />
@@ -1062,14 +1062,14 @@ export function MiniAppRefresh() {
         {tab === "predict" && (
           <section className="space-y-3">
             <div className={panel}>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-[#bd9e73]">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#8f694e]">
                 Match prediction
               </p>
               <h2 className="mt-1 text-lg font-extrabold">Research a match</h2>
-              <p className="mt-2 text-[11px] leading-4 text-[#9f917e]">
+              <p className="mt-2 text-[11px] leading-4 text-[#7f6b5b]">
                 Uses the existing live research stack for form, injuries and H2H, then compares open markets and prices.
               </p>
-              <label className="mt-4 block text-xs font-bold text-[#d6c0a1]">
+              <label className="mt-4 block text-xs font-bold text-[#5f4635]">
                 Sport
                 <select
                   value={predictSport}
@@ -1108,35 +1108,35 @@ export function MiniAppRefresh() {
             </div>
             {prediction && (
               <article className={panel}>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-[#9ed8a9]">Best reviewed market</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[#4d7452]">Best reviewed market</p>
                 <h3 className="mt-2 text-base font-extrabold">{prediction.pick.home} vs {prediction.pick.away}</h3>
-                <p className="mt-1 text-sm font-bold text-[#efc88f]">
+                <p className="mt-1 text-sm font-bold text-[#7d4e31]">
                   {prediction.pick.market} · {prediction.pick.selection}
                 </p>
                 <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-                  <div className="rounded-xl bg-[#171510] p-2">
-                    <p className="text-[10px] text-[#9f917e]">Model probability</p>
+                  <div className="rounded-xl bg-[#f3e7dc] p-2">
+                    <p className="text-[10px] text-[#7f6b5b]">Model probability</p>
                     <p className="mt-1 font-mono font-bold">{Math.round(prediction.winProbability)}%</p>
                   </div>
-                  <div className="rounded-xl bg-[#171510] p-2">
-                    <p className="text-[10px] text-[#9f917e]">Odds</p>
+                  <div className="rounded-xl bg-[#f3e7dc] p-2">
+                    <p className="text-[10px] text-[#7f6b5b]">Odds</p>
                     <p className="mt-1 font-mono font-bold">{prediction.pick.odds ? formatOdds(prediction.pick.odds) : "—"}</p>
                   </div>
-                  <div className="rounded-xl bg-[#171510] p-2">
-                    <p className="text-[10px] text-[#9f917e]">EV</p>
+                  <div className="rounded-xl bg-[#f3e7dc] p-2">
+                    <p className="text-[10px] text-[#7f6b5b]">EV</p>
                     <p className="mt-1 font-mono font-bold">
                       {prediction.expectedValue == null ? "—" : `${prediction.expectedValue >= 0 ? "+" : ""}${(prediction.expectedValue * 100).toFixed(1)}%`}
                     </p>
                   </div>
                 </div>
-                <p className="mt-3 text-xs leading-5 text-[#c9bca9]">{prediction.summary}</p>
+                <p className="mt-3 text-xs leading-5 text-[#6e5948]">{prediction.summary}</p>
                 {prediction.reasons.length > 0 && (
-                  <p className="mt-2 text-[11px] leading-4 text-[#b9ab98]">Basis: {prediction.reasons.join(" · ")}</p>
+                  <p className="mt-2 text-[11px] leading-4 text-[#766151]">Basis: {prediction.reasons.join(" · ")}</p>
                 )}
                 {prediction.risks.length > 0 && (
-                  <p className="mt-1 text-[11px] leading-4 text-[#d8a99b]">Risks: {prediction.risks.join(" · ")}</p>
+                  <p className="mt-1 text-[11px] leading-4 text-[#8b5547]">Risks: {prediction.risks.join(" · ")}</p>
                 )}
-                <p className="mt-2 text-[10px] text-[#817564]">Model estimate is not calibrated probability.</p>
+                <p className="mt-2 text-[10px] text-[#9a8371]">Model estimate is not calibrated probability.</p>
               </article>
             )}
           </section>
@@ -1147,22 +1147,22 @@ export function MiniAppRefresh() {
             <div className={panel}>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-[#bd9e73]">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-[#8f694e]">
                     History
                   </p>
                   <h2 className="mt-1 text-lg font-extrabold">My slips</h2>
                 </div>
                 {pending === "history" && (
-                  <Loader2 className="h-5 w-5 animate-spin text-[#e9bb7b]" />
+                  <Loader2 className="h-5 w-5 animate-spin text-[#7a4f33]" />
                 )}
               </div>
-              <p className="mt-2 text-xs leading-5 text-[#aa9a85]">
+              <p className="mt-2 text-xs leading-5 text-[#7a6656]">
                 Only real codes created through this Mini App are stored when persistent storage is
                 configured.
               </p>
             </div>
             {historyNote && (
-              <div className="flex gap-2 rounded-xl border border-[#8e6845]/45 bg-[#34271c] p-3 text-xs leading-5 text-[#dfc39d]">
+              <div className="flex gap-2 rounded-xl border border-[#8e6845]/45 bg-[#f2e5d9] p-3 text-xs leading-5 text-[#6e4e38]">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 {historyNote}
               </div>
@@ -1171,25 +1171,25 @@ export function MiniAppRefresh() {
               <div className={`${panel} py-8 text-center`}>
                 <History className="mx-auto h-7 w-7 text-[#8f7a5e]" />
                 <p className="mt-2 text-sm font-bold">No created slips yet</p>
-                <p className="mt-1 text-xs text-[#9f917e]">
+                <p className="mt-1 text-xs text-[#7f6b5b]">
                   Build or cut a slip, then request a real code.
                 </p>
               </div>
             )}
             {allHistory.map((item) => (
               <article key={item.id} className={`${panel} flex items-center gap-3`}>
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#47351f] text-[#e7bd82]">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#ead9ca] text-[#7a4f33]">
                   <Ticket className="h-5 w-5" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="select-all truncate font-mono text-sm font-bold tracking-wider">
                     {item.bookingCode}
                   </p>
-                  <p className="mt-1 text-[11px] text-[#aa9a85]">
+                  <p className="mt-1 text-[11px] text-[#7a6656]">
                     {item.sport} · {item.selectionCount} games ·{" "}
                     {item.combinedOdds ? formatOdds(item.combinedOdds) : "odds unavailable"}
                   </p>
-                  <p className="mt-1 text-[10px] text-[#817564]">
+                  <p className="mt-1 text-[10px] text-[#9a8371]">
                     {new Date(item.createdAt).toLocaleString()} · {item.status}
                   </p>
                 </div>
@@ -1201,7 +1201,7 @@ export function MiniAppRefresh() {
         {error && (
           <div
             role="alert"
-            className="mt-3 flex gap-2 rounded-xl border border-[#a9534d]/50 bg-[#3c2220] p-3 text-xs leading-5 text-[#f2c0ba]"
+            className="mt-3 flex gap-2 rounded-xl border border-[#b56f64]/28 bg-[#f7e8e5] p-3 text-xs leading-5 text-[#8b4e45]"
           >
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{error}</span>
@@ -1210,7 +1210,7 @@ export function MiniAppRefresh() {
       </main>
       <nav
         aria-label="Mini App sections"
-        className="fixed inset-x-0 bottom-0 z-20 mx-auto max-w-lg border-t border-[#876e50]/25 bg-[#15110d]/95 px-3 pt-2 backdrop-blur-xl"
+        className="fixed inset-x-0 bottom-0 z-20 mx-auto max-w-lg border-t border-[#7b5439]/15 bg-[#fffaf8]/95 px-3 pt-2 backdrop-blur-xl"
         style={{
           paddingBottom:
             "calc(max(env(safe-area-inset-bottom), var(--tg-content-safe-area-inset-bottom, 0px)) + 8px)",
@@ -1229,7 +1229,7 @@ export function MiniAppRefresh() {
               key={id}
               type="button"
               onClick={() => changeTab(id)}
-              className={`flex min-h-12 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-bold transition ${tab === id ? "bg-[#4a3825] text-[#efc88f]" : "text-[#958672]"}`}
+              className={`flex min-h-12 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-bold transition ${tab === id ? "bg-[#4a3825] text-[#7d4e31]" : "text-[#958672]"}`}
             >
               <Icon className="h-[18px] w-[18px]" />
               {label}
@@ -1256,22 +1256,22 @@ function ReviewHeader({
     <section className={panel}>
       <div className="grid grid-cols-3 gap-2 text-center">
         <div>
-          <p className="text-[10px] text-[#9f917e]">Requested</p>
+          <p className="text-[10px] text-[#7f6b5b]">Requested</p>
           <p className="mt-1 text-xs font-bold">{requested}</p>
         </div>
         <div>
-          <p className="text-[10px] text-[#9f917e]">Returned</p>
+          <p className="text-[10px] text-[#7f6b5b]">Returned</p>
           <p className="mt-1 text-xs font-bold">{returned}</p>
         </div>
         <div>
-          <p className="text-[10px] text-[#9f917e]">Actual odds</p>
-          <p className="mt-1 font-mono text-sm font-bold text-[#efc88f]">
+          <p className="text-[10px] text-[#7f6b5b]">Actual odds</p>
+          <p className="mt-1 font-mono text-sm font-bold text-[#7d4e31]">
             {odds ? formatOdds(odds) : "—"}
           </p>
         </div>
       </div>
       {notice && (
-        <p className="mt-3 rounded-lg bg-[#3a2c1d] p-2 text-[11px] leading-4 text-[#dfc39d]">
+        <p className="mt-3 rounded-lg bg-[#f1e3d5] p-2 text-[11px] leading-4 text-[#6e4e38]">
           {notice}
         </p>
       )}
@@ -1304,7 +1304,7 @@ function BookingAction({
     <section className={panel}>
       {!minted ? (
         <div>
-          <label className="mb-3 block text-xs font-bold text-[#d6c0a1]">
+          <label className="mb-3 block text-xs font-bold text-[#5f4635]">
             Create code on
             <select
               value={targetBookmaker}
@@ -1319,27 +1319,27 @@ function BookingAction({
             </select>
           </label>
           {oddsChanges.length ? (
-            <div className="mb-3 rounded-xl border border-[#b18451]/45 bg-[#392b1d] p-3">
-              <p className="text-xs font-extrabold text-[#f0ca94]">Current odds changed</p>
+            <div className="mb-3 rounded-xl border border-[#9a6d4b]/20 bg-[#f3e6da] p-3">
+              <p className="text-xs font-extrabold text-[#754a30]">Current odds changed</p>
               <div className="mt-2 space-y-2">
                 {oddsChanges.map((change) => (
                   <div
                     key={change.pick.id}
                     className="flex items-center justify-between gap-3 text-[11px]"
                   >
-                    <span className="min-w-0 truncate text-[#cdbda7]">
+                    <span className="min-w-0 truncate text-[#6f5a49]">
                       {change.pick.home} vs {change.pick.away}
                     </span>
                     <span className="shrink-0 font-mono">
-                      <span className="text-[#9f917e] line-through">
+                      <span className="text-[#7f6b5b] line-through">
                         {formatOdds(change.beforeOdds)}
                       </span>{" "}
-                      <span className="text-[#efc88f]">→ {formatOdds(change.afterOdds)}</span>
+                      <span className="text-[#7d4e31]">→ {formatOdds(change.afterOdds)}</span>
                     </span>
                   </div>
                 ))}
               </div>
-              <p className="mt-2 text-[10px] leading-4 text-[#a99a87]">
+              <p className="mt-2 text-[10px] leading-4 text-[#7d6959]">
                 Review the updated prices. SlipCut will refresh them once more before minting.
               </p>
             </div>
@@ -1365,20 +1365,20 @@ function BookingAction({
       ) : (
         <div>
           <div className="flex items-center justify-between">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-[#9ed8a9]">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-[#4d7452]">
               Real code created
             </p>
-            <Check className="h-4 w-4 text-[#9ed8a9]" />
+            <Check className="h-4 w-4 text-[#4d7452]" />
           </div>
           <p className="mt-2 select-all font-mono text-2xl font-black tracking-[.14em]">
             {minted.code}
           </p>
-          <p className="mt-1 text-xs text-[#a99a87]">
+          <p className="mt-1 text-xs text-[#7d6959]">
             {minted.games} games ·{" "}
             {minted.combinedOdds ? formatOdds(minted.combinedOdds) : "odds unavailable"}
           </p>
           {minted.warnings?.length ? (
-            <div className="mt-3 rounded-xl border border-[#b18451]/35 bg-[#392b1d]/75 p-3 text-[11px] leading-4 text-[#e4c69f]">
+            <div className="mt-3 rounded-xl border border-[#9a6d4b]/20 bg-[#f3e6da] p-3 text-[11px] leading-4 text-[#6d4d37]">
               {minted.warnings.map((warning, index) => (
                 <p key={`${warning}-${index}`}>{warning}</p>
               ))}
