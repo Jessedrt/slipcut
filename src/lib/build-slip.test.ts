@@ -84,6 +84,76 @@ describe("buildSlip", () => {
     assert.equal(result.analysis.selected, 5);
   });
 
+
+  it("keeps basketball team totals out of conservative and balanced builds", async () => {
+    const gameTotal: TicketPick = {
+      ...pick(1, 1.5, "225", "bb-main"),
+      sport: "basketball",
+      league: "Euroleague",
+      market: "Over/Under 165.5",
+      selection: "Over",
+      sporty: { eventId: "bb-main", marketId: "225", outcomeId: "over", specifier: "total=165.5" },
+    };
+    const teamTotal: TicketPick = {
+      ...pick(2, 1.47, "227", "bb-team"),
+      sport: "basketball",
+      league: "Euroleague",
+      market: "Home total 61.5",
+      selection: "Over",
+      sporty: { eventId: "bb-team", marketId: "227", outcomeId: "over", specifier: "total=61.5" },
+    };
+
+    for (const risk of ["conservative", "balanced"] as const) {
+      let reviewedIds: string[] = [];
+      const result = await buildSlip(
+        { ...base, sport: "basketball", games: 2, risk },
+        {
+          ...deps([gameTotal, teamTotal]),
+          review: async (picks) => {
+            reviewedIds = picks.map((row) => row.id);
+            return {
+              reviews: picks.map((row) => ({
+                pickId: row.id,
+                score: 80,
+                summary: "Reviewed.",
+                reasons: [],
+                risks: [],
+              })),
+              attemptedEvents: new Set(picks.map((row) => row.sporty?.eventId)).size,
+              reviewedEvents: new Set(picks.map((row) => row.sporty?.eventId)).size,
+            };
+          },
+        },
+      );
+      assert.ok(!reviewedIds.includes(teamTotal.id));
+      assert.ok(reviewedIds.includes(gameTotal.id));
+      assert.equal(result.ok, true);
+    }
+
+    let aggressiveIds: string[] = [];
+    await buildSlip(
+      { ...base, sport: "basketball", games: 2, risk: "aggressive" },
+      {
+        ...deps([gameTotal, teamTotal]),
+        review: async (picks) => {
+          aggressiveIds = picks.map((row) => row.id);
+          return {
+            reviews: picks.map((row) => ({
+              pickId: row.id,
+              score: 80,
+              summary: "Reviewed.",
+              reasons: [],
+              risks: [],
+            })),
+            attemptedEvents: new Set(picks.map((row) => row.sporty?.eventId)).size,
+            reviewedEvents: new Set(picks.map((row) => row.sporty?.eventId)).size,
+          };
+        },
+      },
+    );
+    assert.ok(aggressiveIds.includes(teamTotal.id));
+  });
+
   it("builds basketball using the same service", async () => {
     const rows = [1, 2, 3].map((id) => ({
       ...pick(id, 1.55, "225"),
