@@ -1,4 +1,5 @@
 import type { BookSport, SportKind, SportySelection, TicketPick } from "./types";
+import { normalizePick } from "./bookmakers/normalize";
 import { isChampionsLeague } from "./intent.ts";
 
 // QUALITY_COOK_V4 — baked into source so build rewriters cannot reopen junk leagues.
@@ -85,7 +86,7 @@ export function picksFromShare(payload: SharePayload): TicketPick[] {
     const selection = market?.outcomes?.[0];
     const oddsRaw = selection?.odds;
     const odds = oddsRaw ? Number(oddsRaw) : undefined;
-    return {
+    return normalizePick({
       id: `${o.eventId ?? "ev"}-${i}`,
       sport: mapSport(o.sport?.name, o.sport?.id),
       league: o.sport?.category?.tournament?.name ?? "",
@@ -97,7 +98,7 @@ export function picksFromShare(payload: SharePayload): TicketPick[] {
       odds: Number.isFinite(odds) ? odds : undefined,
       kickoff: o.estimateStartTime,
       sporty: sportyFromOutcome(o),
-    };
+    });
   });
 }
 
@@ -454,7 +455,7 @@ function toPick(
   else if (market.id === "189") label = `Total games ${total}`.trim();
   else if (market.id === "202") label = "1st set winner";
   else if (market.id === "204") label = `1st set total ${total}`.trim();
-  return {
+  return normalizePick({
     id: `${ev.eventId}-${market.id}-${market.specifier ?? ""}-${outcome.id}`,
     sport,
     league: leagueName(ev.sport),
@@ -471,7 +472,7 @@ function toPick(
       outcomeId: String(outcome.id),
       specifier: market.specifier ? String(market.specifier) : undefined,
     },
-  };
+  });
 }
 
 function openOutcomes(market: EventMarket) {

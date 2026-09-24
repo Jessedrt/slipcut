@@ -1,9 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import { applyThreshold, combinedChance } from "./format";
-import { extractShareCode, parseTicketText } from "./parse-ticket";
+import { extractShareCode } from "./parse-ticket";
+import { ingestImage, ingestText } from "./ingest";
 import { loadBookingCode } from "./sportybet";
 import { mintReviewedSlip } from "./book-slip";
-import { firstUrl, youAnswer, youContents, youKeys } from "./you";
+import { youAnswer, youKeys } from "./you";
 import { seekaiReady, seekChat } from "./seekai";
 import { geminiReady, geminiChat } from "./gemini";
 import { refreshKeys } from "./keys";
@@ -335,34 +336,19 @@ async function picksFromPaste(text: string, country?: string): Promise<{
   picks: TicketPick[];
   shareCode?: string;
 } | { error: string }> {
-  const url = firstUrl(text);
-  if (url) {
-    try {
-      const parsedUrl = new URL(url);
-      const shareFromUrl =
-        extractShareCode(url) ||
-        parsedUrl.searchParams.get("shareCode") ||
-        parsedUrl.searchParams.get("code");
-      if (shareFromUrl && /^[A-Z0-9]{4,16}$/i.test(shareFromUrl)) {
-        return loadBookingCode(shareFromUrl.toUpperCase(), country);
-      }
-      const markdown = await youContents(url);
-      const parsed = parseTicketText(markdown).slice(0, MAX_PICKS);
-      if (parsed.length) return { picks: parsed };
-      return { error: "That link did not contain football or basketball selections." };
-    } catch (err) {
-      return {
-        error: err instanceof Error ? err.message : "Could not read that link.",
-      };
-    }
-  }
   const maybeCode = extractShareCode(text);
-  if (maybeCode && text.length < 80) {
+  if (maybeCode && text.trim().length < 80) {
     return loadBookingCode(maybeCode, country);
   }
-  const picks = parseTicketText(text).slice(0, MAX_PICKS);
-  if (!picks.length) return { error: "Could not read any games from that paste." };
-  return { picks };
+  try {
+    const ingested = await ingestText(text);
+    if (!ingested.picks.length) return { error: "Could not read any games from that paste." };
+    return { picks: ingested.picks.slice(0, MAX_PICKS) };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Could not read that ticket.",
+    };
+  }
 }
 
 async function picksForInput(
@@ -383,7 +369,16 @@ async function picksForInput(
     if (!text) return { error: "Paste a ticket, link, or booking code." };
     return picksFromPaste(text, input.country);
   }
-  return { error: "Image tickets are only supported on Telegram for now." };
+  if (!input.image) return { error: "Upload a ticket screenshot." };
+  try {
+    const ingested = await ingestImage(input.image);
+    if (!ingested.picks.length) return { error: "Could not read any selections from that screenshot." };
+    return { picks: ingested.picks.slice(0, MAX_PICKS) };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Could not read that screenshot.",
+    };
+  }
 }
 
 export const loadTicket = createServerFn({ method: "POST" })

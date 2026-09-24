@@ -90,68 +90,107 @@ export function splitEven<T>(items: T[], parts: number): T[][] {
 }
 
 /**
- * Select a subset whose combined odds is as close as possible to the target.
- * If the target can be reached, an at-or-above result always wins over a
- * below-target result. Among those, prefer the smallest overshoot and then
- * the strongest combined probability.
+ * Find a subset near the requested accumulator price while preferring to remove
+ * the weakest legs. Explicit model probability is used when present; otherwise
+ * decimal-odds implied probability is the risk signal.
  */
-export function trimToOdds(picks: AnalyzedPick[], target: number): AnalyzedPick[] {
-  const requested = Number.isFinite(target) ? Math.max(1.2, Math.min(1000, target)) : 500;
-  const eligible = picks
-    .filter((p) => p.sport !== "other" && Number.isFinite(p.odds) && (p.odds as number) > 1.08 && (p.odds as number) < 6)
-    .slice();
-  if (!eligible.length) return [];
+export function riskTrimToOdds<T extends { odds?: number; probability?: number; id?: string }>(
+  picks: T[],
+  target: number,
+): { kept: T[]; removed: T[]; combinedOdds: number | null } {
+  const requested = Number.isFinite(target) ? Math.max(1.2, Math.min(1000, target)) : 50;
+  const eligible = picks.filter(
+    (pick) => Number.isFinite(pick.odds) && (pick.odds as number) > 1.0001,
+  );
+  const invalid = picks.filter(
+    (pick) => !Number.isFinite(pick.odds) || (pick.odds as number) <= 1.0001,
+  );
+  if (!eligible.length) return { kept: [], removed: [...picks], combinedOdds: null };
 
-  type State = { ids: string[]; product: number; score: number };
-  const beamWidth = 5000;
-  const sorted = eligible.sort((a, b) => {
-    const pa = Math.max(1, a.probability) / Math.max(1.01, a.odds as number);
-    const pb = Math.max(1, b.probability) / Math.max(1.01, b.odds as number);
-    return pb - pa;
-  });
-  let states: State[] = [{ ids: [], product: 1, score: 0 }];
+  const allOdds = combinedOdds(eligible);
+  if (allOdds != null && allOdds <= requested * 1.05) {
+    return { kept: eligible, removed: invalid, combinedOdds: allOdds };
+  }
 
-  for (const pick of sorted) {
-    const odds = pick.odds as number;
-    const probability = Math.max(1, Math.min(99, pick.probability));
-    const next: State[] = states.slice();
+  const probabilityOf = (pick: T) => {
+    const model = Number(pick.probability);
+    if (Number.isFinite(model) && model > 0 && model <= 100) return model;
+    const odds = Number(pick.odds);
+    return odds > 1 ? Math.min(99, 100 / odds) : 99;
+  };
+
+  type State = { indexes: number[]; product: number; strength: number };
+  const beamWidth = eligible.length > 18 ? 4500 : 8000;
+  let states: State[] = [{ indexes: [], product: 1, strength: 0 }];
+
+  const ordered = eligible
+    .map((pick, index) => ({ pick, index, probability: probabilityOf(pick) }))
+    .sort((a, b) => b.probability - a.probability || Number(a.pick.odds) - Number(b.pick.odds));
+
+  const distance = (state: State) => {
+    if (!state.indexes.length) return Number.POSITIVE_INFINITY;
+    if (state.product >= requested) return state.product / requested - 1;
+    return 1 + (requested / Math.max(1, state.product) - 1);
+  };
+
+  for (const row of ordered) {
+    const next = states.slice();
     for (const state of states) {
-      const product = state.product * odds;
-      if (product > requested * 1.35 && state.ids.length > 0) continue;
+      const product = state.product * Number(row.pick.odds);
+      if (product > requested * 1.5 && state.indexes.length > 0) continue;
       next.push({
-        ids: [...state.ids, pick.id],
+        indexes: [...state.indexes, row.index],
         product,
-        score: state.score + Math.log(probability / 100),
+        strength: state.strength + row.probability,
       });
     }
-
     next.sort((a, b) => {
-      const distance = (x: State) => {
-        if (x.product >= requested) return x.product / requested - 1;
-        return 1 + (requested / x.product - 1);
-      };
       const da = distance(a);
       const db = distance(b);
       if (Math.abs(da - db) > 0.015) return da - db;
-      if (Math.abs(a.score - b.score) > 0.03) return b.score - a.score;
-      return a.ids.length - b.ids.length;
+      const aa = a.indexes.length ? a.strength / a.indexes.length : 0;
+      const ab = b.indexes.length ? b.strength / b.indexes.length : 0;
+      if (Math.abs(aa - ab) > 0.5) return ab - aa;
+      return b.indexes.length - a.indexes.length;
     });
     states = next.slice(0, beamWidth);
   }
 
-  const nonEmpty = states.filter((s) => s.ids.length > 0);
-  if (!nonEmpty.length) return [sorted[0]!];
-  const byId = new Map(eligible.map((p) => [p.id, p]));
-  const distance = (s: State) => (s.product >= requested ? s.product / requested - 1 : 1 + (requested / s.product - 1));
-  const best = nonEmpty.sort((a, b) => {
+  const candidates = states.filter((state) => state.indexes.length);
+  candidates.sort((a, b) => {
+    const aAtOrAbove = a.product >= requested;
+    const bAtOrAbove = b.product >= requested;
+    const aClose = a.product >= requested * 0.9 && a.product <= requested * 1.2;
+    const bClose = b.product >= requested * 0.9 && b.product <= requested * 1.2;
+    if (aClose !== bClose) return aClose ? -1 : 1;
+    if (aAtOrAbove !== bAtOrAbove && aClose && bClose) return aAtOrAbove ? -1 : 1;
     const da = distance(a);
     const db = distance(b);
-    if (Math.abs(da - db) > 0.005) return da - db;
-    if (Math.abs(a.score - b.score) > 0.02) return b.score - a.score;
-    return a.ids.length - b.ids.length;
-  })[0]!;
+    if (Math.abs(da - db) > 0.01) return da - db;
+    const aa = a.strength / a.indexes.length;
+    const ab = b.strength / b.indexes.length;
+    if (Math.abs(aa - ab) > 0.25) return ab - aa;
+    return b.indexes.length - a.indexes.length;
+  });
 
-  return best.ids.map((id) => byId.get(id)).filter((p): p is AnalyzedPick => Boolean(p));
+  const best = candidates[0] ?? { indexes: [0], product: Number(eligible[0]!.odds), strength: probabilityOf(eligible[0]!) };
+  const keptIndex = new Set(best.indexes);
+  const kept = eligible.filter((_, index) => keptIndex.has(index));
+  const removed = [...invalid, ...eligible.filter((_, index) => !keptIndex.has(index))]
+    .sort((a, b) => probabilityOf(a) - probabilityOf(b));
+
+  return {
+    kept,
+    removed,
+    combinedOdds: kept.length ? kept.reduce((product, pick) => product * Number(pick.odds), 1) : null,
+  };
+}
+
+export function trimToOdds(picks: AnalyzedPick[], target: number): AnalyzedPick[] {
+  return riskTrimToOdds(
+    picks.filter((pick) => pick.sport !== "other"),
+    target,
+  ).kept;
 }
 
 export function keepTop(picks: AnalyzedPick[], count: number): AnalyzedPick[] {

@@ -21,14 +21,14 @@ import type {
   BuildSport,
   BuildWindow,
 } from "@/lib/build-slip";
-import type { AnalyzedPick, TicketPick } from "@/lib/types";
+import type { AnalyzedPick, BookmakerId, BookSport, TicketPick } from "@/lib/types";
 import { combinedOdds, formatKickoff, formatOdds } from "@/lib/workbench";
 
-type Tab = "build" | "cut" | "slips";
-type Pending = "build" | "cut" | "book" | "history" | null;
+type Tab = "build" | "cut" | "predict" | "slips";
+type Pending = "build" | "cut" | "ingest" | "predict" | "book" | "history" | null;
 type BuildMode = "games" | "odds";
 type CutApiResult =
-  | { ok: true; kept: AnalyzedPick[]; dropped: AnalyzedPick[]; ignored: AnalyzedPick[] }
+  | { ok: true; kept: AnalyzedPick[]; dropped: AnalyzedPick[]; ignored: AnalyzedPick[]; sourceBookmaker?: BookmakerId; warnings?: string[] }
   | { ok: false; code?: string; error: string };
 type BookApiResult =
   | {
@@ -38,6 +38,8 @@ type BookApiResult =
       combinedOdds: number | null;
       picks: TicketPick[];
       historyStored: boolean;
+      bookmaker: BookmakerId;
+      warnings?: string[];
     }
   | {
       ok: false;
@@ -59,7 +61,43 @@ type HistoryItem = {
 type HistoryApiResult =
   | { ok: true; persistent: true; slips: HistoryItem[] }
   | { ok: false; persistent: false; error: string };
-type Minted = { code: string; url: string; combinedOdds: number | null; games: number };
+type Minted = {
+  code: string;
+  url: string;
+  combinedOdds: number | null;
+  games: number;
+  bookmaker: BookmakerId;
+  warnings?: string[];
+};
+type IngestApiResult =
+  | { ok: true; picks: TicketPick[]; warnings: string[]; source: "text" | "link" | "image" }
+  | { ok: false; error: string };
+type PredictionApiResult =
+  | {
+      ok: true;
+      prediction: {
+        pick: TicketPick;
+        winProbability: number;
+        expectedValue: number | null;
+        confidence: "high" | "medium" | "low";
+        summary: string;
+        reasons: string[];
+        risks: string[];
+        provider: string;
+        calibrated: false;
+      };
+    }
+  | { ok: false; error: string };
+
+const BOOKMAKERS: Array<{ value: BookmakerId; label: string }> = [
+  { value: "sportybet", label: "SportyBet" },
+  { value: "bet9ja", label: "Bet9ja" },
+  { value: "1xbet", label: "1XBet" },
+];
+
+function bookmakerLabel(id: BookmakerId) {
+  return BOOKMAKERS.find((item) => item.value === id)?.label ?? id;
+}
 
 const BOT_URL = "https://t.me/slipcut_bot";
 const ODDS_PRESETS = [2, 3, 5, 10, 20];
@@ -231,7 +269,14 @@ export function MiniAppRefresh() {
   );
   const [buildSelected, setBuildSelected] = useState<Set<string>>(new Set());
   const [code, setCode] = useState("");
+  const [sourceBookmaker, setSourceBookmaker] = useState<BookmakerId>("sportybet");
+  const [targetBookmaker, setTargetBookmaker] = useState<BookmakerId>("sportybet");
+  const [pasteText, setPasteText] = useState("");
   const [threshold, setThreshold] = useState(45);
+  const [predictSport, setPredictSport] = useState<BookSport>("football");
+  const [predictHome, setPredictHome] = useState("");
+  const [predictAway, setPredictAway] = useState("");
+  const [prediction, setPrediction] = useState<Extract<PredictionApiResult, { ok: true }>["prediction"] | null>(null);
   const [cutResult, setCutResult] = useState<Extract<CutApiResult, { ok: true }> | null>(null);
   const [cutSelected, setCutSelected] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Pending>(null);
@@ -352,9 +397,9 @@ export function MiniAppRefresh() {
 
   async function runCut() {
     if (pending) return;
-    const cleaned = code.replace(/\s+/g, "").toUpperCase();
-    if (!/^[A-Z0-9]{4,16}$/.test(cleaned)) {
-      setError("Enter a valid SportyBet booking code.");
+    const cleaned = code.replace(/\s+/g, "");
+    if (!/^[A-Za-z0-9_-]{3,64}$/.test(cleaned)) {
+      setError("Enter a valid booking code.");
       return;
     }
     clearBookingReview();
@@ -363,7 +408,7 @@ export function MiniAppRefresh() {
     try {
       const result = await api<CutApiResult>("/api/miniapp/cut", {
         method: "POST",
-        body: JSON.stringify({ code: cleaned, threshold }),
+        body: JSON.stringify({ code: cleaned, threshold, bookmaker: sourceBookmaker }),
       });
       if (!result.ok) setError(result.error);
       else {
@@ -379,12 +424,95 @@ export function MiniAppRefresh() {
     }
   }
 
+  async function analyseImported(payload: { mode: "text"; text: string } | { mode: "image"; image: { mime: string; data: string } }) {
+    if (pending) return;
+    clearBookingReview();
+    setCutResult(null);
+    setPending("ingest");
+    try {
+      const extracted = await api<IngestApiResult>("/api/miniapp/ingest", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      if (!extracted.ok) {
+        setError(extracted.error);
+        return;
+      }
+      const result = await api<CutApiResult>("/api/miniapp/cut", {
+        method: "POST",
+        body: JSON.stringify({ picks: extracted.picks, threshold }),
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setCutResult(result);
+      setCutSelected(new Set(result.kept.map((pick) => pick.id)));
+      setPasteText("");
+      telegramWebApp()?.HapticFeedback?.impactOccurred?.("light");
+    } catch (caught) {
+      setError(errorText(caught, "Ticket import failed."));
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function importScreenshot(file?: File) {
+    if (!file) return;
+    if (file.size > 8_000_000) {
+      setError("Screenshot is too large.");
+      return;
+    }
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Could not read screenshot."));
+      reader.onload = () => resolve(String(reader.result ?? ""));
+      reader.readAsDataURL(file);
+    });
+    const comma = dataUrl.indexOf(",");
+    if (comma < 0) {
+      setError("Could not read screenshot.");
+      return;
+    }
+    await analyseImported({
+      mode: "image",
+      image: { mime: file.type || "image/jpeg", data: dataUrl.slice(comma + 1) },
+    });
+  }
+
+  async function runPrediction() {
+    if (pending) return;
+    if (!predictHome.trim() || !predictAway.trim()) {
+      setError("Enter both teams or players.");
+      return;
+    }
+    clearMessages();
+    setPrediction(null);
+    setPending("predict");
+    try {
+      const result = await api<PredictionApiResult>("/api/miniapp/predict", {
+        method: "POST",
+        body: JSON.stringify({
+          sport: predictSport,
+          home: predictHome.trim(),
+          away: predictAway.trim(),
+        }),
+      });
+      if (!result.ok) setError(result.error);
+      else setPrediction(result.prediction);
+    } catch (caught) {
+      setError(errorText(caught, "Prediction failed."));
+    } finally {
+      setPending(null);
+    }
+  }
+
   async function createCode() {
     if (pending || !activePicks.length) return;
     clearMessages();
     setPending("book");
     try {
-      const body = JSON.stringify(activePicks);
+      const body = JSON.stringify({ picks: activePicks, bookmaker: targetBookmaker });
       if (!bookingAttemptRef.current || bookingAttemptRef.current.body !== body) {
         bookingAttemptRef.current = {
           body,
@@ -396,7 +524,7 @@ export function MiniAppRefresh() {
       const requestId = bookingAttemptRef.current.requestId;
       const result = await api<BookApiResult>("/api/miniapp/book", {
         method: "POST",
-        body: JSON.stringify({ picks: activePicks, requestId }),
+        body: JSON.stringify({ picks: activePicks, requestId, bookmaker: targetBookmaker }),
       });
       bookingAttemptRef.current = null;
       if (!result.ok) {
@@ -457,6 +585,8 @@ export function MiniAppRefresh() {
         url: result.shareURL,
         combinedOdds: result.combinedOdds,
         games: result.picks.length,
+        bookmaker: result.bookmaker,
+        warnings: result.warnings,
       };
       setMinted(next);
       setSessionSlips((items) => [
@@ -551,7 +681,7 @@ export function MiniAppRefresh() {
         <header className="mb-4 flex items-center justify-between gap-3 px-1">
           <div>
             <p className="text-[10px] font-extrabold uppercase tracking-[.2em] text-[#b79b75]">
-              SportyBet slip desk
+              Multi-bookmaker betting desk
             </p>
             <h1 className="mt-1 text-[27px] font-black leading-none tracking-[-.055em]">
               Slip<span className="text-[#e9bb7b]">Cut.</span>
@@ -738,6 +868,8 @@ export function MiniAppRefresh() {
                 copied={copied}
                 onCopy={() => void copyCode()}
                 oddsChanges={oddsChanges}
+                targetBookmaker={targetBookmaker}
+                onTargetBookmaker={setTargetBookmaker}
               />
             )}
           </section>
@@ -751,7 +883,25 @@ export function MiniAppRefresh() {
               </p>
               <h2 className="mt-1 text-lg font-extrabold">Analyse and cut a slip</h2>
               <label className="mt-4 block text-xs font-bold text-[#d6c0a1]">
-                SportyBet booking code
+                Source bookmaker
+                <select
+                  value={sourceBookmaker}
+                  onChange={(event) => {
+                    setSourceBookmaker(event.target.value as BookmakerId);
+                    setCutResult(null);
+                    clearMessages();
+                  }}
+                  className={`${field} mt-2`}
+                >
+                  {BOOKMAKERS.map((bookmaker) => (
+                    <option key={bookmaker.value} value={bookmaker.value}>
+                      {bookmaker.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="mt-4 block text-xs font-bold text-[#d6c0a1]">
+                {bookmakerLabel(sourceBookmaker)} booking code
                 <input
                   value={code}
                   onChange={(event) => {
@@ -798,6 +948,46 @@ export function MiniAppRefresh() {
                   Stop waiting
                 </button>
               )}
+              <div className="my-4 flex items-center gap-3 text-[10px] uppercase tracking-widest text-[#817564]">
+                <span className="h-px flex-1 bg-[#6b5843]/35" />
+                or import
+                <span className="h-px flex-1 bg-[#6b5843]/35" />
+              </div>
+              <textarea
+                value={pasteText}
+                onChange={(event) => setPasteText(event.target.value)}
+                placeholder="Paste picks, a tips link, or ticket text"
+                className={`${field} min-h-24 resize-y`}
+              />
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={pending !== null || !pasteText.trim()}
+                  onClick={() => void analyseImported({ mode: "text", text: pasteText })}
+                  className={secondary}
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Read text/link
+                </button>
+                <label className={`${secondary} cursor-pointer`}>
+                  <Ticket className="h-4 w-4" />
+                  Screenshot
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    disabled={pending !== null}
+                    onChange={(event) => {
+                      const file = event.currentTarget.files?.[0];
+                      event.currentTarget.value = "";
+                      void importScreenshot(file);
+                    }}
+                  />
+                </label>
+              </div>
+              {pending === "ingest" && (
+                <p className="mt-2 text-[11px] text-[#d7ba91]">Reading ticket and analysing picks…</p>
+              )}
             </div>
             {cutResult && (
               <ReviewHeader
@@ -805,9 +995,12 @@ export function MiniAppRefresh() {
                 returned={`${chosenCut.length}/${allCut.length} selected`}
                 odds={activeOdds}
                 notice={
-                  cutResult.dropped.length || cutResult.ignored.length
-                    ? `${cutResult.dropped.length} weak and ${cutResult.ignored.length} unscored selection(s) start deselected. You can restore them manually.`
-                    : undefined
+                  [
+                    ...(cutResult.warnings ?? []),
+                    ...(cutResult.dropped.length || cutResult.ignored.length
+                      ? [`${cutResult.dropped.length} weak and ${cutResult.ignored.length} unscored selection(s) start deselected. You can restore them manually.`]
+                      : []),
+                  ].join(" ") || undefined
                 }
               />
             )}
@@ -859,7 +1052,92 @@ export function MiniAppRefresh() {
                 copied={copied}
                 onCopy={() => void copyCode()}
                 oddsChanges={oddsChanges}
+                targetBookmaker={targetBookmaker}
+                onTargetBookmaker={setTargetBookmaker}
               />
+            )}
+          </section>
+        )}
+
+        {tab === "predict" && (
+          <section className="space-y-3">
+            <div className={panel}>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#bd9e73]">
+                Match prediction
+              </p>
+              <h2 className="mt-1 text-lg font-extrabold">Research a match</h2>
+              <p className="mt-2 text-[11px] leading-4 text-[#9f917e]">
+                Uses the existing live research stack for form, injuries and H2H, then compares open markets and prices.
+              </p>
+              <label className="mt-4 block text-xs font-bold text-[#d6c0a1]">
+                Sport
+                <select
+                  value={predictSport}
+                  onChange={(event) => setPredictSport(event.target.value as BookSport)}
+                  className={`${field} mt-2`}
+                >
+                  <option value="football">Football</option>
+                  <option value="basketball">Basketball</option>
+                  <option value="tennis">Tennis</option>
+                  <option value="handball">Handball</option>
+                </select>
+              </label>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <input
+                  value={predictHome}
+                  onChange={(event) => setPredictHome(event.target.value)}
+                  placeholder="Home / Player 1"
+                  className={field}
+                />
+                <input
+                  value={predictAway}
+                  onChange={(event) => setPredictAway(event.target.value)}
+                  placeholder="Away / Player 2"
+                  className={field}
+                />
+              </div>
+              <button
+                type="button"
+                disabled={pending !== null || !initData}
+                onClick={() => void runPrediction()}
+                className={`${primary} mt-4`}
+              >
+                {pending === "predict" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                {pending === "predict" ? "Researching match…" : "Predict best market"}
+              </button>
+            </div>
+            {prediction && (
+              <article className={panel}>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[#9ed8a9]">Best reviewed market</p>
+                <h3 className="mt-2 text-base font-extrabold">{prediction.pick.home} vs {prediction.pick.away}</h3>
+                <p className="mt-1 text-sm font-bold text-[#efc88f]">
+                  {prediction.pick.market} · {prediction.pick.selection}
+                </p>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-xl bg-[#171510] p-2">
+                    <p className="text-[10px] text-[#9f917e]">Model probability</p>
+                    <p className="mt-1 font-mono font-bold">{Math.round(prediction.winProbability)}%</p>
+                  </div>
+                  <div className="rounded-xl bg-[#171510] p-2">
+                    <p className="text-[10px] text-[#9f917e]">Odds</p>
+                    <p className="mt-1 font-mono font-bold">{prediction.pick.odds ? formatOdds(prediction.pick.odds) : "—"}</p>
+                  </div>
+                  <div className="rounded-xl bg-[#171510] p-2">
+                    <p className="text-[10px] text-[#9f917e]">EV</p>
+                    <p className="mt-1 font-mono font-bold">
+                      {prediction.expectedValue == null ? "—" : `${prediction.expectedValue >= 0 ? "+" : ""}${(prediction.expectedValue * 100).toFixed(1)}%`}
+                    </p>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs leading-5 text-[#c9bca9]">{prediction.summary}</p>
+                {prediction.reasons.length > 0 && (
+                  <p className="mt-2 text-[11px] leading-4 text-[#b9ab98]">Basis: {prediction.reasons.join(" · ")}</p>
+                )}
+                {prediction.risks.length > 0 && (
+                  <p className="mt-1 text-[11px] leading-4 text-[#d8a99b]">Risks: {prediction.risks.join(" · ")}</p>
+                )}
+                <p className="mt-2 text-[10px] text-[#817564]">Model estimate is not calibrated probability.</p>
+              </article>
             )}
           </section>
         )}
@@ -938,11 +1216,12 @@ export function MiniAppRefresh() {
             "calc(max(env(safe-area-inset-bottom), var(--tg-content-safe-area-inset-bottom, 0px)) + 8px)",
         }}
       >
-        <div className="grid grid-cols-3 gap-1">
+        <div className="grid grid-cols-4 gap-1">
           {(
             [
               { id: "build", label: "Build", icon: Sparkles },
               { id: "cut", label: "Cut", icon: Scissors },
+              { id: "predict", label: "Predict", icon: Sparkles },
               { id: "slips", label: "My Slips", icon: History },
             ] as const
           ).map(({ id, label, icon: Icon }) => (
@@ -1008,6 +1287,8 @@ function BookingAction({
   copied,
   onCopy,
   oddsChanges,
+  targetBookmaker,
+  onTargetBookmaker,
 }: {
   pending: Pending;
   count: number;
@@ -1016,11 +1297,27 @@ function BookingAction({
   copied: boolean;
   onCopy: () => void;
   oddsChanges: Array<{ pick: TicketPick; beforeOdds: number; afterOdds: number }>;
+  targetBookmaker: BookmakerId;
+  onTargetBookmaker: (bookmaker: BookmakerId) => void;
 }) {
   return (
     <section className={panel}>
       {!minted ? (
         <div>
+          <label className="mb-3 block text-xs font-bold text-[#d6c0a1]">
+            Create code on
+            <select
+              value={targetBookmaker}
+              onChange={(event) => onTargetBookmaker(event.target.value as BookmakerId)}
+              className={`${field} mt-2`}
+            >
+              {BOOKMAKERS.map((bookmaker) => (
+                <option key={bookmaker.value} value={bookmaker.value}>
+                  {bookmaker.label}
+                </option>
+              ))}
+            </select>
+          </label>
           {oddsChanges.length ? (
             <div className="mb-3 rounded-xl border border-[#b18451]/45 bg-[#392b1d] p-3">
               <p className="text-xs font-extrabold text-[#f0ca94]">Current odds changed</p>
@@ -1062,7 +1359,7 @@ function BookingAction({
               ? "Refreshing selections…"
               : oddsChanges.length
                 ? `Confirm reviewed odds & create · ${count}`
-                : `Create SportyBet code · ${count}`}
+                : `Create ${bookmakerLabel(targetBookmaker)} code · ${count}`}
           </button>
         </div>
       ) : (
@@ -1080,15 +1377,26 @@ function BookingAction({
             {minted.games} games ·{" "}
             {minted.combinedOdds ? formatOdds(minted.combinedOdds) : "odds unavailable"}
           </p>
+          {minted.warnings?.length ? (
+            <div className="mt-3 rounded-xl border border-[#b18451]/35 bg-[#392b1d]/75 p-3 text-[11px] leading-4 text-[#e4c69f]">
+              {minted.warnings.map((warning, index) => (
+                <p key={`${warning}-${index}`}>{warning}</p>
+              ))}
+            </div>
+          ) : null}
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button type="button" onClick={onCopy} className={secondary}>
               {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
               {copied ? "Copied" : "Copy code"}
             </button>
-            <a href={minted.url} target="_blank" rel="noreferrer" className={secondary}>
-              <ExternalLink className="h-4 w-4" />
-              SportyBet
-            </a>
+            {minted.url ? (
+              <a href={minted.url} target="_blank" rel="noreferrer" className={secondary}>
+                <ExternalLink className="h-4 w-4" />
+                {bookmakerLabel(minted.bookmaker)}
+              </a>
+            ) : (
+              <div className={`${secondary} opacity-60`}>{bookmakerLabel(minted.bookmaker)}</div>
+            )}
           </div>
         </div>
       )}
