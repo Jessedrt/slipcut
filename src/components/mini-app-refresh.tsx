@@ -176,14 +176,30 @@ function SelectionCard({
               <p className="font-mono text-sm font-bold text-[#efc88f]">
                 {pick.odds ? formatOdds(pick.odds) : "—"}
               </p>
-              <p className="text-[10px] text-[#a9967d]">Score {Math.round(score)}/100</p>
+              <p className="text-[10px] text-[#a9967d]">
+                {"analysisBasis" in pick ? "Ranking score" : "Uncalibrated AI score"}{" "}
+                {Math.round(score)}/100
+              </p>
             </div>
           </div>
           <p className="mt-1 text-xs font-semibold text-[#d8b982]">
             {pick.selection} · {pick.market}
           </p>
           <p className="mt-1 text-[11px] text-[#a99a87]">{formatKickoff(pick.kickoff)}</p>
+          {"analysisBasis" in pick && (
+            <p className="mt-2 text-[11px] font-semibold text-[#e4bd83]">
+              {pick.analysisBasis === "ai_assisted_unverified"
+                ? "AI-assisted · match facts unverified"
+                : "Market rules only · no match research verified"}
+              {` · ${pick.confidenceLabel}`}
+            </p>
+          )}
           <p className="mt-2 text-xs leading-5 text-[#c9bca9]">{pick.summary}</p>
+          {pick.reasons.length > 0 && (
+            <p className="mt-1 text-[11px] leading-4 text-[#b9ab98]">
+              Basis: {pick.reasons.slice(0, 2).join(" ")}
+            </p>
+          )}
           {pick.risks[0] && (
             <p className="mt-1 text-[11px] leading-4 text-[#d8a99b]">Risk: {pick.risks[0]}</p>
           )}
@@ -668,16 +684,28 @@ export function MiniAppRefresh() {
               </div>
             </div>
             {buildResult && (
-              <ReviewHeader
-                requested={
-                  buildResult.requested.mode === "games"
-                    ? `${buildResult.requested.games} games`
-                    : `${buildResult.requested.targetOdds?.toFixed(2)} odds`
-                }
-                returned={`${chosenBuild.length}/${buildResult.actualGames} selected`}
-                odds={activeOdds}
-                notice={buildResult.notice}
-              />
+              <>
+                <ReviewHeader
+                  requested={
+                    buildResult.requested.mode === "games"
+                      ? `${buildResult.requested.games} games`
+                      : `${buildResult.requested.targetOdds?.toFixed(2)} odds`
+                  }
+                  returned={`${chosenBuild.length}/${buildResult.actualGames} selected`}
+                  odds={activeOdds}
+                  notice={buildResult.notice}
+                />
+                <p className="px-1 text-[11px] leading-4 text-[#c9bca9]">
+                  {
+                    buildResult.selections.filter(
+                      (pick) => pick.analysisBasis === "ai_assisted_unverified",
+                    ).length
+                  }{" "}
+                  of {buildResult.actualGames} returned picks received AI-assisted scoring; the rest
+                  use market rules. Neither score is a verified win probability. Match-specific facts
+                  are not source-verified.
+                </p>
+              </>
             )}
             {buildResult?.selections.map((pick, index) => (
               <SelectionCard

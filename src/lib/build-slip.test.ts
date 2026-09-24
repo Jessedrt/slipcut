@@ -21,7 +21,12 @@ function pick(id: number, odds = 1.5, marketId = "10", eventId = `event-${id}`):
     selection: marketId === "29" ? "Yes" : marketId === "10" ? "Home or Draw" : "Over",
     odds,
     kickoff: Date.now() + (id + 2) * 3_600_000,
-    sporty: { eventId, marketId, outcomeId: "1", ...(marketId === "18" ? { specifier: "total=2.5" } : {}) },
+    sporty: {
+      eventId,
+      marketId,
+      outcomeId: "1",
+      ...(marketId === "18" ? { specifier: "total=2.5" } : {}),
+    },
   };
 }
 
@@ -32,6 +37,7 @@ function deps(rows: TicketPick[]): BuildDependencies {
       keep: picks.map((item) => ({ ...item, probability: 76 })) as T[],
       dropped: 0,
       researched: true,
+      aiScoredIds: picks.map((item) => item.id),
     }),
   };
 }
@@ -70,7 +76,10 @@ describe("buildSlip", () => {
   });
 
   it("builds toward target odds without adding unsupported legs", async () => {
-    const result = await buildSlip({ ...base, mode: "odds", targetOdds: 3 }, deps([pick(1, 1.5), pick(2, 1.6), pick(3, 1.7)]));
+    const result = await buildSlip(
+      { ...base, mode: "odds", targetOdds: 3 },
+      deps([pick(1, 1.5), pick(2, 1.6), pick(3, 1.7)]),
+    );
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.ok((result.actualCombinedOdds ?? 0) >= 2.4);
@@ -78,7 +87,10 @@ describe("buildSlip", () => {
   });
 
   it("returns the lower actual odds when the target cannot be reached", async () => {
-    const result = await buildSlip({ ...base, mode: "odds", targetOdds: 10 }, deps([pick(1, 1.3), pick(2, 1.3)]));
+    const result = await buildSlip(
+      { ...base, mode: "odds", targetOdds: 10 },
+      deps([pick(1, 1.3), pick(2, 1.3)]),
+    );
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.equal(result.targetReached, false);
@@ -90,7 +102,10 @@ describe("buildSlip", () => {
     assert.ok(RISK_POLICIES.balanced.maxOdds < RISK_POLICIES.aggressive.maxOdds);
     const risky = pick(1, 2.5, "18");
     const conservative = await buildSlip(base, deps([risky]));
-    const aggressive = await buildSlip({ ...base, games: 2, risk: "aggressive" }, deps([risky, pick(2, 2.4, "18")]));
+    const aggressive = await buildSlip(
+      { ...base, games: 2, risk: "aggressive" },
+      deps([risky, pick(2, 2.4, "18")]),
+    );
     assert.equal(conservative.ok, false);
     assert.equal(aggressive.ok, true);
   });
@@ -100,7 +115,12 @@ describe("buildSlip", () => {
       ...deps([]),
       discover: async () => ({ error: "timeout", code: "provider_timeout", retryable: true }),
     });
-    assert.deepEqual(result, { ok: false, error: "timeout", code: "provider_timeout", retryable: true });
+    assert.deepEqual(result, {
+      ok: false,
+      error: "timeout",
+      code: "provider_timeout",
+      retryable: true,
+    });
   });
 
   it("reports risk and score rejection diagnostics without weakening filters", async () => {
@@ -112,9 +132,57 @@ describe("buildSlip", () => {
         keep: picks.map((item) => ({ ...item, probability: 40 })),
         dropped: 0,
         researched: true,
+        aiScoredIds: picks.map((item) => item.id),
       }),
     });
     assert.equal(result.ok, false);
+  });
+
+  it("labels a rule-only fallback honestly and does not expose an invented probability", async () => {
+    const result = await buildSlip(
+      { ...base, games: 2 },
+      {
+        discover: async () => [pick(1), pick(2)],
+        research: async (picks) => ({
+          keep: picks.map((item) => ({ ...item, probability: 95 })),
+          dropped: 0,
+          researched: false,
+          aiScoredIds: [],
+        }),
+      },
+    );
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.analysis.researched, 0);
+    assert.equal(result.analysis.researchFallbackUsed, true);
+    assert.equal(result.selections[0]?.analysisBasis, "market_rules");
+    assert.match(result.selections[0]?.summary ?? "", /Market-only/);
+    assert.equal(result.selections[0]?.probability, undefined);
+    assert.notEqual(result.selections[0]?.modelScore, 95);
+    assert.match(result.selections[0]?.risks[0] ?? "", /were independently verified/);
+  });
+
+  it("only marks picks whose AI score was actually returned as AI-assisted", async () => {
+    const result = await buildSlip(
+      { ...base, games: 2 },
+      {
+        discover: async () => [pick(1), pick(2)],
+        research: async (picks) => ({
+          keep: picks.map((item) => ({ ...item, probability: 80 })),
+          dropped: 0,
+          researched: true,
+          aiScoredIds: [picks[0]!.id],
+        }),
+      },
+    );
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.analysis.researched, 1);
+    assert.equal(
+      result.selections.filter((p) => p.analysisBasis === "ai_assisted_unverified").length,
+      1,
+    );
+    assert.equal(result.selections.filter((p) => p.analysisBasis === "market_rules").length, 1);
   });
 });
 
@@ -125,6 +193,9 @@ describe("build request validation", () => {
   });
   it("accepts the supported game-count and target-odds shapes", () => {
     assert.equal(validateBuildRequest(base).ok, true);
-    assert.equal(validateBuildRequest({ ...base, mode: "odds", targetOdds: 5, games: undefined }).ok, true);
+    assert.equal(
+      validateBuildRequest({ ...base, mode: "odds", targetOdds: 5, games: undefined }).ok,
+      true,
+    );
   });
 });

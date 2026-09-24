@@ -7,14 +7,17 @@ import type { TicketPick } from "./types";
 
 const WEAK_FB =
   /friendly|women|womens|u-?1[789]|u-?2[013]|reserve|\bii\b|amateur|virtual|esport|simulat|simulation|\besoccer\b|e-?soccer|\bsrl\b|\bfifa\b|youth|qualification play-off/i;
-const WEAK_BB = /friendly|club friendly|virtual|esport|simulat|simulation|\besoccer\b|\bsrl\b|u-?1[89]/i;
+const WEAK_BB =
+  /friendly|club friendly|virtual|esport|simulat|simulation|\besoccer\b|\bsrl\b|u-?1[89]/i;
 const WEAK =
   /friendly|u-?1[789]|u-?2[013]|reserve|\bii\b|amateur|virtual|esport|simulat|simulation|\besoccer\b|\bsrl\b|youth|qualification play-off/i;
 const TOP_FB =
   /premier league|la liga|laliga|serie a|bundesliga|ligue 1|champions league|\bucl\b|caf champions|afc champions|europa league|conference league|eredivisie|primeira|championship|mls|copa libertadores|nations league|saudi|super lig|liga portugal|pro league/i;
 const TOP_BB = /euroleague|ncaa|wnba|acb|nbl|eurocup|bbl/i;
-const TOP_TN = /atp|wta|us open|australian open|wimbledon|roland|french open|masters|grand slam|challenger/i;
-const TOP_HB = /ehf|champions league|bundesliga|starligue|asobal|seha|olympic|world championship|herre|eliteserien/i;
+const TOP_TN =
+  /atp|wta|us open|australian open|wimbledon|roland|french open|masters|grand slam|challenger/i;
+const TOP_HB =
+  /ehf|champions league|bundesliga|starligue|asobal|seha|olympic|world championship|herre|eliteserien/i;
 
 function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
@@ -25,9 +28,20 @@ export function deskScore(pick: TicketPick): number {
   let s = 50;
   const league = pick.league ?? "";
   const blob = `${league} ${pick.home} ${pick.away}`;
-  if (WEAK.test(blob) && !TOP_FB.test(league) && !TOP_BB.test(league) && !TOP_TN.test(league) && !TOP_HB.test(league)) s -= 28;
+  if (
+    WEAK.test(blob) &&
+    !TOP_FB.test(league) &&
+    !TOP_BB.test(league) &&
+    !TOP_TN.test(league) &&
+    !TOP_HB.test(league)
+  )
+    s -= 28;
   if (pick.sport === "football" && TOP_FB.test(league)) s += 8;
-  if (pick.sport === "football" && /champions league|\bucl\b|caf champions|afc champions/i.test(league)) s += 8;
+  if (
+    pick.sport === "football" &&
+    /champions league|\bucl\b|caf champions|afc champions/i.test(league)
+  )
+    s += 8;
   else if (pick.sport === "basketball" && TOP_BB.test(league)) s += 8;
   else if (pick.sport === "tennis" && TOP_TN.test(league)) s += 6;
   else if (pick.sport === "handball" && TOP_HB.test(league)) s += 7;
@@ -43,7 +57,8 @@ export function deskScore(pick: TicketPick): number {
   if (pick.sport === "basketball") {
     if (odds > 1.85) s -= 14;
     const total = Number((pick.sporty?.specifier ?? pick.market).match(/([\d.]+)/)?.[1] ?? NaN);
-    if ((fam === "ou" || pick.sporty?.marketId === "225") && Number.isFinite(total) && total >= 220) s -= 8;
+    if ((fam === "ou" || pick.sporty?.marketId === "225") && Number.isFinite(total) && total >= 220)
+      s -= 8;
   }
   if (pick.kickoff && pick.kickoff < Date.now() + 8 * 60_000) s -= 22;
   return clamp(Math.round(s), 4, 96);
@@ -53,7 +68,8 @@ function isJunk(pick: TicketPick) {
   const blob = `${pick.league ?? ""} ${pick.home} ${pick.away}`;
   if (pick.sport === "football") return WEAK_FB.test(blob);
   if (pick.sport === "basketball") return WEAK_BB.test(blob) || /\bnba\b/i.test(pick.league ?? "");
-  if (pick.sport === "handball") return /friendly|women|u-?1[89]|youth|virtual/i.test(blob) && !TOP_HB.test(pick.league ?? "");
+  if (pick.sport === "handball")
+    return /friendly|women|u-?1[89]|youth|virtual/i.test(blob) && !TOP_HB.test(pick.league ?? "");
   return false;
 }
 
@@ -103,38 +119,85 @@ function footballMarketScore(pick: TicketPick, all: TicketPick[], used: Record<s
   const over25 = findOdds(all, (p) => /2\.5/.test(p.market) && bias(p.selection) === "over");
   const over35 = findOdds(all, (p) => /3\.5/.test(p.market) && bias(p.selection) === "over");
   const ggYes = findOdds(all, (p) => familyOf(p) === "gg" && bias(p.selection) === "yes");
-  const fav = home && away ? (home <= away ? "home" : "away") : home ? "home" : away ? "away" : null;
+  const fav =
+    home && away ? (home <= away ? "home" : "away") : home ? "home" : away ? "away" : null;
   const favOdds = fav === "home" ? home : fav === "away" ? away : undefined;
   const open = Boolean(home && away && home >= 1.72 && away >= 1.72);
   const onFav =
     Boolean(fav) &&
-    (side === fav ||
-      (side === "1x" && fav === "home") ||
-      (side === "x2" && fav === "away"));
+    (side === fav || (side === "1x" && fav === "home") || (side === "x2" && fav === "away"));
 
-  if (over25 && over25 >= 1.48 && over25 <= 1.92 && fam === "ou" && side === "over" && /2\.5/.test(pick.market)) s += 18;
-  if (over15 && over15 >= 1.36 && over15 <= 1.62 && fam === "ou" && side === "over" && /1\.5/.test(pick.market)) s += 12;
-  if (over35 && over35 >= 1.55 && over35 <= 2.05 && fam === "ou" && side === "over" && /3\.5/.test(pick.market)) s += 8;
+  if (
+    over25 &&
+    over25 >= 1.48 &&
+    over25 <= 1.92 &&
+    fam === "ou" &&
+    side === "over" &&
+    /2\.5/.test(pick.market)
+  )
+    s += 18;
+  if (
+    over15 &&
+    over15 >= 1.36 &&
+    over15 <= 1.62 &&
+    fam === "ou" &&
+    side === "over" &&
+    /1\.5/.test(pick.market)
+  )
+    s += 12;
+  if (
+    over35 &&
+    over35 >= 1.55 &&
+    over35 <= 2.05 &&
+    fam === "ou" &&
+    side === "over" &&
+    /3\.5/.test(pick.market)
+  )
+    s += 8;
   if (over25 && over25 >= 2.08 && fam === "ou" && side === "over") s -= 12;
-  if (over25 && over25 >= 2.05 && fam === "ou" && side === "under" && /2\.5/.test(pick.market)) s += 14;
-  if (over15 && over15 >= 1.85 && fam === "ou" && side === "under" && /1\.5/.test(pick.market)) s += 8;
+  if (over25 && over25 >= 2.05 && fam === "ou" && side === "under" && /2\.5/.test(pick.market))
+    s += 14;
+  if (over15 && over15 >= 1.85 && fam === "ou" && side === "under" && /1\.5/.test(pick.market))
+    s += 8;
 
   if (favOdds && favOdds <= 1.48 && onFav && (fam === "dnb" || fam === "dc")) s += 16;
-  if (favOdds && favOdds <= 1.42 && onFav && fam === "win" && (pick.odds ?? 9) >= 1.32 && (pick.odds ?? 9) <= 1.7) s += 11;
-  if (fav && side !== fav && side !== "1x" && side !== "x2" && side !== "12" && fam === "win") s -= 16;
+  if (
+    favOdds &&
+    favOdds <= 1.42 &&
+    onFav &&
+    fam === "win" &&
+    (pick.odds ?? 9) >= 1.32 &&
+    (pick.odds ?? 9) <= 1.7
+  )
+    s += 11;
+  if (fav && side !== fav && side !== "1x" && side !== "x2" && side !== "12" && fam === "win")
+    s -= 16;
   if (open && fam === "dc" && side === "12") s += 15;
   if (open && over25 && over25 <= 1.78 && fam === "gg" && side === "yes") s += 11;
   if (fam === "hcp" && onFav && (pick.odds ?? 9) >= 1.48 && (pick.odds ?? 9) <= 2.05) s += 13;
   if (fam === "hcp" && !onFav && favOdds && favOdds <= 1.55) s -= 10;
-  if (over15 && over15 >= 1.22 && over15 <= 1.4 && fam === "ou" && side === "over" && /0\.5/.test(pick.market)) s += 10;
-  if (fam === "ou1h" && side === "over" && /0\.5/.test(pick.market) && (pick.odds ?? 9) <= 1.55) s += 14;
-  if (fam === "ou1h" && side === "over" && /1\.5/.test(pick.market) && (pick.odds ?? 9) <= 1.85) s += 9;
-  if (fam === "teamou" && side === "over" && /0\.5/.test(pick.market) && (pick.odds ?? 9) <= 1.45) s += 13;
-  if (fam === "teamou" && side === "over" && /1\.5/.test(pick.market) && (pick.odds ?? 9) <= 1.85) s += 8;
+  if (
+    over15 &&
+    over15 >= 1.22 &&
+    over15 <= 1.4 &&
+    fam === "ou" &&
+    side === "over" &&
+    /0\.5/.test(pick.market)
+  )
+    s += 10;
+  if (fam === "ou1h" && side === "over" && /0\.5/.test(pick.market) && (pick.odds ?? 9) <= 1.55)
+    s += 14;
+  if (fam === "ou1h" && side === "over" && /1\.5/.test(pick.market) && (pick.odds ?? 9) <= 1.85)
+    s += 9;
+  if (fam === "teamou" && side === "over" && /0\.5/.test(pick.market) && (pick.odds ?? 9) <= 1.45)
+    s += 13;
+  if (fam === "teamou" && side === "over" && /1\.5/.test(pick.market) && (pick.odds ?? 9) <= 1.85)
+    s += 8;
   if (fam === "gg" && /1st half|1h /i.test(pick.market) && side === "yes") s += 6;
   if (fam === "dc" && /1st half/i.test(pick.market) && onFav) s += 8;
   if (fam === "corners" && side === "over" && (pick.odds ?? 9) <= 1.75) s += 7;
-  if (fam === "ou" && /2nd half/i.test(pick.market) && side === "over" && /0\.5/.test(pick.market)) s += 11;
+  if (fam === "ou" && /2nd half/i.test(pick.market) && side === "over" && /0\.5/.test(pick.market))
+    s += 11;
 
   s -= (used[fam] ?? 0) * 8;
   return s;
@@ -235,7 +298,7 @@ async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
 export async function researchPicks<T extends TicketPick>(
   picks: T[],
   want: number,
-): Promise<{ keep: T[]; dropped: number; researched: boolean }> {
+): Promise<{ keep: T[]; dropped: number; researched: boolean; aiScoredIds: string[] }> {
   await refreshKeys();
   const clean = picks.filter((p) => !isJunk(p));
   const football = footballShapePick(clean.filter((p) => p.sport === "football"));
@@ -246,29 +309,44 @@ export async function researchPicks<T extends TicketPick>(
     probability: deskScore(p) + (isTop(p) ? 6 : 0),
   }));
   const lessoned = await applyLessonScores(seeded);
-  lessoned.sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0) || Number(isTop(b)) - Number(isTop(a)));
+  lessoned.sort(
+    (a, b) => (b.probability ?? 0) - (a.probability ?? 0) || Number(isTop(b)) - Number(isTop(a)),
+  );
 
   const shortlist = lessoned.slice(0, Math.min(lessoned.length, Math.max(want + 12, want * 2)));
   let researched = false;
+  const aiScoredIds: string[] = [];
 
   if ((geminiKeys().length || seekaiKeys().length || youKeys().length) && shortlist.length) {
     const sample = shortlist.slice(0, Math.min(14, shortlist.length));
     const ai = await withTimeout(analyzePicks(sample, 45), 55_000);
     if (ai?.picks?.length) {
-      researched = true;
       const byId = new Map(ai.picks.map((row) => [row.id, row]));
       for (const p of shortlist) {
         const live = byId.get(p.id);
-        if (typeof live?.probability !== "number") continue;
+        if (
+          typeof live?.probability !== "number" ||
+          !Number.isFinite(live.probability) ||
+          /live research missed|could not parse|no current form brief/i.test(live.summary ?? "")
+        )
+          continue;
+        aiScoredIds.push(p.id);
         const conf = live.confidence === "high" ? 5 : live.confidence === "low" ? -8 : 0;
-        p.probability = clamp(Math.round(0.15 * (p.probability ?? 50) + 0.85 * live.probability + conf), 4, 96);
+        p.probability = clamp(
+          Math.round(0.15 * (p.probability ?? 50) + 0.85 * live.probability + conf),
+          4,
+          96,
+        );
       }
+      researched = aiScoredIds.length > 0;
       shortlist.sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0));
     }
   }
 
   const bar = researched ? 45 : isTop(shortlist[0] ?? ({} as T)) ? 58 : 62;
-  const strong = shortlist.filter((p) => (p.probability ?? 0) >= bar && (researched || isTop(p) || (p.probability ?? 0) >= 66));
+  const strong = shortlist.filter(
+    (p) => (p.probability ?? 0) >= bar && (researched || isTop(p) || (p.probability ?? 0) >= 66),
+  );
   const mixed = mixFamilies(strong.length ? strong : shortlist, Math.max(1, want)).filter(
     (p) => familyOf(p) !== "win" && familyOf(p) !== "hcp",
   );
@@ -278,7 +356,12 @@ export async function researchPicks<T extends TicketPick>(
       .filter((p) => familyOf(p) !== "win" && familyOf(p) !== "hcp" && isTop(p))
       .slice(0, Math.max(1, Math.min(want, 8))) as T[];
     const any = shortlist.filter((p) => familyOf(p) !== "win" && familyOf(p) !== "hcp");
-    return { keep: fallback.length ? fallback : (any.slice(0, 1) as T[]), dropped: unique.length - 1, researched };
+    return {
+      keep: fallback.length ? fallback : (any.slice(0, 1) as T[]),
+      dropped: unique.length - 1,
+      researched,
+      aiScoredIds,
+    };
   }
-  return { keep, dropped: unique.length - keep.length, researched };
+  return { keep, dropped: unique.length - keep.length, researched, aiScoredIds };
 }
