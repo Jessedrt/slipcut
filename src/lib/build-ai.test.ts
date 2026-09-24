@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parseBuildAIReviews, selectExistingAIScores } from "./build-ai.ts";
 import type { TicketPick } from "./types.ts";
+import { compactYouAnswerQuery } from "./you.ts";
 
 const option = (id: string, eventId: string): TicketPick => ({
   id,
@@ -82,6 +83,25 @@ describe("required AI market review", () => {
       reviews.map((row) => row.pickId),
       ["b"],
     );
+  });
+
+
+  it("parses JSON even when the research provider adds citation markers", () => {
+    const groups = [[option("a", "event-a")]];
+    const reviews = parseBuildAIReviews(
+      '{"games":[{"g":1,"o":1,"score":72,"summary":"Market fit [[1]]","reasons":["Price [[2]]"],"risks":["Variance"]}]}',
+      groups,
+    );
+    assert.equal(reviews.length, 1);
+    assert.equal(reviews[0]?.pickId, "a");
+  });
+
+  it("keeps You.com Answer API queries within the documented 400-character limit", () => {
+    const query = `start ${"fixture data ".repeat(80)} JSON tail`;
+    const compacted = compactYouAnswerQuery(query);
+    assert.ok(compacted.length <= 400);
+    assert.match(compacted, /^start/);
+    assert.match(compacted, /JSON tail$/);
   });
 
   it("rejects malformed or missing scores instead of filling them in", () => {
