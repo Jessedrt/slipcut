@@ -49,6 +49,7 @@ export type AnalysisDiagnostics = {
   discovered: number;
   eligibleBeforeScoring: number;
   researched: number;
+  marketOptionsReviewed: number;
   researchFallbackUsed: boolean;
   rejected: {
     wrongSport: number;
@@ -93,10 +94,10 @@ export const RISK_POLICIES: Record<BuildRisk, RiskPolicy> = {
   conservative: {
     label: "Conservative",
     minModelScore: 62,
-    minOdds: 1.16,
+    minOdds: 1.2,
     maxOdds: 1.82,
     explanation:
-      "Prioritises shorter eligible prices, stronger AI-reviewed rankings and lower-variance market families. It is not a safety guarantee.",
+      "Prioritises eligible prices from 1.20 upward, stronger AI-reviewed rankings and lower-variance market families. It is not a safety guarantee.",
   },
   balanced: {
     label: "Balanced",
@@ -276,6 +277,7 @@ export async function buildSlip(
     discovered: discovered.length,
     eligibleBeforeScoring: 0,
     researched: 0,
+    marketOptionsReviewed: 0,
     researchFallbackUsed: false,
     rejected: {
       wrongSport: 0,
@@ -343,8 +345,9 @@ export async function buildSlip(
     analysis,
   };
 
-  // Rules constrain the options; they do not pick the final market. The AI
-  // compares up to three different eligible options for each game it reviews.
+  // Rules constrain the options; they do not pick the final market. Review a
+  // broad, diversified set of lines/outcomes per event instead of collapsing
+  // each market family to a single option before the AI gets to compare them.
   const byEvent = new Map<string, TicketPick[]>();
   for (const pick of historical) {
     const key = pick.sporty?.eventId ?? `${pick.home}|${pick.away}|${pick.kickoff ?? ""}`;
@@ -353,6 +356,7 @@ export async function buildSlip(
     byEvent.set(key, options);
   }
   const maxGamesToReview = Math.min(24, Math.max(12, requestedCount + 8));
+  const maxOptionsPerEvent = 8;
   const candidatePool = [...byEvent.values()]
     .sort((a, b) => Math.max(...b.map(deskScore)) - Math.max(...a.map(deskScore)))
     .slice(0, maxGamesToReview)
@@ -360,13 +364,31 @@ export async function buildSlip(
       const ranked = [...new Map(options.map((pick) => [pick.id, pick])).values()].sort(
         (a, b) => deskScore(b) - deskScore(a),
       );
-      const distinct = new Map<string, TicketPick>();
+      const buckets = new Map<string, TicketPick[]>();
       for (const pick of ranked) {
         const family = marketFamily(pick.sporty?.marketId, pick.market);
-        if (!distinct.has(family)) distinct.set(family, pick);
+        const bucket = buckets.get(family) ?? [];
+        // Three alternatives per family is enough to compare different lines or
+        // outcomes without letting one family crowd out every other market.
+        if (bucket.length < 3) {
+          bucket.push(pick);
+          buckets.set(family, bucket);
+        }
       }
-      return [...distinct.values()].slice(0, 3);
+      const families = [...buckets.entries()]
+        .sort((a, b) => deskScore(b[1]![0]!) - deskScore(a[1]![0]!))
+        .map(([family]) => family);
+      const selected: TicketPick[] = [];
+      for (let round = 0; round < 3 && selected.length < maxOptionsPerEvent; round++) {
+        for (const family of families) {
+          const pick = buckets.get(family)?.[round];
+          if (pick) selected.push(pick);
+          if (selected.length >= maxOptionsPerEvent) break;
+        }
+      }
+      return selected;
     });
+  analysis.marketOptionsReviewed = candidatePool.length;
   const reviewResult = await reviewWithin(
     Promise.resolve().then(() => dependencies.review(candidatePool)),
     dependencies.analysisTimeoutMs ?? 38_000,
