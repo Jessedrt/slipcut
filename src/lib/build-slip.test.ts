@@ -33,11 +33,18 @@ function pick(id: number, odds = 1.5, marketId = "10", eventId = `event-${id}`):
 function deps(rows: TicketPick[]): BuildDependencies {
   return {
     discover: async () => rows,
-    research: async <T extends TicketPick>(picks: T[]) => ({
-      keep: picks.map((item) => ({ ...item, probability: 76 })) as T[],
-      dropped: 0,
-      researched: true,
-      aiScoredIds: picks.map((item) => item.id),
+    review: async (picks) => ({
+      reviews: [...new Map(picks.map((item) => [item.sporty?.eventId, item])).values()].map(
+        (item) => ({
+          pickId: item.id,
+          score: 76,
+          summary: "AI compared the eligible markets for this event.",
+          reasons: ["Offered option fits the market rules."],
+          risks: ["Market may change."],
+        }),
+      ),
+      attemptedEvents: new Set(picks.map((item) => item.sporty?.eventId)).size,
+      reviewedEvents: new Set(picks.map((item) => item.sporty?.eventId)).size,
     }),
   };
 }
@@ -58,7 +65,7 @@ describe("buildSlip", () => {
     if (!result.ok) return;
     assert.equal(result.selections.length, 5);
     assert.equal(new Set(result.selections.map((item) => item.sporty?.eventId)).size, 5);
-    assert.equal(result.analysis.rejected.duplicateEvents, 1);
+    assert.equal(result.analysis.rejected.duplicateEvents, 0);
     assert.equal(result.analysis.selected, 5);
   });
 
@@ -128,61 +135,114 @@ describe("buildSlip", () => {
     const weak = pick(2, 1.5);
     const result = await buildSlip(base, {
       discover: async () => [highPrice, weak],
-      research: async (picks) => ({
-        keep: picks.map((item) => ({ ...item, probability: 40 })),
-        dropped: 0,
-        researched: true,
-        aiScoredIds: picks.map((item) => item.id),
+      review: async (picks) => ({
+        reviews: [
+          {
+            pickId: picks[0]!.id,
+            score: 20,
+            summary: "AI reviewed the market.",
+            reasons: [],
+            risks: [],
+          },
+        ],
+        attemptedEvents: 1,
+        reviewedEvents: 1,
       }),
     });
     assert.equal(result.ok, false);
   });
 
-  it("labels a rule-only fallback honestly and does not expose an invented probability", async () => {
+  it("does not build a rule-only slip when AI is unavailable", async () => {
     const result = await buildSlip(
       { ...base, games: 2 },
       {
         discover: async () => [pick(1), pick(2)],
-        research: async (picks) => ({
-          keep: picks.map((item) => ({ ...item, probability: 95 })),
-          dropped: 0,
-          researched: false,
-          aiScoredIds: [],
-        }),
+        review: async () => {
+          throw new Error("AI unavailable");
+        },
       },
     );
-    assert.equal(result.ok, true);
-    if (!result.ok) return;
-    assert.equal(result.analysis.researched, 0);
-    assert.equal(result.analysis.researchFallbackUsed, true);
-    assert.equal(result.selections[0]?.analysisBasis, "market_rules");
-    assert.match(result.selections[0]?.summary ?? "", /Market-only/);
-    assert.equal(result.selections[0]?.probability, undefined);
-    assert.notEqual(result.selections[0]?.modelScore, 95);
-    assert.match(result.selections[0]?.risks[0] ?? "", /were independently verified/);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.code, "analysis_failed");
   });
 
-  it("only marks picks whose AI score was actually returned as AI-assisted", async () => {
+  it("does not substitute rule-ranked games when AI omits every event", async () => {
+    const result = await buildSlip(base, {
+      discover: async () => [pick(1), pick(2)],
+      review: async () => ({ reviews: [], attemptedEvents: 2, reviewedEvents: 0 }),
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.code, "analysis_failed");
+  });
+
+  it("returns a controlled error if AI analysis times out", async () => {
+    const result = await buildSlip(base, {
+      discover: async () => [pick(1)],
+      review: async () => new Promise(() => {}),
+      analysisTimeoutMs: 5,
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.code, "analysis_failed");
+      assert.match(result.error, /too long/);
+    }
+  });
+
+  it("excludes games that AI did not review and never fills requested count with rules", async () => {
     const result = await buildSlip(
       { ...base, games: 2 },
       {
         discover: async () => [pick(1), pick(2)],
-        research: async (picks) => ({
-          keep: picks.map((item) => ({ ...item, probability: 80 })),
-          dropped: 0,
-          researched: true,
-          aiScoredIds: [picks[0]!.id],
+        review: async (picks) => ({
+          reviews: [
+            {
+              pickId: picks[0]!.id,
+              score: 80,
+              summary: "AI compared choices.",
+              reasons: [],
+              risks: [],
+            },
+          ],
+          attemptedEvents: 2,
+          reviewedEvents: 1,
         }),
       },
     );
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.equal(result.analysis.researched, 1);
-    assert.equal(
-      result.selections.filter((p) => p.analysisBasis === "ai_assisted_unverified").length,
-      1,
+    assert.equal(result.actualGames, 1);
+    assert.equal(result.analysis.rejected.notReviewedByAI, 1);
+    assert.ok(result.selections.every((p) => p.analysisBasis === "ai_assisted_unverified"));
+    assert.match(result.notice ?? "", /only 1 passed/);
+  });
+
+  it("allows AI to select a different eligible market within the same event", async () => {
+    const first = pick(1, 1.5, "10");
+    const alternate = pick(2, 1.6, "18", "event-1");
+    const result = await buildSlip(
+      { ...base, games: 2 },
+      {
+        discover: async () => [first, alternate, pick(3)],
+        review: async (picks) => {
+          assert.ok(picks.some((item) => item.id === first.id));
+          assert.ok(picks.some((item) => item.id === alternate.id));
+          return {
+            reviews: [alternate, pick(3)].map((item) => ({
+              pickId: item.id,
+              score: 85,
+              summary: "Compared eligible options.",
+              reasons: [],
+              risks: [],
+            })),
+            attemptedEvents: 2,
+            reviewedEvents: 2,
+          };
+        },
+      },
     );
-    assert.equal(result.selections.filter((p) => p.analysisBasis === "market_rules").length, 1);
+    assert.equal(result.ok, true);
+    if (result.ok) assert.ok(result.selections.some((item) => item.id === alternate.id));
   });
 });
 

@@ -188,9 +188,7 @@ function SelectionCard({
           <p className="mt-1 text-[11px] text-[#a99a87]">{formatKickoff(pick.kickoff)}</p>
           {"analysisBasis" in pick && (
             <p className="mt-2 text-[11px] font-semibold text-[#e4bd83]">
-              {pick.analysisBasis === "ai_assisted_unverified"
-                ? "AI-assisted · match facts unverified"
-                : "Market rules only · no match research verified"}
+              AI-reviewed · match facts unverified
               {` · ${pick.confidenceLabel}`}
             </p>
           )}
@@ -696,14 +694,9 @@ export function MiniAppRefresh() {
                   notice={buildResult.notice}
                 />
                 <p className="px-1 text-[11px] leading-4 text-[#c9bca9]">
-                  {
-                    buildResult.selections.filter(
-                      (pick) => pick.analysisBasis === "ai_assisted_unverified",
-                    ).length
-                  }{" "}
-                  of {buildResult.actualGames} returned picks received AI-assisted scoring; the rest
-                  use market rules. Neither score is a verified win probability. Match-specific facts
-                  are not source-verified.
+                  AI reviewed the eligible options for every returned game. Unreviewed games are
+                  excluded. It only has the supplied fixture and odds data here; match-specific form
+                  and injuries are not source-verified. Scores are rankings, not win probabilities.
                 </p>
               </>
             )}

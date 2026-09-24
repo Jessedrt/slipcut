@@ -1,4 +1,5 @@
-import { deskScore, researchPicks } from "./research";
+import { AIAnalysisError, reviewBuildMarkets } from "./build-ai";
+import { deskScore } from "./research";
 import {
   cookablePick,
   listUpcomingPicks,
@@ -36,7 +37,7 @@ export type RiskPolicy = {
 export type BuildSelection = TicketPick & {
   modelScore: number;
   confidenceLabel: "higher ranking" | "moderate ranking" | "lower ranking";
-  analysisBasis: "market_rules" | "ai_assisted_unverified";
+  analysisBasis: "ai_assisted_unverified";
   summary: string;
   reasons: string[];
   risks: string[];
@@ -54,6 +55,7 @@ export type AnalysisDiagnostics = {
     marketFamily: number;
     belowScore: number;
     duplicateEvents: number;
+    notReviewedByAI: number;
   };
   selected: number;
 };
@@ -91,7 +93,7 @@ export const RISK_POLICIES: Record<BuildRisk, RiskPolicy> = {
     minOdds: 1.16,
     maxOdds: 1.82,
     explanation:
-      "Prioritises shorter eligible prices, stronger deterministic scores and lower-variance market families. It is not a safety guarantee.",
+      "Prioritises shorter eligible prices, stronger AI-reviewed rankings and lower-variance market families. It is not a safety guarantee.",
   },
   balanced: {
     label: "Balanced",
@@ -113,12 +115,13 @@ export const RISK_POLICIES: Record<BuildRisk, RiskPolicy> = {
 
 export type BuildDependencies = {
   discover: typeof listUpcomingPicks;
-  research: typeof researchPicks;
+  review: typeof reviewBuildMarkets;
+  analysisTimeoutMs?: number;
 };
 
 const defaultDependencies: BuildDependencies = {
   discover: listUpcomingPicks,
-  research: researchPicks,
+  review: reviewBuildMarkets,
 };
 
 function isFailure(value: TicketPick[] | SportyFailure): value is SportyFailure {
@@ -189,16 +192,18 @@ function explainSelection(
   pick: TicketPick,
   score: number,
   policy: RiskPolicy,
-  analysisBasis: BuildSelection["analysisBasis"],
+  review: { summary: string; reasons: string[]; risks: string[] },
 ): BuildSelection {
   const family = marketFamily(pick.sporty?.marketId, pick.market);
   const reasons = [
     `Current SportyBet price ${pick.odds?.toFixed(2) ?? "unknown"} is inside the ${policy.label.toLowerCase()} range (${policy.minOdds.toFixed(2)}–${policy.maxOdds.toFixed(2)}).`,
     `${pick.league || "Competition"} and ${family.toUpperCase()} passed the configured filters.`,
+    ...review.reasons,
   ];
   const risks = [
     "No match-specific form, injury or lineup facts were independently verified for this pick.",
     "Odds and market availability can change before the code is created.",
+    ...review.risks,
     family === "hcp" || family === "gg" || family === "corners"
       ? "This market can be more volatile than a short double-chance or total line."
       : "A qualifying model score is not a calibrated win probability or guarantee.",
@@ -207,30 +212,37 @@ function explainSelection(
     ...pick,
     modelScore: score,
     confidenceLabel: scoreLabel(score),
-    analysisBasis,
-    summary:
-      analysisBasis === "ai_assisted_unverified"
-        ? "AI adjusted this market-based ranking, but its match-specific claims have no verified source attached."
-        : "Market-only ranking based on SportyBet odds, competition and market rules; match form was not verified.",
+    analysisBasis: "ai_assisted_unverified",
+    summary: review.summary,
     reasons,
     risks,
   };
 }
 
-function researchWithin<T>(
+function reviewWithin<T>(
   promise: Promise<T>,
   ms: number,
-): Promise<{ value: T | null; fallback: boolean }> {
+): Promise<{ value: T | null; timedOut: boolean; failed: boolean; error?: string }> {
   return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve({ value: null, fallback: true }), ms);
+    const timer = setTimeout(() => resolve({ value: null, timedOut: true, failed: false }), ms);
     promise.then(
       (value) => {
         clearTimeout(timer);
-        resolve({ value, fallback: false });
+        resolve({ value, timedOut: false, failed: false });
       },
-      () => {
+      (error: unknown) => {
         clearTimeout(timer);
-        resolve({ value: null, fallback: true });
+        if (!(error instanceof AIAnalysisError))
+          console.error(
+            "[slipcut.ai] analysis failed:",
+            error instanceof Error ? error.name : "unknown",
+          );
+        resolve({
+          value: null,
+          timedOut: false,
+          failed: true,
+          error: error instanceof AIAnalysisError ? error.message : undefined,
+        });
       },
     );
   });
@@ -261,6 +273,7 @@ export async function buildSlip(
       marketFamily: 0,
       belowScore: 0,
       duplicateEvents: 0,
+      notReviewedByAI: 0,
     },
     selected: 0,
   };
@@ -303,27 +316,60 @@ export async function buildSlip(
     };
   }
 
-  const researchResult = await researchWithin(
-    dependencies.research(eligible, Math.min(30, Math.max(requestedCount * 2, 12))),
-    32_000,
+  // Rules constrain the options; they do not pick the final market. The AI
+  // compares up to three different eligible options for each game it reviews.
+  const byEvent = new Map<string, TicketPick[]>();
+  for (const pick of eligible) {
+    const key = pick.sporty?.eventId ?? `${pick.home}|${pick.away}|${pick.kickoff ?? ""}`;
+    const options = byEvent.get(key) ?? [];
+    options.push(pick);
+    byEvent.set(key, options);
+  }
+  const maxGamesToReview = Math.min(24, Math.max(12, requestedCount + 8));
+  const candidatePool = [...byEvent.values()]
+    .sort((a, b) => Math.max(...b.map(deskScore)) - Math.max(...a.map(deskScore)))
+    .slice(0, maxGamesToReview)
+    .flatMap((options) => {
+      const ranked = [...new Map(options.map((pick) => [pick.id, pick])).values()].sort(
+        (a, b) => deskScore(b) - deskScore(a),
+      );
+      const distinct = new Map<string, TicketPick>();
+      for (const pick of ranked) {
+        const family = marketFamily(pick.sporty?.marketId, pick.market);
+        if (!distinct.has(family)) distinct.set(family, pick);
+      }
+      return [...distinct.values()].slice(0, 3);
+    });
+  const reviewResult = await reviewWithin(
+    Promise.resolve().then(() => dependencies.review(candidatePool)),
+    dependencies.analysisTimeoutMs ?? 38_000,
   );
-  const research = researchResult.value;
-  analysis.researchFallbackUsed = researchResult.fallback || !research?.researched;
-  const aiScoredIds = new Set(research?.aiScoredIds ?? []);
-  analysis.researched = aiScoredIds.size;
-  const researchedById = new Map((research?.keep ?? []).map((pick) => [pick.id, pick]));
-  const scored = eligible.map((pick) => {
-    const researched = researchedById.get(pick.id);
-    const score = Math.round(
-      aiScoredIds.has(pick.id) ? (researched?.probability ?? deskScore(pick)) : deskScore(pick),
-    );
-    return explainSelection(
-      pick,
-      score,
-      policy,
-      aiScoredIds.has(pick.id) ? "ai_assisted_unverified" : "market_rules",
-    );
+  const aiReview = reviewResult.value;
+  analysis.researchFallbackUsed = false;
+  analysis.researched = aiReview?.reviewedEvents ?? 0;
+  if (!aiReview?.reviews.length) {
+    return {
+      ok: false,
+      code: "analysis_failed",
+      error:
+        reviewResult.error ??
+        (reviewResult.timedOut
+          ? "AI analysis took too long. No slip was built; try again shortly."
+          : "AI could not analyse the available games. No slip was built; try again shortly."),
+      retryable:
+        reviewResult.timedOut ||
+        (reviewResult.failed && !reviewResult.error?.includes("not configured")),
+      analysis,
+    };
+  }
+  const candidates = new Map(candidatePool.map((pick) => [pick.id, pick]));
+  const scored = aiReview.reviews.flatMap((review) => {
+    const pick = candidates.get(review.pickId);
+    if (!pick) return [];
+    const score = Math.round(0.85 * review.score + 0.15 * deskScore(pick));
+    return [explainSelection(pick, score, policy, review)];
   });
+  analysis.rejected.notReviewedByAI = aiReview.attemptedEvents - aiReview.reviewedEvents;
   const ranked = scored
     .filter((pick) => {
       if (pick.modelScore >= policy.minModelScore) return true;
