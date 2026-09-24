@@ -8,13 +8,13 @@
   },
   "scripts": {
     "dev": "node scripts/with-app-env.mjs vite dev --host 0.0.0.0 --port 8080",
-    "build": "node scripts/restore-telegram.mjs && node scripts/patch-safer-nl.mjs && node scripts/exclude-weak-leagues.mjs && node scripts/expand-markets.mjs && node scripts/quality-cook.mjs && node scripts/with-app-env.mjs vite build && npm run db:migrate && node scripts/set-webhook.mjs",
+    "build": "node scripts/restore-telegram.mjs && node scripts/exclude-weak-leagues.mjs && node scripts/expand-markets.mjs && node scripts/quality-cook.mjs && node scripts/with-app-env.mjs vite build && npm run db:migrate && node scripts/set-webhook.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "build:dev": "node scripts/with-app-env.mjs vite build --mode development",
     "preview": "node scripts/with-app-env.mjs vite preview",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --import tsx --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts src/lib/accuracy.test.ts src/lib/book-slip.test.ts src/lib/build-slip.test.ts src/lib/intent.test.ts src/lib/miniapp-history.test.ts src/lib/research.test.ts src/lib/sportybet.discovery.test.ts src/lib/telegram-miniapp-auth.test.ts src/lib/workbench.test.ts",
+    "test": "node --test 'scripts/**/*.test.mjs' && node --import tsx --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts src/lib/accuracy.test.ts src/lib/book-slip.test.ts src/lib/booking-idempotency.test.ts src/lib/build-slip.test.ts src/lib/intent.test.ts src/lib/miniapp-history.test.ts src/lib/research.test.ts src/lib/sportybet.discovery.test.ts src/lib/telegram-draft-store.test.ts src/lib/telegram-miniapp-auth.test.ts src/lib/workbench.test.ts",
     "lint": "eslint .",
     "format": "prettier --write ."
   },
