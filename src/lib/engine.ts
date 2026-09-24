@@ -8,7 +8,7 @@ import {
   sportyOf,
   type CookWindow,
 } from "./sportybet";
-import { getSetting, listChats, loadOddsBand, loadRecentEventIds, recordSlip, rememberEventIds, setSetting, studyCode } from "./study";
+import { getSetting, listChats, loadOddsBand, recordSlip, setSetting, studyCode } from "./study";
 import { combinedOdds, formatOdds, uniqueEvents } from "./workbench";
 import { applyBand } from "./intent";
 import type { BookSport, TicketPick } from "./types";
@@ -56,6 +56,27 @@ function keyFor(day: string, sport: EngineScope = "all") {
   // Sport-specific caches let the Mini App switch between pure football and
   // pure basketball ladders without reusing mixed cards.
   return `engine_${ENGINE_POLICY_VERSION}_${sport}_${day}`;
+}
+
+async function loadEngineRecentEventIds(sport: EngineScope): Promise<string[]> {
+  const raw = await getSetting(`engine_recent_events_${sport}`);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is string => typeof value === "string" && value.length > 3)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+async function rememberEngineEventIds(sport: EngineScope, ids: string[]) {
+  const clean = [...new Set(ids.filter(Boolean))];
+  if (!clean.length) return;
+  const previous = await loadEngineRecentEventIds(sport);
+  const next = [...clean, ...previous.filter((id) => !clean.includes(id))].slice(0, 140);
+  await setSetting(`engine_recent_events_${sport}`, JSON.stringify(next));
 }
 
 export async function loadEngineDay(
@@ -202,7 +223,7 @@ async function discoverEngineMarkets(
 async function poolForEngine(
   sport: EngineScope = "all",
 ): Promise<TicketPick[] | { error: string }> {
-  const skip = await loadRecentEventIds();
+  const skip = await loadEngineRecentEventIds(sport);
   let listed = await discoverEngineMarkets("today" as CookWindow, skip, sport);
 
   // A five-card ladder only needs twelve distinct events when cards may share
@@ -268,7 +289,10 @@ export async function buildEngineCards(
     const minted = await mintShare(selections, "ng");
     if ("error" in minted) continue;
     await recordSlip(minted.shareCode, take);
-    await rememberEventIds(take.map((p) => p.sporty?.eventId).filter((id): id is string => Boolean(id)));
+    await rememberEngineEventIds(
+      sport,
+      take.map((p) => p.sporty?.eventId).filter((id): id is string => Boolean(id)),
+    );
     cards.push({
       n,
       code: minted.shareCode,
