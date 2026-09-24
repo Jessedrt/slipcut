@@ -1,5 +1,5 @@
 import { accuracyFilter, loadAccuracy } from "./accuracy";
-import { researchPicks } from "./research";
+import { deskScore } from "./research";
 import {
   cookablePick,
   listUpcomingPicks,
@@ -112,8 +112,11 @@ async function poolForEngine(): Promise<TicketPick[] | { error: string }> {
 
   const band = await loadOddsBand();
   const pool = applyBand(gated.kept, band);
-  const researched = await researchPicks(pool, 24);
-  const ranked = uniqueEvents(researched.keep).picks;
+  const ranked = uniqueEvents(
+    [...pool].sort(
+      (a, b) => deskScore(b) - deskScore(a) || (a.odds ?? 99) - (b.odds ?? 99),
+    ),
+  ).picks.slice(0, 24);
   if (ranked.length < 2) {
     return { error: "The engine did not find enough reviewed events to issue a card." };
   }
