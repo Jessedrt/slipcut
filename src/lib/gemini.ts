@@ -1,11 +1,11 @@
 import { geminiKeys } from "./keys";
 
-const MODELS = [
+const MODELS = [...new Set([
   process.env.GEMINI_MODEL?.trim(),
+  "gemini-3.8-flash",
+  "gemini-3.5-flash-lite",
   "gemini-2.5-flash",
-  "gemini-2.0-flash",
-  "gemini-1.5-flash",
-].filter((m): m is string => Boolean(m));
+].filter((m): m is string => Boolean(m)))];
 
 let seq = 0;
 
@@ -18,13 +18,14 @@ export function geminiReady() {
   return geminiKeys().length > 0;
 }
 
-export async function geminiChat(
+async function geminiGenerate(
   system: string,
-  user: string,
-  timeoutMs = 28_000,
+  contents: unknown[],
+  timeoutMs: number,
+  maxOutputTokens: number,
 ): Promise<string> {
   const keys = geminiKeys();
-  if (!keys.length) throw new Error("Gemini key no dey");
+  if (!keys.length) throw new Error("Gemini key is not configured.");
 
   let last = "Gemini unavailable.";
   for (let attempt = 0; attempt < keys.length; attempt++) {
@@ -41,25 +42,40 @@ export async function geminiChat(
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               systemInstruction: { parts: [{ text: system }] },
-              contents: [{ role: "user", parts: [{ text: user }] }],
-              generationConfig: { temperature: 0.15, maxOutputTokens: 1400 },
+              contents,
+              generationConfig: {
+                temperature: 0.15,
+                maxOutputTokens,
+                responseMimeType: "application/json",
+              },
             }),
           },
         );
-        if (res.status === 401 || res.status === 403 || res.status === 429) {
-          last = `Gemini unavailable (${res.status})`;
+
+        // 401 means the credential itself is unusable. 403/404 can be
+        // model-access specific, so keep trying the next supported model.
+        if (res.status === 401) {
+          last = "Gemini unavailable (401)";
+          break;
+        }
+        if (res.status === 429) {
+          last = `Gemini ${model} rate limited (429)`;
           break;
         }
         if (!res.ok) {
           last = `Gemini ${model} (${res.status})`;
           continue;
         }
+
         const body = (await res.json()) as {
           candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
         };
         const text =
           body.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim() ?? "";
-        if (!text) throw new Error("Gemini returned empty");
+        if (!text) {
+          last = `Gemini ${model} returned empty`;
+          continue;
+        }
         return text;
       } catch (err) {
         last = err instanceof Error ? err.message : last;
@@ -71,64 +87,37 @@ export async function geminiChat(
   throw new Error(last);
 }
 
+export async function geminiChat(
+  system: string,
+  user: string,
+  timeoutMs = 28_000,
+): Promise<string> {
+  return geminiGenerate(
+    system,
+    [{ role: "user", parts: [{ text: user }] }],
+    timeoutMs,
+    1400,
+  );
+}
+
 export async function geminiVision(
   system: string,
   user: string,
   image: { mime: string; data: string },
   timeoutMs = 35_000,
 ): Promise<string> {
-  const keys = geminiKeys();
-  if (!keys.length) throw new Error("Gemini key no dey");
-
-  let last = "Gemini vision unavailable.";
-  for (let attempt = 0; attempt < keys.length; attempt++) {
-    const apiKey = takeKey(keys);
-    for (const model of MODELS) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-      try {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
-          {
-            method: "POST",
-            signal: controller.signal,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              systemInstruction: { parts: [{ text: system }] },
-              contents: [
-                {
-                  role: "user",
-                  parts: [
-                    { text: user },
-                    { inlineData: { mimeType: image.mime, data: image.data } },
-                  ],
-                },
-              ],
-              generationConfig: { temperature: 0.1, maxOutputTokens: 2000 },
-            }),
-          },
-        );
-        if (res.status === 401 || res.status === 403 || res.status === 429) {
-          last = `Gemini unavailable (${res.status})`;
-          break;
-        }
-        if (!res.ok) {
-          last = `Gemini ${model} (${res.status})`;
-          continue;
-        }
-        const body = (await res.json()) as {
-          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-        };
-        const text =
-          body.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim() ?? "";
-        if (!text) throw new Error("Gemini returned empty");
-        return text;
-      } catch (err) {
-        last = err instanceof Error ? err.message : last;
-      } finally {
-        clearTimeout(timer);
-      }
-    }
-  }
-  throw new Error(last);
+  return geminiGenerate(
+    system,
+    [
+      {
+        role: "user",
+        parts: [
+          { text: user },
+          { inlineData: { mimeType: image.mime, data: image.data } },
+        ],
+      },
+    ],
+    timeoutMs,
+    2000,
+  );
 }
