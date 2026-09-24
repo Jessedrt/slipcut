@@ -47,8 +47,8 @@ export function deskScore(pick: TicketPick): number {
   else if (pick.sport === "handball" && TOP_HB.test(league)) s += 7;
   else s -= 4;
 
-  if (odds >= 1.4 && odds <= 2.15) s += 12;
-  else if (odds < 1.32) s -= 12;
+  if (odds >= 1.2 && odds <= 2.15) s += 12;
+  else if (odds < 1.2) s -= 12;
   else if (odds > 2.25) s -= 8;
 
   const fam = marketFamily(pick.sporty?.marketId, pick.market);

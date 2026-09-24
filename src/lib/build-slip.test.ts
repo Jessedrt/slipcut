@@ -119,6 +119,85 @@ describe("buildSlip", () => {
     assert.match(result.notice ?? "", /No unsupported leg was added/);
   });
 
+
+  it("uses 1.20 as the conservative minimum odds", async () => {
+    assert.equal(RISK_POLICIES.conservative.minOdds, 1.2);
+    const allowed = await buildSlip(
+      { ...base, games: 2 },
+      deps([pick(1, 1.2), pick(2, 1.21)]),
+    );
+    assert.equal(allowed.ok, true);
+
+    const tooShort = await buildSlip(
+      { ...base, games: 2 },
+      deps([pick(1, 1.19), pick(2, 1.19)]),
+    );
+    assert.equal(tooShort.ok, false);
+    if (!tooShort.ok) assert.equal(tooShort.code, "no_eligible_markets");
+  });
+
+  it("reviews more than three market options from the same event", async () => {
+    const eventId = "event-wide";
+    const rows: TicketPick[] = [
+      pick(1, 1.32, "10", eventId),
+      { ...pick(2, 1.34, "11", eventId), market: "Draw No Bet", selection: "Home" },
+      {
+        ...pick(3, 1.28, "18", eventId),
+        id: "event-wide-ou-15",
+        market: "Over/Under 1.5",
+        selection: "Over",
+        sporty: { eventId, marketId: "18", outcomeId: "over15", specifier: "total=1.5" },
+      },
+      {
+        ...pick(4, 1.46, "18", eventId),
+        id: "event-wide-ou-25",
+        market: "Over/Under 2.5",
+        selection: "Over",
+        sporty: { eventId, marketId: "18", outcomeId: "over25", specifier: "total=2.5" },
+      },
+      {
+        ...pick(5, 1.38, "18", eventId),
+        id: "event-wide-under-35",
+        market: "Over/Under 3.5",
+        selection: "Under",
+        sporty: { eventId, marketId: "18", outcomeId: "under35", specifier: "total=3.5" },
+      },
+      {
+        ...pick(6, 1.55, "166", eventId),
+        id: "event-wide-corners",
+        market: "Corners 9.5",
+        selection: "Over",
+        sporty: { eventId, marketId: "166", outcomeId: "corners-over", specifier: "total=9.5" },
+      },
+    ];
+
+    let reviewed = 0;
+    const result = await buildSlip(
+      { ...base, games: 2 },
+      {
+        discover: async () => rows,
+        record: async () => ({ available: false, rows: [] }),
+        review: async (picks) => {
+          reviewed = picks.length;
+          return {
+            reviews: [{
+              pickId: picks[0]!.id,
+              score: 80,
+              summary: "Compared the wider market set.",
+              reasons: [],
+              risks: [],
+            }],
+            attemptedEvents: 1,
+            reviewedEvents: 1,
+          };
+        },
+      },
+    );
+    assert.equal(result.ok, true);
+    assert.ok(reviewed >= 5);
+    if (result.ok) assert.equal(result.analysis.marketOptionsReviewed, reviewed);
+  });
+
   it("documents distinct risk policies and aggressive accepts a wider price", async () => {
     assert.ok(RISK_POLICIES.conservative.maxOdds < RISK_POLICIES.balanced.maxOdds);
     assert.ok(RISK_POLICIES.balanced.maxOdds < RISK_POLICIES.aggressive.maxOdds);

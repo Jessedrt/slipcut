@@ -44,6 +44,27 @@ describe("required AI market review", () => {
     );
   });
 
+
+  it("accepts the eighth supplied market option", () => {
+    const groups = [[
+      option("o1", "event-a"),
+      option("o2", "event-a"),
+      option("o3", "event-a"),
+      option("o4", "event-a"),
+      option("o5", "event-a"),
+      option("o6", "event-a"),
+      option("o7", "event-a"),
+      option("o8", "event-a"),
+    ]];
+    const reviews = parseBuildAIReviews(
+      JSON.stringify({
+        games: [{ g: 1, o: 8, score: 73, summary: "Eighth option is preferred." }],
+      }),
+      groups,
+    );
+    assert.equal(reviews[0]?.pickId, "o8");
+  });
+
   it("rejects out-of-range game and option numbers without substituting a market", () => {
     const groups = [[option("a", "event-a")]];
     assert.deepEqual(

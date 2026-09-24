@@ -187,16 +187,16 @@ async function reviewWithYou(groups: TicketPick[][]): Promise<ReviewedMarket[]> 
     groups.map(async (options) => {
       const first = options[0]!;
       const choices = options
-        .slice(0, 3)
+        .slice(0, 8)
         .map(
           (pick, index) =>
-            `${index + 1})${compact(pick.market, 24)}→${compact(pick.selection, 18)}@${pick.odds?.toFixed(2) ?? "?"}`,
+            `${index + 1})${compact(pick.market, 12)}>${compact(pick.selection, 8)}@${pick.odds?.toFixed(2) ?? "?"}`,
         )
-        .join("; ");
+        .join(";");
       const query =
-        `Review game 1: ${compact(first.home, 22)} v ${compact(first.away, 22)} (${compact(first.league, 18)}). ` +
-        `Choose max one offered option; score 0-100 as ranking, not win probability. Options: ${choices}. ` +
-        'Return ONLY JSON {"games":[{"g":1,"o":1,"score":65,"summary":"why","reasons":["reason"],"risks":["risk"]}]}';
+        `Game ${compact(first.home, 14)} v ${compact(first.away, 14)}. ` +
+        `Pick one option or omit; score 0-100 ranking, not win probability. ${choices}. ` +
+        'JSON {"games":[{"g":1,"o":1,"score":65,"summary":"why"}]}';
       try {
         const answer = await youAnswer(query, 9_000);
         return parseBuildAIReviews(answer, [options]);
