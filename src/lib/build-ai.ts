@@ -195,7 +195,7 @@ async function reviewWithYou(groups: TicketPick[][]): Promise<ReviewedMarket[]> 
         .join(";");
       const query =
         `Game ${compact(first.home, 14)} v ${compact(first.away, 14)}. ` +
-        `Pick one option or omit; score 0-100 ranking, not win probability. ${choices}. ` +
+        `Pick one option or omit; compare all options and do not default to Over or team totals. Score 0-100 ranking. ${choices}. ` +
         'JSON {"games":[{"g":1,"o":1,"score":65,"summary":"why"}]}';
       try {
         const answer = await youAnswer(query, 9_000);
@@ -224,7 +224,7 @@ async function reviewBatch(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
     })),
   }));
   const system =
-    'Review each game and its offered SportyBet markets. Choose AT MOST one numbered option (o) for each numbered game (g), or omit the game. Compare eligible options and rank the best games overall. Score 0-100 is an uncalibrated ranking, NOT win probability. Only use the supplied fixtures, markets and odds; do not invent form, injuries, lineups, results or sources. State brief market/odds reasoning and a concrete risk. Return ONLY JSON {"games":[{"g":1,"o":2,"score":65,"summary":"brief market comparison","reasons":["reason"],"risks":["risk"]}]}';
+    'Review each game and its offered SportyBet markets. Choose AT MOST one numbered option (o) for each numbered game (g), or omit the game. Compare every supplied option before choosing. For basketball, do not default to Over or to team/period totals just because the price is short; compare Under, winner and handicap alternatives too, and prefer full-game markets when evidence is otherwise similar. Score 0-100 is an uncalibrated ranking, NOT win probability. Only use the supplied fixtures, markets and odds; do not invent form, injuries, lineups, results or sources. State brief market/odds reasoning and a concrete risk. Return ONLY JSON {"games":[{"g":1,"o":2,"score":65,"summary":"brief market comparison","reasons":["reason"],"risks":["risk"]}]}';
   const user = JSON.stringify(games);
   const engines: Array<{ name: string; run: () => Promise<string> }> = [];
   if (geminiKeys().length)
