@@ -1,0 +1,48 @@
+name: Repoint SlipCut Alias
+
+on:
+  push:
+    branches:
+      - ops/repoint-slipcut-alias
+
+permissions:
+  contents: read
+
+jobs:
+  repoint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Assign slipcut.vercel.app to current production
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+          TEAM_ID: team_awXG21ib4ljMih7E9CRYl0ne
+          DEPLOYMENT_ID: dpl_4KE2wRKCU7nQcUKRWmdCXyjiqUce
+        run: |
+          node <<'NODE'
+          const token = process.env.VERCEL_TOKEN || process.env.VERCEL_ACCESS_TOKEN;
+          if (!token) {
+            console.log("NO_VERCEL_TOKEN");
+            process.exit(0);
+          }
+          const url =
+            "https://api.vercel.com/v2/deployments/" +
+            process.env.DEPLOYMENT_ID +
+            "/aliases?teamId=" +
+            process.env.TEAM_ID;
+          const response = await fetch(url, {
+            method: "POST",
+            headers: {
+              Authorization: "Bearer " + token,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ alias: "slipcut.vercel.app", redirect: null }),
+          });
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            console.log("ALIAS_FAILED", response.status, body?.error?.code ?? "", body?.error?.message ?? "");
+            process.exit(1);
+          }
+          console.log("ALIAS_ASSIGNED", body.alias ?? "slipcut.vercel.app", body.oldDeploymentId ?? "");
+          NODE
