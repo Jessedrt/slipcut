@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { combinedOdds, parseCommand, trimToOdds } from "./workbench";
+import { combinedOdds, parseCommand, riskTrimToOdds, trimToOdds } from "./workbench";
 import type { AnalyzedPick } from "./types";
 
 function pick(id: string, odds: number, probability: number): AnalyzedPick {
@@ -47,4 +47,17 @@ test("natural-language target commands parse correctly", () => {
   assert.deepEqual(parseCommand("trim to 500x"), { type: "trim", targetOdds: 500 });
   assert.deepEqual(parseCommand("make 500 odds"), { type: "trim", targetOdds: 500 });
   assert.deepEqual(parseCommand("build 500x"), { type: "trim", targetOdds: 500 });
+});
+
+
+test("risk trim drops the lowest-probability leg when multiple removals hit the same target", () => {
+  const input = [
+    pick("strong-a", 2, 82),
+    pick("weak", 2, 41),
+    pick("strong-b", 2, 77),
+  ];
+  const result = riskTrimToOdds(input, 4);
+  assert.equal(result.kept.length, 2);
+  assert.deepEqual(result.removed.map((row) => row.id), ["weak"]);
+  assert.equal(result.combinedOdds, 4);
 });
