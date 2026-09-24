@@ -8,7 +8,7 @@ import {
   sportyOf,
   type CookWindow,
 } from "./sportybet";
-import { getSetting, listChats, loadOddsBand, loadRecentEventIds, recordSlip, rememberEventIds, setSetting, studyCode } from "./study";
+import { getSetting, listChats, loadOddsBand, recordSlip, setSetting, studyCode } from "./study";
 import { combinedOdds, formatOdds, uniqueEvents } from "./workbench";
 import { applyBand } from "./intent";
 import type { BookSport, TicketPick } from "./types";
@@ -49,14 +49,41 @@ function watDay(offset = 0) {
   return d.toISOString().slice(0, 10);
 }
 
-function keyFor(day: string) {
-  // Version the daily cache so a market-policy change immediately replaces
-  // cards already issued earlier in the same day.
-  return `engine_${ENGINE_POLICY_VERSION}_${day}`;
+export type EngineSport = "football" | "basketball";
+type EngineScope = EngineSport | "all";
+
+function keyFor(day: string, sport: EngineScope = "all") {
+  // Sport-specific caches let the Mini App switch between pure football and
+  // pure basketball ladders without reusing mixed cards.
+  return `engine_${ENGINE_POLICY_VERSION}_${sport}_${day}`;
 }
 
-export async function loadEngineDay(day = watDay()): Promise<EngineCard[] | null> {
-  const raw = await getSetting(keyFor(day));
+async function loadEngineRecentEventIds(sport: EngineScope): Promise<string[]> {
+  const raw = await getSetting(`engine_recent_events_${sport}`);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is string => typeof value === "string" && value.length > 3)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+async function rememberEngineEventIds(sport: EngineScope, ids: string[]) {
+  const clean = [...new Set(ids.filter(Boolean))];
+  if (!clean.length) return;
+  const previous = await loadEngineRecentEventIds(sport);
+  const next = [...clean, ...previous.filter((id) => !clean.includes(id))].slice(0, 140);
+  await setSetting(`engine_recent_events_${sport}`, JSON.stringify(next));
+}
+
+export async function loadEngineDay(
+  day = watDay(),
+  sport: EngineScope = "all",
+): Promise<EngineCard[] | null> {
+  const raw = await getSetting(keyFor(day, sport));
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -67,12 +94,15 @@ export async function loadEngineDay(day = watDay()): Promise<EngineCard[] | null
   }
 }
 
-async function saveEngineDay(day: string, cards: EngineCard[]) {
-  await setSetting(keyFor(day), JSON.stringify(cards));
+async function saveEngineDay(day: string, cards: EngineCard[], sport: EngineScope = "all") {
+  await setSetting(keyFor(day, sport), JSON.stringify(cards));
 }
 
-export async function gradeEngineDay(day: string): Promise<EngineCard[] | null> {
-  const cards = await loadEngineDay(day);
+export async function gradeEngineDay(
+  day: string,
+  sport: EngineScope = "all",
+): Promise<EngineCard[] | null> {
+  const cards = await loadEngineDay(day, sport);
   if (!cards?.length) return null;
   let dirty = false;
   for (const card of cards) {
@@ -83,7 +113,7 @@ export async function gradeEngineDay(day: string): Promise<EngineCard[] | null> 
     card.hit = report.hit;
     dirty = true;
   }
-  if (dirty) await saveEngineDay(day, cards);
+  if (dirty) await saveEngineDay(day, cards, sport);
   return cards;
 }
 
@@ -180,29 +210,38 @@ function rankEngineOvers(picks: TicketPick[]): TicketPick[] {
 async function discoverEngineMarkets(
   window: CookWindow,
   skip: string[],
+  sport: EngineScope,
 ): Promise<TicketPick[]> {
-  const sports: BookSport[] = ["football", "basketball"];
+  const sports: BookSport[] =
+    sport === "all" ? ["football", "basketball"] : [sport];
   const batches = await Promise.all(
-    sports.map((sport) => listUpcomingPicks(sport, 42, window, "any", skip)),
+    sports.map((item) => listUpcomingPicks(item, 42, window, "any", skip)),
   );
   return batches.flatMap((batch) => ("error" in batch ? [] : batch));
 }
 
-async function poolForEngine(): Promise<TicketPick[] | { error: string }> {
-  const skip = await loadRecentEventIds();
-  let listed = await discoverEngineMarkets("today" as CookWindow, skip);
+async function poolForEngine(
+  sport: EngineScope = "all",
+): Promise<TicketPick[] | { error: string }> {
+  const skip = await loadEngineRecentEventIds(sport);
+  let listed = await discoverEngineMarkets("today" as CookWindow, skip, sport);
 
   // A five-card ladder only needs twelve distinct events when cards may share
   // strong selections. If today is thin, widen to upcoming instead of leaving
   // the entire engine empty.
   if (uniqueEvents(listed).picks.length < ENGINE_LADDER[ENGINE_LADDER.length - 1]) {
-    const upcoming = await discoverEngineMarkets("upcoming" as CookWindow, skip);
+    const upcoming = await discoverEngineMarkets("upcoming" as CookWindow, skip, sport);
     const seen = new Set(listed.map((pick) => pick.id));
     listed = [...listed, ...upcoming.filter((pick) => !seen.has(pick.id))];
   }
 
   if (!listed.length) {
-    return { error: "No eligible football or basketball events are available right now." };
+    return {
+      error:
+        sport === "all"
+          ? "No eligible football or basketball events are available right now."
+          : `No eligible ${sport} events are available right now.`,
+    };
   }
 
   const allowedOvers = listed.filter(
@@ -233,8 +272,10 @@ async function poolForEngine(): Promise<TicketPick[] | { error: string }> {
   return ranked;
 }
 
-export async function buildEngineCards(): Promise<EngineCard[] | { error: string }> {
-  const ranked = await poolForEngine();
+export async function buildEngineCards(
+  sport: EngineScope = "all",
+): Promise<EngineCard[] | { error: string }> {
+  const ranked = await poolForEngine(sport);
   if ("error" in ranked) return ranked;
   const cards: EngineCard[] = [];
   for (const n of ENGINE_LADDER) {
@@ -248,7 +289,10 @@ export async function buildEngineCards(): Promise<EngineCard[] | { error: string
     const minted = await mintShare(selections, "ng");
     if ("error" in minted) continue;
     await recordSlip(minted.shareCode, take);
-    await rememberEventIds(take.map((p) => p.sporty?.eventId).filter((id): id is string => Boolean(id)));
+    await rememberEngineEventIds(
+      sport,
+      take.map((p) => p.sporty?.eventId).filter((id): id is string => Boolean(id)),
+    );
     cards.push({
       n,
       code: minted.shareCode,
@@ -269,12 +313,14 @@ export async function buildEngineCards(): Promise<EngineCard[] | { error: string
   return cards;
 }
 
-export async function todayEngineCards(): Promise<EngineCard[] | { error: string }> {
+export async function todayEngineCards(
+  sport: EngineScope = "all",
+): Promise<EngineCard[] | { error: string }> {
   const day = watDay();
-  const existing = await loadEngineDay(day);
+  const existing = await loadEngineDay(day, sport);
   if (existing?.length) return existing;
 
-  const lockKey = `engine_build_lock_${day}`;
+  const lockKey = `engine_build_lock_${sport}_${day}`;
   const lockRaw = await getSetting(lockKey);
   const lockAt = Number(lockRaw);
   if (Number.isFinite(lockAt) && Date.now() - lockAt < 2 * 60_000) {
@@ -283,10 +329,10 @@ export async function todayEngineCards(): Promise<EngineCard[] | { error: string
 
   await setSetting(lockKey, String(Date.now()));
   try {
-    await gradeEngineDay(watDay(-1));
-    const built = await buildEngineCards();
+    await gradeEngineDay(watDay(-1), sport);
+    const built = await buildEngineCards(sport);
     if ("error" in built) return built;
-    await saveEngineDay(day, built);
+    await saveEngineDay(day, built, sport);
     return built;
   } finally {
     await setSetting(lockKey, "0");

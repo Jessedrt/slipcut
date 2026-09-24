@@ -29,6 +29,7 @@ import { combinedOdds, formatKickoff, formatOdds } from "@/lib/workbench";
 type Tab = "build" | "cut" | "predict" | "engine" | "slips";
 type Pending = "build" | "cut" | "ingest" | "predict" | "book" | "history" | null;
 type BuildMode = "games" | "odds";
+type EngineSport = Extract<BookSport, "football" | "basketball">;
 type CutApiResult =
   | { ok: true; kept: AnalyzedPick[]; dropped: AnalyzedPick[]; ignored: AnalyzedPick[]; sourceBookmaker?: BookmakerId; warnings?: string[] }
   | { ok: false; code?: string; error: string };
@@ -116,8 +117,9 @@ type EngineApiResult =
       sampleCount: number;
       qualifyingBar: number | null;
       average: number;
+      sport: EngineSport | "all";
     }
-  | { ok: false; error: string };
+  | { ok: false; error: string; sport?: EngineSport | "all" };
 
 const BOOKMAKERS: Array<{ value: BookmakerId; label: string }> = [
   { value: "sportybet", label: "SportyBet" },
@@ -307,6 +309,7 @@ export function MiniAppRefresh() {
   const [predictHome, setPredictHome] = useState("");
   const [predictAway, setPredictAway] = useState("");
   const [prediction, setPrediction] = useState<Extract<PredictionApiResult, { ok: true }>["prediction"] | null>(null);
+  const [engineSport, setEngineSport] = useState<EngineSport>("football");
   const [engineResult, setEngineResult] = useState<EngineApiResult | null>(null);
   const [engineBusy, setEngineBusy] = useState(false);
   const [engineCopied, setEngineCopied] = useState<string | null>(null);
@@ -324,6 +327,7 @@ export function MiniAppRefresh() {
   const [sessionSlips, setSessionSlips] = useState<HistoryItem[]>([]);
   const [copied, setCopied] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const engineRequestRef = useRef(0);
   const bookingAttemptRef = useRef<{ body: string; requestId: string } | null>(null);
   const initData = useSyncExternalStore(subscribeTelegramInitData, telegramInitData, () => "");
 
@@ -669,17 +673,34 @@ export function MiniAppRefresh() {
     }
   }, [api, initData]);
 
-  async function loadEngine() {
-    if (engineBusy) return;
+  async function loadEngine(nextSport: EngineSport = engineSport) {
+    const requestId = ++engineRequestRef.current;
     setEngineBusy(true);
     try {
-      const response = await fetch("/api/engine", { headers: { Accept: "application/json" } });
-      setEngineResult((await response.json()) as EngineApiResult);
+      const response = await fetch(`/api/engine?sport=${nextSport}`, {
+        headers: { Accept: "application/json" },
+      });
+      const result = (await response.json()) as EngineApiResult;
+      if (requestId === engineRequestRef.current) setEngineResult(result);
     } catch {
-      setEngineResult({ ok: false, error: "Engine data is temporarily unavailable." });
+      if (requestId === engineRequestRef.current) {
+        setEngineResult({
+          ok: false,
+          error: "Engine data is temporarily unavailable.",
+          sport: nextSport,
+        });
+      }
     } finally {
-      setEngineBusy(false);
+      if (requestId === engineRequestRef.current) setEngineBusy(false);
     }
+  }
+
+  function changeEngineSport(nextSport: EngineSport) {
+    if (nextSport === engineSport) return;
+    setEngineSport(nextSport);
+    setEngineResult(null);
+    setEngineCopied(null);
+    void loadEngine(nextSport);
   }
 
   async function copyEngineCode(code: string) {
@@ -1212,18 +1233,34 @@ export function MiniAppRefresh() {
                   </p>
                   <h2 className="mt-1 text-xl font-black tracking-[-.04em]">Engine Accumulators</h2>
                   <p className="mt-2 text-xs leading-5 text-[#7a6656]">
-                    Daily cards now use 1st-half Overs, team-total Overs and full-time Overs only.
-                    Handicaps are excluded; longer cards are still longer shots.
+                    {engineSport === "football" ? "Football" : "Basketball"} cards use conservative-priced
+                    1st-half Overs, team-total Overs and full-time Overs only. Handicaps are excluded;
+                    longer cards are still longer shots.
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => void loadEngine()}
+                  onClick={() => void loadEngine(engineSport)}
                   disabled={engineBusy}
                   className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[#7b5439]/15 bg-[#f3e7dc] text-[#6b452d]"
                 >
                   <RefreshCw className={`h-4 w-4 ${engineBusy ? "animate-spin" : ""}`} />
                 </button>
+              </div>
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-bold text-[#5f4635]">Sport</p>
+                <Segmented
+                  value={engineSport}
+                  onChange={changeEngineSport}
+                  label="Engine sport"
+                  options={[
+                    { value: "football", label: "Football" },
+                    { value: "basketball", label: "Basketball" },
+                  ]}
+                />
+                <p className="mt-2 text-[10px] leading-4 text-[#8f7663]">
+                  Each tab builds its own daily ladder. Cards never mix football and basketball.
+                </p>
               </div>
             </div>
 
