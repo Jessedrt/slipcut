@@ -33,6 +33,7 @@ function pick(id: number, odds = 1.5, marketId = "10", eventId = `event-${id}`):
 function deps(rows: TicketPick[]): BuildDependencies {
   return {
     discover: async () => rows,
+    record: async () => ({ available: false, rows: [] }),
     review: async (picks) => ({
       reviews: [...new Map(picks.map((item) => [item.sporty?.eventId, item])).values()].map(
         (item) => ({
@@ -58,6 +59,20 @@ const base: BuildSlipRequest = {
 };
 
 describe("buildSlip", () => {
+  it("excludes historically below-average families only after comparable sample thresholds", async () => {
+    const record = async () => ({ available: true, rows: [
+      { sport: "football", family: "dc", band: "medium", won: 10, lost: 20 },
+      { sport: "football", family: "ou", band: "medium", won: 25, lost: 5 },
+    ] });
+    const result = await buildSlip({ ...base, games: 2 }, {
+      ...deps([pick(1), pick(2), pick(3, 1.5, "18")]), record,
+    });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.analysis.rejected.belowHistoricalAverage, 2);
+    assert.equal(result.selections.length, 1);
+    assert.equal(result.selections[0]?.trackRecord.status, "qualified");
+  });
   it("builds a football game-count slip and removes duplicate events", async () => {
     const rows = [pick(1), pick(2), pick(3), pick(4), pick(5), pick(6, 1.6, "18", "event-1")];
     const result = await buildSlip(base, deps(rows));
