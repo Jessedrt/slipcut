@@ -1,5 +1,6 @@
 import { AIAnalysisError, reviewBuildMarkets } from "./build-ai";
 import { deskScore } from "./research";
+import { evaluateRecord, loadRecord, type RecordSnapshot, type RecordSummary } from "./track-record";
 import {
   cookablePick,
   listUpcomingPicks,
@@ -35,6 +36,7 @@ export type RiskPolicy = {
 };
 
 export type BuildSelection = TicketPick & {
+  trackRecord: RecordSummary;
   modelScore: number;
   confidenceLabel: "higher ranking" | "moderate ranking" | "lower ranking";
   analysisBasis: "ai_assisted_unverified";
@@ -56,6 +58,7 @@ export type AnalysisDiagnostics = {
     belowScore: number;
     duplicateEvents: number;
     notReviewedByAI: number;
+    belowHistoricalAverage: number;
   };
   selected: number;
 };
@@ -116,12 +119,14 @@ export const RISK_POLICIES: Record<BuildRisk, RiskPolicy> = {
 export type BuildDependencies = {
   discover: typeof listUpcomingPicks;
   review: typeof reviewBuildMarkets;
+  record?: () => Promise<RecordSnapshot>;
   analysisTimeoutMs?: number;
 };
 
 const defaultDependencies: BuildDependencies = {
   discover: listUpcomingPicks,
   review: reviewBuildMarkets,
+  record: loadRecord,
 };
 
 function isFailure(value: TicketPick[] | SportyFailure): value is SportyFailure {
@@ -193,17 +198,22 @@ function explainSelection(
   score: number,
   policy: RiskPolicy,
   review: { summary: string; reasons: string[]; risks: string[] },
+  trackRecord: RecordSummary,
 ): BuildSelection {
   const family = marketFamily(pick.sporty?.marketId, pick.market);
   const reasons = [
     `Current SportyBet price ${pick.odds?.toFixed(2) ?? "unknown"} is inside the ${policy.label.toLowerCase()} range (${policy.minOdds.toFixed(2)}–${policy.maxOdds.toFixed(2)}).`,
     `${pick.league || "Competition"} and ${family.toUpperCase()} passed the configured filters.`,
     ...review.reasons,
+    ...(trackRecord.status === "qualified"
+      ? [`This market family has ${trackRecord.settled} settled recommendations above the comparable sport/odds-band average.`]
+      : []),
   ];
   const risks = [
     "No match-specific form, injury or lineup facts were independently verified for this pick.",
     "Odds and market availability can change before the code is created.",
     ...review.risks,
+    ...(trackRecord.status === "qualified" ? ["Past hit rates do not predict this game's result or establish value at today's price."] : []),
     family === "hcp" || family === "gg" || family === "corners"
       ? "This market can be more volatile than a short double-chance or total line."
       : "A qualifying model score is not a calibrated win probability or guarantee.",
@@ -211,6 +221,7 @@ function explainSelection(
   return {
     ...pick,
     modelScore: score,
+    trackRecord,
     confidenceLabel: scoreLabel(score),
     analysisBasis: "ai_assisted_unverified",
     summary: review.summary,
@@ -274,6 +285,7 @@ export async function buildSlip(
       belowScore: 0,
       duplicateEvents: 0,
       notReviewedByAI: 0,
+      belowHistoricalAverage: 0,
     },
     selected: 0,
   };
@@ -316,10 +328,25 @@ export async function buildSlip(
     };
   }
 
+  // Never mistake missing history/storage for positive evidence. Established
+  // underperforming groups are excluded; thin records remain labelled as such.
+  const record = await (dependencies.record ?? loadRecord)();
+  const historical = eligible.filter((pick) => {
+    if (evaluateRecord(pick, record).status !== "below_average") return true;
+    analysis.rejected.belowHistoricalAverage++;
+    return false;
+  });
+  if (!historical.length) return {
+    ok: false,
+    code: "no_eligible_markets",
+    error: "No markets passed the settled track-record filter for comparable odds.",
+    analysis,
+  };
+
   // Rules constrain the options; they do not pick the final market. The AI
   // compares up to three different eligible options for each game it reviews.
   const byEvent = new Map<string, TicketPick[]>();
-  for (const pick of eligible) {
+  for (const pick of historical) {
     const key = pick.sporty?.eventId ?? `${pick.home}|${pick.away}|${pick.kickoff ?? ""}`;
     const options = byEvent.get(key) ?? [];
     options.push(pick);
@@ -367,7 +394,7 @@ export async function buildSlip(
     const pick = candidates.get(review.pickId);
     if (!pick) return [];
     const score = Math.round(0.85 * review.score + 0.15 * deskScore(pick));
-    return [explainSelection(pick, score, policy, review)];
+    return [explainSelection(pick, score, policy, review, evaluateRecord(pick, record))];
   });
   analysis.rejected.notReviewedByAI = aiReview.attemptedEvents - aiReview.reviewedEvents;
   const ranked = scored

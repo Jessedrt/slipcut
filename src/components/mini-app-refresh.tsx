@@ -187,10 +187,21 @@ function SelectionCard({
           </p>
           <p className="mt-1 text-[11px] text-[#a99a87]">{formatKickoff(pick.kickoff)}</p>
           {"analysisBasis" in pick && (
-            <p className="mt-2 text-[11px] font-semibold text-[#e4bd83]">
-              AI-reviewed · match facts unverified
-              {` · ${pick.confidenceLabel}`}
-            </p>
+            <>
+              <p className="mt-2 text-[11px] font-semibold text-[#e4bd83]">
+                AI-reviewed · match facts unverified
+                {` · ${pick.confidenceLabel}`}
+              </p>
+              <p className="mt-1 text-[11px] text-[#a99a87]">
+                {pick.trackRecord.status === "qualified"
+                  ? `Settled record: ${pick.trackRecord.settled} comparable picks · ${Math.round((pick.trackRecord.hitRate ?? 0) * 100)}% hit rate (not a forecast)`
+                  : pick.trackRecord.status === "insufficient_history"
+                    ? "Track record: insufficient settled history"
+                    : pick.trackRecord.status === "not_gradeable"
+                      ? "Track record: this market cannot be graded from a final score"
+                    : "Track record unavailable — no historical claim"}
+              </p>
+            </>
           )}
           <p className="mt-2 text-xs leading-5 text-[#c9bca9]">{pick.summary}</p>
           {pick.reasons.length > 0 && (

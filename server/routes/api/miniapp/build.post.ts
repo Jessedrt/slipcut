@@ -1,6 +1,7 @@
 import { defineHandler } from "nitro";
 import { buildSlip, validateBuildRequest } from "../../../../src/lib/build-slip";
 import { authenticateMiniAppRequest } from "../../../../src/lib/telegram-miniapp-auth";
+import { recordRecommendations } from "../../../../src/lib/track-record";
 
 export default defineHandler(async (event) => {
   const auth = authenticateMiniAppRequest(event.req);
@@ -18,6 +19,13 @@ export default defineHandler(async (event) => {
   if (!request.ok) return Response.json(request, { status: 400 });
   const startedAt = Date.now();
   const result = await buildSlip(request.value);
+  if (result.ok) {
+    try {
+      await recordRecommendations(result.selections);
+    } catch (error) {
+      console.error("[slipcut.record] save failed", error instanceof Error ? error.name : "unknown");
+    }
+  }
   console.info(
     "[miniapp.build]",
     JSON.stringify({
