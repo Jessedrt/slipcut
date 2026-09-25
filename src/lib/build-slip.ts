@@ -177,17 +177,20 @@ export function validateBuildRequest(input: unknown): BuildRequestValidation {
 
 function allowedFamily(pick: TicketPick, risk: BuildRisk) {
   const family = marketFamily(pick.sporty?.marketId, pick.market);
-  if (risk === "aggressive") return family !== "odd";
-  if (pick.sport === "football") {
-    const conservative = new Set(["dc", "dnb", "ou", "ou1h", "teamou", "corners"]);
-    const balanced = new Set([...conservative, "gg"]);
-    return (risk === "conservative" ? conservative : balanced).has(family);
+
+  if (pick.sport === "basketball") {
+    // Never issue straight basketball Winner/Home/Away picks in any risk mode.
+    // Conservative stays on full-game totals; balanced may add handicaps;
+    // aggressive may add derivative total families, but still never Winner.
+    if (family === "win" || family === "odd") return false;
+    if (risk === "conservative") return family === "ou";
+    if (risk === "balanced") return family === "ou" || family === "hcp";
+    return ["ou", "hcp", "teamou", "ou1h"].includes(family);
   }
-  // Basketball team/period totals can look deceptively safe at short prices.
-  // Keep conservative and balanced builds on full-game winner/total/handicap
-  // markets; team totals and other derivative periods are aggressive-only.
-  const conservative = new Set(["win", "ou"]);
-  const balanced = new Set([...conservative, "hcp"]);
+
+  if (risk === "aggressive") return family !== "odd";
+  const conservative = new Set(["dc", "dnb", "ou", "ou1h", "teamou", "corners"]);
+  const balanced = new Set([...conservative, "gg"]);
   return (risk === "conservative" ? conservative : balanced).has(family);
 }
 
@@ -248,10 +251,12 @@ function diversifyBasketballCandidates<T extends TicketPick>(
     groups.set(family, bucket);
   }
 
-  // A multi-leg basketball slip must not be manufactured from a single market
-  // family. Keep the best one rather than padding the card with Winner/Total
-  // clones when the reviewed pool has no genuine alternative.
-  if (groups.size < 2) return ranked.slice(0, 1);
+  // Full-game totals are the preferred basketball base market and may form a
+  // multi-leg card on their own. Other single-family pools are kept to one leg
+  // so the builder does not pad a card with repeated handicaps/derivatives.
+  if (groups.size < 2) {
+    return groups.has("ou") ? ranked.slice(0, limit) : ranked.slice(0, 1);
+  }
 
   const selected: T[] = [];
   const familyOrder = [...groups.keys()];
@@ -270,7 +275,8 @@ function diversifyBasketballCandidates<T extends TicketPick>(
   }
 
   // If one family runs out much earlier than another, trim the weakest tail
-  // until no family owns more than half the issued card (rounded up).
+  // until no family owns more than half the issued card (rounded up). Full-game
+  // totals may exceed that share because they are the preferred non-winner base.
   while (selected.length > 1) {
     const counts = new Map<string, number>();
     for (const pick of selected) {
@@ -278,7 +284,9 @@ function diversifyBasketballCandidates<T extends TicketPick>(
       counts.set(family, (counts.get(family) ?? 0) + 1);
     }
     const maxAllowed = Math.ceil(selected.length / 2);
-    const overloaded = [...counts.entries()].find(([, count]) => count > maxAllowed)?.[0];
+    const overloaded = [...counts.entries()].find(
+      ([family, count]) => family !== "ou" && count > maxAllowed,
+    )?.[0];
     if (!overloaded) break;
     let removeAt = -1;
     for (let index = selected.length - 1; index >= 0; index -= 1) {

@@ -155,102 +155,105 @@ describe("buildSlip", () => {
   });
 
 
-  it("does not pad a basketball card with Winner markets", async () => {
-    const rows: TicketPick[] = [];
-    for (let id = 1; id <= 6; id++) {
-      rows.push({
-        ...pick(id, 1.4 + id * 0.01, "219", `bb-win-${id}`),
-        sport: "basketball",
-        league: "Euroleague",
-        market: "Winner (incl. overtime)",
-        selection: "Home",
-        sporty: {
-          eventId: `bb-win-${id}`,
-          marketId: "219",
-          outcomeId: "home",
-        },
-      });
-    }
-    for (let id = 1; id <= 4; id++) {
-      rows.push({
-        ...pick(20 + id, 1.32 + id * 0.02, "225", `bb-ou-${id}`),
-        sport: "basketball",
-        league: "Euroleague",
-        market: "Over/Under (incl. overtime) 159.5",
-        selection: "Over 159.5",
-        sporty: {
-          eventId: `bb-ou-${id}`,
-          marketId: "225",
-          outcomeId: "over",
-          specifier: "total=159.5",
-        },
-      });
-    }
-
-    const result = await buildSlip(
-      { ...base, sport: "basketball", games: 8, risk: "conservative" },
-      deps(rows),
-    );
-    assert.equal(result.ok, true);
-    if (!result.ok) return;
-
-    const winnerCount = result.selections.filter(
-      (row) => row.sporty?.marketId === "219",
-    ).length;
-    const totalCount = result.selections.filter(
-      (row) => row.sporty?.marketId === "225",
-    ).length;
-    assert.ok(result.selections.length >= 2);
-    assert.ok(winnerCount <= Math.ceil(result.selections.length / 2));
-    assert.ok(totalCount > 0);
-  });
-
-  it("returns fewer basketball legs instead of issuing a single-family card", async () => {
-    const winners: TicketPick[] = [1, 2, 3, 4, 5].map((id) => ({
-      ...pick(id, 1.4, "219", `bb-only-${id}`),
+  it("never uses straight basketball Winner markets in any risk mode", async () => {
+    const winner: TicketPick = {
+      ...pick(1, 1.45, "219", "bb-win"),
       sport: "basketball",
       league: "Euroleague",
       market: "Winner (incl. overtime)",
       selection: "Home",
+      sporty: { eventId: "bb-win", marketId: "219", outcomeId: "home" },
+    };
+    const totalA: TicketPick = {
+      ...pick(2, 1.42, "225", "bb-total-a"),
+      sport: "basketball",
+      league: "Euroleague",
+      market: "Over/Under 159.5",
+      selection: "Over 159.5",
       sporty: {
-        eventId: `bb-only-${id}`,
-        marketId: "219",
-        outcomeId: "home",
+        eventId: "bb-total-a",
+        marketId: "225",
+        outcomeId: "over",
+        specifier: "total=159.5",
+      },
+    };
+    const totalB: TicketPick = {
+      ...pick(3, 1.5, "225", "bb-total-b"),
+      sport: "basketball",
+      league: "Euroleague",
+      market: "Over/Under 164.5",
+      selection: "Over 164.5",
+      sporty: {
+        eventId: "bb-total-b",
+        marketId: "225",
+        outcomeId: "over",
+        specifier: "total=164.5",
+      },
+    };
+
+    for (const risk of ["conservative", "balanced", "aggressive"] as const) {
+      const result = await buildSlip(
+        { ...base, sport: "basketball", games: 2, risk },
+        deps([winner, totalA, totalB]),
+      );
+      assert.equal(result.ok, true);
+      if (!result.ok) continue;
+      assert.ok(result.selections.length >= 1);
+      assert.ok(result.selections.every((row) => row.sporty?.marketId !== "219"));
+      assert.ok(result.selections.every((row) => !/winner/i.test(row.market)));
+    }
+  });
+
+  it("allows multiple qualified full-game basketball totals without Winner picks", async () => {
+    const rows: TicketPick[] = [1, 2, 3].map((id) => ({
+      ...pick(id, 1.4 + id * 0.04, "225", `bb-total-${id}`),
+      sport: "basketball",
+      league: "Euroleague",
+      market: `Over/Under ${154.5 + id * 5}`,
+      selection: `Over ${154.5 + id * 5}`,
+      sporty: {
+        eventId: `bb-total-${id}`,
+        marketId: "225",
+        outcomeId: "over",
+        specifier: `total=${154.5 + id * 5}`,
       },
     }));
 
     const result = await buildSlip(
-      { ...base, sport: "basketball", games: 5, risk: "conservative" },
-      deps(winners),
+      { ...base, sport: "basketball", games: 3, risk: "conservative" },
+      deps(rows),
     );
     assert.equal(result.ok, true);
     if (!result.ok) return;
-    assert.equal(result.selections.length, 1);
-    assert.match(result.notice ?? "", /market-diversity/i);
+    assert.equal(result.actualGames, 3);
+    assert.ok(result.selections.every((row) => row.sporty?.marketId === "225"));
   });
 
-  it("builds basketball using the same service", async () => {
+  it("builds basketball using totals without requiring a straight winner", async () => {
     const rows: TicketPick[] = [
       {
-        ...pick(1, 1.55, "225", "bb-total"),
+        ...pick(1, 1.55, "225", "bb-total-a"),
         sport: "basketball",
         league: "Euroleague",
         market: "Over/Under 155.5",
         selection: "Over 155.5",
-        sporty: { eventId: "bb-total", marketId: "225", outcomeId: "over", specifier: "total=155.5" },
+        sporty: { eventId: "bb-total-a", marketId: "225", outcomeId: "over", specifier: "total=155.5" },
       },
       {
-        ...pick(2, 1.45, "219", "bb-win"),
+        ...pick(2, 1.48, "225", "bb-total-b"),
         sport: "basketball",
         league: "Euroleague",
-        market: "Winner (incl. overtime)",
-        selection: "Home",
-        sporty: { eventId: "bb-win", marketId: "219", outcomeId: "home" },
+        market: "Over/Under 162.5",
+        selection: "Over 162.5",
+        sporty: { eventId: "bb-total-b", marketId: "225", outcomeId: "over", specifier: "total=162.5" },
       },
     ];
     const result = await buildSlip({ ...base, sport: "basketball", games: 2 }, deps(rows));
     assert.equal(result.ok, true);
-    if (result.ok) assert.equal(result.actualGames, 2);
+    if (result.ok) {
+      assert.equal(result.actualGames, 2);
+      assert.ok(result.selections.every((row) => row.sporty?.marketId === "225"));
+    }
   });
 
   it("builds toward target odds without adding unsupported legs", async () => {

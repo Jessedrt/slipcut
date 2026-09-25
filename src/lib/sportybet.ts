@@ -666,8 +666,8 @@ function basketballCandidates(ev: EventDetail): TicketPick[] {
     }
   };
 
-  // Full-game winner.
-  pushAll((m) => m.id === "219" || m.id === "186");
+  // Straight Winner/Home/Away markets are intentionally excluded from
+  // basketball discovery. SlipCut basketball builds are totals/handicap based.
 
   // Give the reviewer several real lines instead of collapsing each family to
   // one "balanced" line before analysis. Candidate pooling later caps each
@@ -885,7 +885,7 @@ function candidatesFor(sport: BookSport, ev: EventDetail) {
 }
 
 function requestedMarketIds(sport: BookSport) {
-  if (sport === "basketball") return "219,186,223,14,225,18,227,228,68,69,70,236";
+  if (sport === "basketball") return "223,14,225,18,227,228,68,69,70,236";
   if (sport === "tennis") return "186,187,188,189,202,204";
   if (sport === "handball") return "1,10,11,18,68";
   return "1,10,11,18,23,24,29,62,63,64,68,69,70,90,166,227,228";
@@ -1089,6 +1089,101 @@ export async function listUpcomingPicks(
   diagnostics.finalCandidates = uniquePicks.length;
   console.info("[sportybet.discovery]", JSON.stringify(diagnostics));
   return uniquePicks;
+}
+
+
+/**
+ * Return every prematch full-game Over line SportyBet exposes for today's real
+ * football/basketball fixtures. Unlike the normal builder discovery path, this
+ * intentionally does not apply SlipCut's league-quality filter because the bot's
+ * daily H2H scanner is meant to inspect the whole SportyBet day before deciding
+ * which games qualify.
+ */
+export async function listDailyBasketballOverMarkets(): Promise<TicketPick[] | SportyFailure> {
+  const sport = "basketball" as const;
+  const marketIds = "225,18";
+  const now = Date.now();
+  const events = new Map<string, EventDetail & { leagueHint?: string }>();
+
+  try {
+    for (let pageNum = 1; pageNum <= 4; pageNum += 1) {
+      const query = new URLSearchParams({
+        sportId: sportIdOf(sport),
+        marketId: marketIds,
+        pageSize: "100",
+        pageNum: String(pageNum),
+        todayGames: "true",
+        timeline: "48",
+      });
+      const payload = (await sportyGet(
+        `/factsCenter/pcUpcomingEvents?${query.toString()}`,
+        { timeoutMs: 12_000, cacheMs: 45_000 },
+      )) as UpcomingPayload;
+      const tournaments = Array.isArray(payload.data?.tournaments)
+        ? payload.data.tournaments
+        : [];
+      const pageEvents = tournaments.flatMap((tournament) =>
+        (tournament.events ?? []).map((event) => ({
+          ...event,
+          leagueHint: tournament.name ?? leagueName(event.sport),
+        })),
+      );
+      if (!pageEvents.length) break;
+
+      for (const event of pageEvents) {
+        if (!event.eventId) continue;
+        events.set(String(event.eventId), event);
+      }
+
+      if (pageEvents.length < 100) break;
+      const total = Number(payload.data?.totalNum ?? 0);
+      if (total > 0 && events.size >= total) break;
+    }
+  } catch (error) {
+    const failure =
+      error instanceof SportyProviderError
+        ? error
+        : new SportyProviderError("provider_unavailable", "SportyBet could not be reached.", true);
+    return {
+      error:
+        failure.code === "provider_timeout"
+          ? "SportyBet took too long while scanning today's totals."
+          : "SportyBet could not be reached while scanning today's totals.",
+      code: failure.code,
+      retryable: failure.retryable,
+    };
+  }
+
+  const picks: TicketPick[] = [];
+  for (const event of events.values()) {
+    if (!isPrematch(event, now)) continue;
+    if (!inCookWindow(event.estimateStartTime ?? 0, "today", now)) continue;
+    const league = event.leagueHint ?? leagueName(event.sport);
+    if (SIMULATED_LEAGUE.test(league)) continue;
+
+    for (const market of event.markets ?? []) {
+      if (market.status !== 0) continue;
+      const isMainTotal = market.id === "225" || market.id === "18";
+      if (!isMainTotal) continue;
+
+      for (const outcome of openOutcomes(market)) {
+        if (!/over/i.test(outcome.desc ?? "")) continue;
+        const pick = toPick(event, sport, market, outcome);
+        if (!pick?.odds || !Number.isFinite(pick.odds)) continue;
+        picks.push(pick);
+      }
+    }
+  }
+
+  if (!picks.length) {
+    return {
+      error: "SportyBet returned no open full-game Over markets for today's basketball fixtures.",
+      code: "no_eligible_markets",
+      retryable: false,
+    };
+  }
+
+  return [...new Map(picks.map((pick) => [pick.id, pick])).values()];
 }
 
 export type MarketTarget = "ou15" | "ou25" | "ou35" | "gg" | "dc" | "dnb" | "win";
