@@ -197,8 +197,8 @@ async function h2hForGroups(groups: MatchGroup[]) {
   return { rows: out };
 }
 
-function scorePick(
-  group: MatchGroup,
+export function evaluateDailyOverPick(
+  sport: DailyOversSport,
   pick: TicketPick,
   totals: number[],
 ): DailyOverRecommendation | null {
@@ -212,11 +212,11 @@ function scorePick(
   const pushes = totals.filter((value) => value === line).length;
   const hitRate = hits / totals.length;
   const margin = average - line;
-  const minMargin = group.sport === "football" ? 0.5 : 5;
+  const minMargin = sport === "football" ? 0.5 : 5;
   if (hitRate < 0.6 || margin < minMargin) return null;
 
   const marginScale =
-    group.sport === "football"
+    sport === "football"
       ? Math.min(18, Math.max(0, margin * 7))
       : Math.min(18, Math.max(0, margin / 1.5));
   const priceBonus = Math.max(0, 8 - Math.abs(odds - 1.45) * 12);
@@ -236,7 +236,7 @@ function scorePick(
 
 function bestForGroup(group: MatchGroup, totals: number[]) {
   return group.picks
-    .map((pick) => scorePick(group, pick, totals))
+    .map((pick) => evaluateDailyOverPick(group.sport, pick, totals))
     .filter((row): row is DailyOverRecommendation => Boolean(row))
     .sort(
       (a, b) =>
