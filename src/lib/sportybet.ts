@@ -666,8 +666,8 @@ function basketballCandidates(ev: EventDetail): TicketPick[] {
     }
   };
 
-  // Full-game winner.
-  pushAll((m) => m.id === "219" || m.id === "186");
+  // Straight Winner/Home/Away markets are intentionally excluded from
+  // basketball discovery. SlipCut basketball builds are totals/handicap based.
 
   // Give the reviewer several real lines instead of collapsing each family to
   // one "balanced" line before analysis. Candidate pooling later caps each
@@ -885,7 +885,7 @@ function candidatesFor(sport: BookSport, ev: EventDetail) {
 }
 
 function requestedMarketIds(sport: BookSport) {
-  if (sport === "basketball") return "219,186,223,14,225,18,227,228,68,69,70,236";
+  if (sport === "basketball") return "223,14,225,18,227,228,68,69,70,236";
   if (sport === "tennis") return "186,187,188,189,202,204";
   if (sport === "handball") return "1,10,11,18,68";
   return "1,10,11,18,23,24,29,62,63,64,68,69,70,90,166,227,228";
@@ -1099,10 +1099,9 @@ export async function listUpcomingPicks(
  * daily H2H scanner is meant to inspect the whole SportyBet day before deciding
  * which games qualify.
  */
-export async function listDailyOverMarkets(
-  sport: Extract<BookSport, "football" | "basketball">,
-): Promise<TicketPick[] | SportyFailure> {
-  const marketIds = sport === "basketball" ? "225,18" : "18";
+export async function listDailyBasketballOverMarkets(): Promise<TicketPick[] | SportyFailure> {
+  const sport = "basketball" as const;
+  const marketIds = "225,18";
   const now = Date.now();
   const events = new Map<string, EventDetail & { leagueHint?: string }>();
 
@@ -1181,7 +1180,7 @@ export async function listDailyOverMarkets(
 
   if (!picks.length) {
     return {
-      error: `SportyBet returned no open full-game Over markets for today's ${sport} fixtures.`,
+      error: "SportyBet returned no open full-game Over markets for today's basketball fixtures.",
       code: "no_eligible_markets",
       retryable: false,
     };
