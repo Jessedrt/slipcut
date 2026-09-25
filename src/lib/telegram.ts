@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { buildSlip, type BuildSlipRequest } from "./build-slip";
-import { scanDailyOvers, type DailyOversScope } from "./daily-overs";
+import { scanDailyOvers } from "./daily-overs";
 import { mintReviewedSlip } from "./book-slip";
 import { todayEngineCards } from "./engine";
 import { loadBookingCode } from "./sportybet";
@@ -39,9 +39,7 @@ Describe the complete slip you want in one message, or paste a SportyBet booking
 Examples:
 • Cook 5 football games today
 • Cook 5 odds basketball
-• /overs football — scan today's SportyBet totals + verified H2H
-• /overs basketball
-• /overs all
+• /overs — scan today's SportyBet basketball totals + verified H2H
 • 2odds
 
 Use Open SlipCut for the full builder and manual review.`;
@@ -238,19 +236,12 @@ async function splitCode(chatId: number, code: string, parts: number) {
   }
 }
 
-function dailyOversScope(raw: string): DailyOversScope {
-  if (/\bbasket(?:ball)?\b|\bhoops?\b|\bnba\b/i.test(raw)) return "basketball";
-  if (/\bfootball\b|\bsoccer\b|\bfooty\b/i.test(raw)) return "football";
-  return "all";
-}
-
 function dailyOverBlock(
   row: Awaited<ReturnType<typeof scanDailyOvers>>["recommendations"][number],
   index: number,
 ) {
   const pick = row.pick;
-  const average =
-    pick.sport === "football" ? row.h2hAverage.toFixed(2) : row.h2hAverage.toFixed(1);
+  const average = row.h2hAverage.toFixed(1);
   const hitPct = Math.round(row.h2hHitRate * 100);
   const hits = row.h2hTotals.filter((value) => {
     const line = Number(
@@ -271,21 +262,19 @@ function dailyOverBlock(
     .join("\n");
 }
 
-async function runDailyOvers(chatId: number, scope: DailyOversScope) {
+async function runDailyOvers(chatId: number) {
   await tg("sendMessage", {
     chat_id: chatId,
     text:
-      scope === "all"
-        ? "Scanning today's SportyBet football + basketball totals and checking verified H2H scores…"
-        : `Scanning today's SportyBet ${scope} totals and checking verified H2H scores…`,
+      "Scanning today's SportyBet basketball full-game totals and checking verified H2H final scores…",
   });
 
   try {
-    const scan = await scanDailyOvers(scope);
+    const scan = await scanDailyOvers();
     const heading = [
-      `Daily Over scan · ${scope}`,
-      `SportyBet events checked: ${scan.scannedEvents}`,
-      `Events with 1.20–1.82 full-game Over lines: ${scan.eventsWithConservativeOver}`,
+      "Daily Basketball Over scan",
+      `SportyBet games checked: ${scan.scannedEvents}`,
+      `Games with 1.20–1.82 full-game Over lines: ${scan.eventsWithConservativeOver}`,
       `H2H verified (3+ meetings): ${scan.h2hVerifiedEvents}`,
       `Qualified Overs: ${scan.recommendations.length}`,
     ];
@@ -494,12 +483,20 @@ export async function handleTelegramUpdate(update: TgUpdate) {
   }
 
   const oversCommand =
-    /^\/overs(?:@\w+)?(?:\s+(?:football|soccer|basket(?:ball)?|all))?\s*$/i.test(raw) ||
-    /^overs(?:\s+(?:football|soccer|basket(?:ball)?|all))?\s*$/i.test(raw) ||
-    /^(?:check|scan|find)\s+(?:today'?s?\s+)?overs?(?:\s+(?:football|soccer|basket(?:ball)?|all))?\s*$/i.test(raw);
+    /^\/overs(?:@\w+)?(?:\s+basket(?:ball)?)?\s*$/i.test(raw) ||
+    /^overs(?:\s+basket(?:ball)?)?\s*$/i.test(raw) ||
+    /^(?:check|scan|find)\s+(?:today'?s?\s+)?basketball\s+overs?\s*$/i.test(raw);
   if (oversCommand) {
     await clearTelegramDraft(String(chatId));
-    await runDailyOvers(chatId, dailyOversScope(raw));
+    await runDailyOvers(chatId);
+    return;
+  }
+
+  if (/^\/?overs(?:@\w+)?\s+(?:football|soccer|all)\s*$/i.test(raw)) {
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: "The H2H Over scanner is basketball-only. Send /overs to scan today's SportyBet basketball totals.",
+    });
     return;
   }
 
