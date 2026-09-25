@@ -251,10 +251,12 @@ function diversifyBasketballCandidates<T extends TicketPick>(
     groups.set(family, bucket);
   }
 
-  // A multi-leg basketball slip must not be manufactured from a single market
-  // family. Keep the best one rather than padding the card with Winner/Total
-  // clones when the reviewed pool has no genuine alternative.
-  if (groups.size < 2) return ranked.slice(0, 1);
+  // Full-game totals are the preferred basketball base market and may form a
+  // multi-leg card on their own. Other single-family pools are kept to one leg
+  // so the builder does not pad a card with repeated handicaps/derivatives.
+  if (groups.size < 2) {
+    return groups.has("ou") ? ranked.slice(0, limit) : ranked.slice(0, 1);
+  }
 
   const selected: T[] = [];
   const familyOrder = [...groups.keys()];
@@ -273,7 +275,8 @@ function diversifyBasketballCandidates<T extends TicketPick>(
   }
 
   // If one family runs out much earlier than another, trim the weakest tail
-  // until no family owns more than half the issued card (rounded up).
+  // until no family owns more than half the issued card (rounded up). Full-game
+  // totals may exceed that share because they are the preferred non-winner base.
   while (selected.length > 1) {
     const counts = new Map<string, number>();
     for (const pick of selected) {
@@ -281,7 +284,9 @@ function diversifyBasketballCandidates<T extends TicketPick>(
       counts.set(family, (counts.get(family) ?? 0) + 1);
     }
     const maxAllowed = Math.ceil(selected.length / 2);
-    const overloaded = [...counts.entries()].find(([, count]) => count > maxAllowed)?.[0];
+    const overloaded = [...counts.entries()].find(
+      ([family, count]) => family !== "ou" && count > maxAllowed,
+    )?.[0];
     if (!overloaded) break;
     let removeAt = -1;
     for (let index = selected.length - 1; index >= 0; index -= 1) {
