@@ -234,6 +234,87 @@ function explainSelection(
   };
 }
 
+function diversifyBasketballCandidates<T extends TicketPick>(
+  ranked: T[],
+  limit: number,
+): T[] {
+  if (limit <= 0 || !ranked.length) return [];
+
+  const groups = new Map<string, T[]>();
+  for (const pick of ranked) {
+    const family = marketFamily(pick.sporty?.marketId, pick.market);
+    const bucket = groups.get(family) ?? [];
+    bucket.push(pick);
+    groups.set(family, bucket);
+  }
+
+  // A multi-leg basketball slip must not be manufactured from a single market
+  // family. Keep the best one rather than padding the card with Winner/Total
+  // clones when the reviewed pool has no genuine alternative.
+  if (groups.size < 2) return ranked.slice(0, 1);
+
+  const selected: T[] = [];
+  const familyOrder = [...groups.keys()];
+  let round = 0;
+  while (selected.length < limit) {
+    let added = false;
+    for (const family of familyOrder) {
+      const pick = groups.get(family)?.[round];
+      if (!pick) continue;
+      selected.push(pick);
+      added = true;
+      if (selected.length >= limit) break;
+    }
+    if (!added) break;
+    round += 1;
+  }
+
+  // If one family runs out much earlier than another, trim the weakest tail
+  // until no family owns more than half the issued card (rounded up).
+  while (selected.length > 1) {
+    const counts = new Map<string, number>();
+    for (const pick of selected) {
+      const family = marketFamily(pick.sporty?.marketId, pick.market);
+      counts.set(family, (counts.get(family) ?? 0) + 1);
+    }
+    const maxAllowed = Math.ceil(selected.length / 2);
+    const overloaded = [...counts.entries()].find(([, count]) => count > maxAllowed)?.[0];
+    if (!overloaded) break;
+    let removeAt = -1;
+    for (let index = selected.length - 1; index >= 0; index -= 1) {
+      const pick = selected[index]!;
+      if (marketFamily(pick.sporty?.marketId, pick.market) === overloaded) {
+        removeAt = index;
+        break;
+      }
+    }
+    if (removeAt < 0) break;
+    selected.splice(removeAt, 1);
+  }
+
+  return selected;
+}
+
+function buildBasketballToOdds<T extends TicketPick>(
+  ranked: T[],
+  target: number,
+): T[] {
+  const pool = diversifyBasketballCandidates(ranked, 15);
+  if (!pool.length) return [];
+
+  const requested = Math.max(1.5, Math.min(50, target));
+  const kept: T[] = [];
+  let product = 1;
+  for (const pick of pool) {
+    const odds = pick.odds ?? 0;
+    if (!Number.isFinite(odds) || odds <= 1) continue;
+    kept.push(pick);
+    product *= odds;
+    if (product >= requested * 0.95) break;
+  }
+  return kept;
+}
+
 function reviewWithin<T>(
   promise: Promise<T>,
   ms: number,
@@ -449,10 +530,22 @@ export async function buildSlip(
     };
   }
 
+  const diversified =
+    request.sport === "basketball"
+      ? diversifyBasketballCandidates(
+          deduped,
+          request.mode === "games" ? (request.games ?? 5) : 15,
+        )
+      : deduped;
+  const diversityLimited =
+    request.sport === "basketball" && diversified.length < Math.min(deduped.length, 15);
+
   const selections =
     request.mode === "games"
-      ? deduped.slice(0, request.games)
-      : buildToOdds(deduped, request.targetOdds ?? 2).slice(0, 15);
+      ? diversified.slice(0, request.games)
+      : request.sport === "basketball"
+        ? buildBasketballToOdds(deduped, request.targetOdds ?? 2).slice(0, 15)
+        : buildToOdds(deduped, request.targetOdds ?? 2).slice(0, 15);
   const actualCombinedOdds = combinedOdds(selections);
   const targetReached =
     request.mode === "odds" && actualCombinedOdds !== null
@@ -468,7 +561,11 @@ export async function buildSlip(
   const fallbackNotice = analysis.researchFallbackUsed
     ? "Live AI providers were temporarily unavailable, so SlipCut used its internal market-risk fallback for this build."
     : undefined;
-  const notice = [fallbackNotice, shortNotice].filter(Boolean).join(" ") || undefined;
+  const diversityNotice = diversityLimited
+    ? "Basketball market-diversity rules prevented SlipCut from padding the card with one repeated market family."
+    : undefined;
+  const notice =
+    [fallbackNotice, diversityNotice, shortNotice].filter(Boolean).join(" ") || undefined;
   analysis.selected = selections.length;
   console.info(
     "[slipcut.analysis]",
