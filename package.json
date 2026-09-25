@@ -14,7 +14,7 @@
     "preview": "node scripts/with-app-env.mjs vite preview",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --import tsx --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts src/lib/accuracy.test.ts src/lib/book-slip.test.ts src/lib/bookmakers/bookmakers.test.ts src/lib/booking-idempotency.test.ts src/lib/build-ai.test.ts src/lib/build-slip.test.ts src/lib/engine-policy.test.ts src/lib/intent.test.ts src/lib/miniapp-history.test.ts src/lib/research.test.ts src/lib/sportybet.discovery.test.ts src/lib/telegram-draft-store.test.ts src/lib/telegram-miniapp-auth.test.ts src/lib/track-record.test.ts src/lib/workbench.test.ts",
+    "test": "node --test 'scripts/**/*.test.mjs' && node --import tsx --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts src/lib/accuracy.test.ts src/lib/book-slip.test.ts src/lib/bookmakers/bookmakers.test.ts src/lib/booking-idempotency.test.ts src/lib/build-ai.test.ts src/lib/build-slip.test.ts src/lib/daily-overs.test.ts src/lib/engine-policy.test.ts src/lib/intent.test.ts src/lib/miniapp-history.test.ts src/lib/research.test.ts src/lib/sportybet.discovery.test.ts src/lib/telegram-draft-store.test.ts src/lib/telegram-miniapp-auth.test.ts src/lib/track-record.test.ts src/lib/workbench.test.ts",
     "lint": "eslint .",
     "format": "prettier --write ."
   },
