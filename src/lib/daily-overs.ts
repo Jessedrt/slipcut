@@ -1,11 +1,10 @@
 import { refreshKeys } from "./keys";
 import { listDailyOverMarkets } from "./sportybet";
 import { getSetting, setSetting } from "./study";
-import type { BookSport, TicketPick } from "./types";
+import type { TicketPick } from "./types";
 import { youAnswer, youKeys } from "./you";
 
-export type DailyOversSport = Extract<BookSport, "football" | "basketball">;
-export type DailyOversScope = DailyOversSport | "all";
+export type DailyOversSport = "basketball";
 
 export type H2hTotals = {
   totals: number[];
@@ -24,7 +23,6 @@ export type DailyOverRecommendation = {
 };
 
 export type DailyOversScan = {
-  scope: DailyOversScope;
   scannedEvents: number;
   eventsWithConservativeOver: number;
   h2hVerifiedEvents: number;
@@ -80,13 +78,11 @@ function extractJson(text: string): unknown {
   return JSON.parse(fenced.slice(start, end + 1));
 }
 
-function cleanTotals(sport: DailyOversSport, values: unknown) {
+function cleanTotals(values: unknown) {
   if (!Array.isArray(values)) return [];
-  const min = sport === "football" ? 0 : 50;
-  const max = sport === "football" ? 15 : 350;
   return values
     .map((value) => Number(value))
-    .filter((value) => Number.isFinite(value) && value >= min && value <= max)
+    .filter((value) => Number.isFinite(value) && value >= 50 && value <= 350)
     .slice(0, 5);
 }
 
@@ -127,13 +123,12 @@ async function saveCache(cache: CacheRow) {
 async function researchBatch(batch: MatchGroup[]) {
   const refs = batch.map((group, index) => {
     const id = String.fromCharCode(65 + index);
-    return `${id} ${group.sport === "football" ? "F" : "B"} ${group.home} v ${group.away}`;
+    return `${id} ${group.home} v ${group.away}`;
   });
   const query = [
-    'H2H totals. JSON only {"m":[{"i":"A","t":[2,3,4]}]}.',
-    "For each match return totals from up to the last 5 completed head-to-head meetings.",
-    "F=football combined goals. B=basketball combined final points incl OT.",
-    'If fewer than 3 H2H results can be verified, use "t":[] .',
+    'Basketball H2H totals. JSON only {"m":[{"i":"A","t":[160,172,168]}]}.',
+    "For each match return the combined final points from up to the last 5 completed head-to-head meetings, including overtime where the published final score includes it.",
+    'If fewer than 3 H2H results can be verified, use "t":[] . Do not estimate or invent scores.',
     ...refs,
   ].join(" ");
 
@@ -150,7 +145,7 @@ async function researchBatch(batch: MatchGroup[]) {
     ) as { t?: unknown } | undefined;
     return {
       key: matchKey(group),
-      totals: cleanTotals(group.sport, row?.t),
+      totals: cleanTotals(row?.t),
     };
   });
 }
@@ -198,7 +193,6 @@ async function h2hForGroups(groups: MatchGroup[]) {
 }
 
 export function evaluateDailyOverPick(
-  sport: DailyOversSport,
   pick: TicketPick,
   totals: number[],
 ): DailyOverRecommendation | null {
@@ -212,13 +206,10 @@ export function evaluateDailyOverPick(
   const pushes = totals.filter((value) => value === line).length;
   const hitRate = hits / totals.length;
   const margin = average - line;
-  const minMargin = sport === "football" ? 0.5 : 5;
+  const minMargin = 5;
   if (hitRate < 0.6 || margin < minMargin) return null;
 
-  const marginScale =
-    sport === "football"
-      ? Math.min(18, Math.max(0, margin * 7))
-      : Math.min(18, Math.max(0, margin / 1.5));
+  const marginScale = Math.min(18, Math.max(0, margin / 1.5));
   const priceBonus = Math.max(0, 8 - Math.abs(odds - 1.45) * 12);
   const score = Math.round(hitRate * 72 + marginScale + priceBonus);
 
@@ -236,7 +227,7 @@ export function evaluateDailyOverPick(
 
 function bestForGroup(group: MatchGroup, totals: number[]) {
   return group.picks
-    .map((pick) => evaluateDailyOverPick(group.sport, pick, totals))
+    .map((pick) => evaluateDailyOverPick(pick, totals))
     .filter((row): row is DailyOverRecommendation => Boolean(row))
     .sort(
       (a, b) =>
@@ -246,15 +237,11 @@ function bestForGroup(group: MatchGroup, totals: number[]) {
     )[0] ?? null;
 }
 
-export async function scanDailyOvers(
-  scope: DailyOversScope = "all",
-): Promise<DailyOversScan> {
-  const sports: DailyOversSport[] =
-    scope === "all" ? ["football", "basketball"] : [scope];
-
-  const discovered = await Promise.all(
-    sports.map(async (sport) => ({ sport, result: await listDailyOverMarkets(sport) })),
-  );
+export async function scanDailyOvers(): Promise<DailyOversScan> {
+  const sport: DailyOversSport = "basketball";
+  const discovered = [
+    { sport, result: await listDailyOverMarkets("basketball") },
+  ];
 
   const warnings: string[] = [];
   const groups: MatchGroup[] = [];
@@ -313,7 +300,6 @@ export async function scanDailyOvers(
   );
 
   return {
-    scope,
     scannedEvents,
     eventsWithConservativeOver: groups.length,
     h2hVerifiedEvents: verified,
