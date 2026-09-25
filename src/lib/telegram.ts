@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { buildSlip, type BuildSlipRequest } from "./build-slip";
+import { scanDailyOvers, type DailyOversScope } from "./daily-overs";
 import { mintReviewedSlip } from "./book-slip";
 import { todayEngineCards } from "./engine";
 import { loadBookingCode } from "./sportybet";
@@ -38,6 +39,9 @@ Describe the complete slip you want in one message, or paste a SportyBet booking
 Examples:
 • Cook 5 football games today
 • Cook 5 odds basketball
+• /overs football — scan today's SportyBet totals + verified H2H
+• /overs basketball
+• /overs all
 • 2odds
 
 Use Open SlipCut for the full builder and manual review.`;
@@ -234,6 +238,93 @@ async function splitCode(chatId: number, code: string, parts: number) {
   }
 }
 
+function dailyOversScope(raw: string): DailyOversScope {
+  if (/\bbasket(?:ball)?\b|\bhoops?\b|\bnba\b/i.test(raw)) return "basketball";
+  if (/\bfootball\b|\bsoccer\b|\bfooty\b/i.test(raw)) return "football";
+  return "all";
+}
+
+function dailyOverBlock(
+  row: Awaited<ReturnType<typeof scanDailyOvers>>["recommendations"][number],
+  index: number,
+) {
+  const pick = row.pick;
+  const average =
+    pick.sport === "football" ? row.h2hAverage.toFixed(2) : row.h2hAverage.toFixed(1);
+  const hitPct = Math.round(row.h2hHitRate * 100);
+  const hits = row.h2hTotals.filter((value) => {
+    const line = Number(
+      pick.sporty?.specifier?.match(/total=([\d.]+)/)?.[1] ??
+        pick.market.match(/([\d.]+)/)?.[1] ??
+        NaN,
+    );
+    return Number.isFinite(line) && value > line;
+  }).length;
+  return [
+    `${index + 1}. ${pick.home} vs ${pick.away}`,
+    `${pick.selection} · ${pick.market} @ ${pick.odds ? formatOdds(pick.odds) : "—"}`,
+    `H2H avg total: ${average} · Over hit: ${hits}/${row.sample} (${hitPct}%)`,
+    `H2H totals: ${row.h2hTotals.join(", ")} · score ${row.score}/100`,
+    formatKickoff(pick.kickoff),
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function runDailyOvers(chatId: number, scope: DailyOversScope) {
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text:
+      scope === "all"
+        ? "Scanning today's SportyBet football + basketball totals and checking verified H2H scores…"
+        : `Scanning today's SportyBet ${scope} totals and checking verified H2H scores…`,
+  });
+
+  try {
+    const scan = await scanDailyOvers(scope);
+    const heading = [
+      `Daily Over scan · ${scope}`,
+      `SportyBet events checked: ${scan.scannedEvents}`,
+      `Events with 1.20–1.82 full-game Over lines: ${scan.eventsWithConservativeOver}`,
+      `H2H verified (3+ meetings): ${scan.h2hVerifiedEvents}`,
+      `Qualified Overs: ${scan.recommendations.length}`,
+    ];
+    if (scan.warnings.length) heading.push(...scan.warnings.map((warning) => `Note: ${warning}`));
+
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: heading.join("\n").slice(0, 3900),
+    });
+
+    if (!scan.recommendations.length) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text:
+          "No Over line passed the H2H rules today. SlipCut requires at least 3 verified H2Hs, 60%+ strict Over hits and an average-total cushion above the offered line.",
+      });
+      return;
+    }
+
+    const blocks = scan.recommendations.map(dailyOverBlock);
+    for (let offset = 0; offset < blocks.length; offset += 5) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: blocks.slice(offset, offset + 5).join("\n\n").slice(0, 3900),
+      });
+    }
+  } catch (error) {
+    console.error(
+      "[daily-overs]",
+      error instanceof Error ? error.message : "unknown error",
+    );
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text:
+        "The daily Over scan could not finish. No pick was fabricated; try again shortly.",
+    });
+  }
+}
+
 async function cookRequest(chatId: number, request: BuildSlipRequest) {
   try {
     const result = await buildSlip(request);
@@ -399,6 +490,16 @@ export async function handleTelegramUpdate(update: TgUpdate) {
     await tg("sendMessage", { chat_id: chatId, text: "Cooking Daily 2 odds…" });
     await clearTelegramDraft(String(chatId));
     await cookDaily2(chatId);
+    return;
+  }
+
+  const oversCommand =
+    /^\/overs(?:@\w+)?(?:\s+(?:football|soccer|basket(?:ball)?|all))?\s*$/i.test(raw) ||
+    /^overs(?:\s+(?:football|soccer|basket(?:ball)?|all))?\s*$/i.test(raw) ||
+    /^(?:check|scan|find)\s+(?:today'?s?\s+)?overs?(?:\s+(?:football|soccer|basket(?:ball)?|all))?\s*$/i.test(raw);
+  if (oversCommand) {
+    await clearTelegramDraft(String(chatId));
+    await runDailyOvers(chatId, dailyOversScope(raw));
     return;
   }
 
