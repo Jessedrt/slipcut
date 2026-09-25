@@ -280,9 +280,14 @@ function diversifyBasketballCandidates<T extends TicketPick>(
     const maxAllowed = Math.ceil(selected.length / 2);
     const overloaded = [...counts.entries()].find(([, count]) => count > maxAllowed)?.[0];
     if (!overloaded) break;
-    const removeAt = selected.findLastIndex(
-      (pick) => marketFamily(pick.sporty?.marketId, pick.market) === overloaded,
-    );
+    let removeAt = -1;
+    for (let index = selected.length - 1; index >= 0; index -= 1) {
+      const pick = selected[index]!;
+      if (marketFamily(pick.sporty?.marketId, pick.market) === overloaded) {
+        removeAt = index;
+        break;
+      }
+    }
     if (removeAt < 0) break;
     selected.splice(removeAt, 1);
   }
