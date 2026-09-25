@@ -1163,10 +1163,7 @@ export async function listDailyBasketballOverMarkets(): Promise<TicketPick[] | S
 
     for (const market of event.markets ?? []) {
       if (market.status !== 0) continue;
-      const isMainTotal =
-        sport === "football"
-          ? market.id === "18"
-          : market.id === "225" || market.id === "18";
+      const isMainTotal = market.id === "225" || market.id === "18";
       if (!isMainTotal) continue;
 
       for (const outcome of openOutcomes(market)) {
