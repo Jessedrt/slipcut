@@ -230,13 +230,24 @@ describe("buildSlip", () => {
   });
 
   it("builds basketball using the same service", async () => {
-    const rows = [1, 2, 3].map((id) => ({
-      ...pick(id, 1.55, "225"),
-      sport: "basketball" as const,
-      league: "Euroleague",
-      market: "Over/Under 155.5",
-      sporty: { eventId: `bb-${id}`, marketId: "225", outcomeId: "1", specifier: "total=155.5" },
-    }));
+    const rows: TicketPick[] = [
+      {
+        ...pick(1, 1.55, "225", "bb-total"),
+        sport: "basketball",
+        league: "Euroleague",
+        market: "Over/Under 155.5",
+        selection: "Over 155.5",
+        sporty: { eventId: "bb-total", marketId: "225", outcomeId: "over", specifier: "total=155.5" },
+      },
+      {
+        ...pick(2, 1.45, "219", "bb-win"),
+        sport: "basketball",
+        league: "Euroleague",
+        market: "Winner (incl. overtime)",
+        selection: "Home",
+        sporty: { eventId: "bb-win", marketId: "219", outcomeId: "home" },
+      },
+    ];
     const result = await buildSlip({ ...base, sport: "basketball", games: 2 }, deps(rows));
     assert.equal(result.ok, true);
     if (result.ok) assert.equal(result.actualGames, 2);
