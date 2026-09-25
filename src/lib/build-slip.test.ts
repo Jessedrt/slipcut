@@ -154,6 +154,81 @@ describe("buildSlip", () => {
     assert.ok(aggressiveIds.includes(teamTotal.id));
   });
 
+
+  it("does not pad a basketball card with Winner markets", async () => {
+    const rows: TicketPick[] = [];
+    for (let id = 1; id <= 6; id++) {
+      rows.push({
+        ...pick(id, 1.4 + id * 0.01, "219", `bb-win-${id}`),
+        sport: "basketball",
+        league: "Euroleague",
+        market: "Winner (incl. overtime)",
+        selection: "Home",
+        sporty: {
+          eventId: `bb-win-${id}`,
+          marketId: "219",
+          outcomeId: "home",
+        },
+      });
+    }
+    for (let id = 1; id <= 4; id++) {
+      rows.push({
+        ...pick(20 + id, 1.32 + id * 0.02, "225", `bb-ou-${id}`),
+        sport: "basketball",
+        league: "Euroleague",
+        market: "Over/Under (incl. overtime) 159.5",
+        selection: "Over 159.5",
+        sporty: {
+          eventId: `bb-ou-${id}`,
+          marketId: "225",
+          outcomeId: "over",
+          specifier: "total=159.5",
+        },
+      });
+    }
+
+    const result = await buildSlip(
+      { ...base, sport: "basketball", games: 8, risk: "conservative" },
+      deps(rows),
+    );
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+
+    const winnerCount = result.selections.filter(
+      (row) => row.sporty?.marketId === "219",
+    ).length;
+    const totalCount = result.selections.filter(
+      (row) => row.sporty?.marketId === "225",
+    ).length;
+    assert.ok(result.selections.length >= 2);
+    assert.ok(winnerCount <= Math.ceil(result.selections.length / 2));
+    assert.ok(totalCount > 0);
+  });
+
+  it("returns fewer basketball legs instead of issuing a single-family card", async () => {
+    const winners: TicketPick[] = [1, 2, 3, 4, 5].map((id) => ({
+      ...pick(id, 1.4, "219", `bb-only-${id}`),
+      sport: "basketball",
+      league: "Euroleague",
+      market: "Winner (incl. overtime)",
+      selection: "Home",
+      sporty: {
+        eventId: `bb-only-${id}`,
+        marketId: "219",
+        outcomeId: "home",
+      },
+    }));
+
+    const result = await buildSlip(
+      { ...base, sport: "basketball", games: 5, risk: "conservative" },
+      deps(winners),
+    );
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.selections.length, 1);
+    assert.match(result.notice ?? "", /market-diversity/i);
+  });
+
   it("builds basketball using the same service", async () => {
     const rows = [1, 2, 3].map((id) => ({
       ...pick(id, 1.55, "225"),
