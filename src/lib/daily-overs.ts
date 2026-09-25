@@ -1,5 +1,5 @@
 import { refreshKeys } from "./keys";
-import { listDailyOverMarkets } from "./sportybet";
+import { listDailyBasketballOverMarkets } from "./sportybet";
 import { getSetting, setSetting } from "./study";
 import type { TicketPick } from "./types";
 import { youAnswer, youKeys } from "./you";
@@ -240,7 +240,7 @@ function bestForGroup(group: MatchGroup, totals: number[]) {
 export async function scanDailyOvers(): Promise<DailyOversScan> {
   const sport: DailyOversSport = "basketball";
   const discovered = [
-    { sport, result: await listDailyOverMarkets("basketball") },
+    { sport, result: await listDailyBasketballOverMarkets() },
   ];
 
   const warnings: string[] = [];
