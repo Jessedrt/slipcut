@@ -137,6 +137,16 @@ describe("sport, window, flags", () => {
     assert.equal(corrected?.sport, "football");
     assert.equal(corrected?.targetOdds, 5);
   });
+  it("keeps high custom target odds instead of clamping them to 50", () => {
+    const request = parseChatBuildDraft("Give me 150x basketball");
+    assert.equal(request?.sport, "basketball");
+    assert.equal(request?.mode, "odds");
+    assert.equal(request?.targetOdds, 150);
+
+    const capped = parseChatBuildDraft("50000 odds football");
+    assert.equal(capped?.targetOdds, 5000);
+  });
+
   it("asks only for the missing target in a vague odds request", () => {
     const request = parseChatBuildDraft("cook odds basketball");
     assert.equal(request?.mode, "odds");
