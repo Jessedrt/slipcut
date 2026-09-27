@@ -165,11 +165,11 @@ export function validateBuildRequest(input: unknown): BuildRequestValidation {
     return { ok: true, value: { ...base, mode: "games", games } };
   }
   const targetOdds = Number(value.targetOdds);
-  if (!Number.isFinite(targetOdds) || targetOdds < 1.5 || targetOdds > 50) {
+  if (!Number.isFinite(targetOdds) || targetOdds < 1.5 || targetOdds > 5000) {
     return {
       ok: false,
       code: "invalid_request",
-      error: "Target odds must be between 1.50 and 50.00.",
+      error: "Target odds must be between 1.50 and 5000.00.",
     };
   }
   return { ok: true, value: { ...base, mode: "odds", targetOdds } };
