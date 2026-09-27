@@ -294,6 +294,7 @@ export function MiniAppRefresh() {
   const [mode, setMode] = useState<BuildMode>("games");
   const [games, setGames] = useState(5);
   const [targetOdds, setTargetOdds] = useState(5);
+  const [customOdds, setCustomOdds] = useState("");
   const [risk, setRisk] = useState<BuildRisk>("conservative");
   const [windowChoice, setWindowChoice] = useState<BuildWindow>("today");
   const [buildResult, setBuildResult] = useState<Extract<BuildSlipResult, { ok: true }> | null>(
@@ -394,6 +395,19 @@ export function MiniAppRefresh() {
 
   async function runBuild() {
     if (pending) return;
+
+    const requestedOdds =
+      mode === "odds" && customOdds.trim()
+        ? Number(customOdds.replace(",", "."))
+        : targetOdds;
+    if (
+      mode === "odds" &&
+      (!Number.isFinite(requestedOdds) || requestedOdds < 1.5 || requestedOdds > 5000)
+    ) {
+      setError("Custom target odds must be between 1.50 and 5000.00.");
+      return;
+    }
+
     clearBookingReview();
     setBuildResult(null);
     setStage(0);
@@ -403,7 +417,7 @@ export function MiniAppRefresh() {
       mode,
       risk,
       window: windowChoice,
-      ...(mode === "games" ? { games } : { targetOdds }),
+      ...(mode === "games" ? { games } : { targetOdds: requestedOdds }),
     };
     try {
       const result = await api<BuildSlipResult>("/api/miniapp/build", {
@@ -841,13 +855,41 @@ export function MiniAppRefresh() {
                         <button
                           key={odds}
                           type="button"
-                          onClick={() => setTargetOdds(odds)}
-                          className={`min-h-10 rounded-lg text-xs font-bold ${targetOdds === odds ? "bg-[#e1b678] text-[#21170e]" : "bg-[#15120e] text-[#bba98f]"}`}
+                          onClick={() => {
+                            setTargetOdds(odds);
+                            setCustomOdds("");
+                          }}
+                          className={`min-h-10 rounded-lg text-xs font-bold ${!customOdds.trim() && targetOdds === odds ? "bg-[#e1b678] text-[#21170e]" : "bg-[#15120e] text-[#bba98f]"}`}
                         >
                           {odds.toFixed(2)}
                         </button>
                       ))}
                     </div>
+                    <label className="mt-2 block text-xs font-bold text-[#5f4635]">
+                      Custom odds
+                      <div className="relative mt-2">
+                        <input
+                          aria-label="Custom target odds"
+                          inputMode="decimal"
+                          type="text"
+                          value={customOdds}
+                          onChange={(event) => {
+                            const next = event.target.value
+                              .replace(/[^0-9.,]/g, "")
+                              .replace(",", ".");
+                            setCustomOdds(next);
+                          }}
+                          placeholder="e.g. 50, 150, 500"
+                          className={field}
+                        />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[#8b6d57]">
+                          ×
+                        </span>
+                      </div>
+                      <span className="mt-1 block text-[10px] font-medium leading-4 text-[#8b7563]">
+                        Any target from 1.50 to 5000. SlipCut will return the strongest eligible card it can build and tell you if the target was not reached.
+                      </span>
+                    </label>
                   </div>
                 )}
                 <div>
