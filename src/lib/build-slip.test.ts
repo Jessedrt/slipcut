@@ -256,6 +256,27 @@ describe("buildSlip", () => {
     }
   });
 
+  it("accepts custom target odds above 50", () => {
+    const valid = validateBuildRequest({
+      sport: "basketball",
+      mode: "odds",
+      targetOdds: 150,
+      risk: "conservative",
+      window: "today",
+    });
+    assert.equal(valid.ok, true);
+    if (valid.ok) assert.equal(valid.value.targetOdds, 150);
+
+    const tooHigh = validateBuildRequest({
+      sport: "football",
+      mode: "odds",
+      targetOdds: 5001,
+      risk: "conservative",
+      window: "today",
+    });
+    assert.equal(tooHigh.ok, false);
+  });
+
   it("builds toward target odds without adding unsupported legs", async () => {
     const result = await buildSlip(
       { ...base, mode: "odds", targetOdds: 3 },
