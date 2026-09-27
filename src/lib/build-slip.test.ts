@@ -300,6 +300,59 @@ describe("buildSlip", () => {
   });
 
 
+  it("never uses football Unders or straight 1X2 winners in any risk mode", async () => {
+    const straightHome: TicketPick = {
+      ...pick(1, 1.45, "1", "fb-home"),
+      market: "1X2",
+      selection: "Home",
+      sporty: { eventId: "fb-home", marketId: "1", outcomeId: "home" },
+    };
+    const under: TicketPick = {
+      ...pick(2, 1.42, "18", "fb-under"),
+      market: "Over/Under 2.5",
+      selection: "Under 2.5",
+      sporty: {
+        eventId: "fb-under",
+        marketId: "18",
+        outcomeId: "under",
+        specifier: "total=2.5",
+      },
+    };
+    const over: TicketPick = {
+      ...pick(3, 1.38, "18", "fb-over"),
+      market: "Over/Under 1.5",
+      selection: "Over 1.5",
+      sporty: {
+        eventId: "fb-over",
+        marketId: "18",
+        outcomeId: "over",
+        specifier: "total=1.5",
+      },
+    };
+    const doubleChance: TicketPick = {
+      ...pick(4, 1.3, "10", "fb-dc"),
+      market: "Double Chance",
+      selection: "Home or Draw",
+      sporty: {
+        eventId: "fb-dc",
+        marketId: "10",
+        outcomeId: "1x",
+      },
+    };
+
+    for (const risk of ["conservative", "balanced", "aggressive"] as const) {
+      const result = await buildSlip(
+        { ...base, games: 2, risk },
+        deps([straightHome, under, over, doubleChance]),
+      );
+      assert.equal(result.ok, true);
+      if (!result.ok) continue;
+      assert.ok(result.selections.every((row) => row.sporty?.marketId !== "1"));
+      assert.ok(result.selections.every((row) => !/\bunder\b/i.test(row.selection)));
+      assert.ok(result.selections.some((row) => /over/i.test(row.selection) || row.sporty?.marketId === "10"));
+    }
+  });
+
   it("uses 1.20 as the conservative minimum odds", async () => {
     assert.equal(RISK_POLICIES.conservative.minOdds, 1.2);
     const allowed = await buildSlip(
