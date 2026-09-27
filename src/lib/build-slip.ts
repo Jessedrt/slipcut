@@ -188,6 +188,10 @@ function allowedFamily(pick: TicketPick, risk: BuildRisk) {
     return ["ou", "hcp", "teamou", "ou1h"].includes(family);
   }
 
+  // Football never uses straight 1X2 Home/Away winners or Under selections.
+  // Keep this guard here even though discovery also excludes them so future
+  // adapters/providers cannot re-introduce those picks downstream.
+  if (family === "win" || /\bunder\b/i.test(pick.selection ?? "")) return false;
   if (risk === "aggressive") return family !== "odd";
   const conservative = new Set(["dc", "dnb", "ou", "ou1h", "teamou", "corners"]);
   const balanced = new Set([...conservative, "gg"]);
