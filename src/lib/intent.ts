@@ -126,7 +126,7 @@ export function parseChatBuildDraft(text: string, prior: ChatBuildDraft = {}): C
   }
   if (targetOdds != null || (prior.mode === "odds" && bareNumber)) {
     draft.mode = "odds";
-    draft.targetOdds = Math.min(50, Math.max(1.5, targetOdds ?? Number(bareNumber)));
+    draft.targetOdds = clampOddsTarget(targetOdds ?? Number(bareNumber));
     delete draft.games;
   } else if (games != null || (prior.mode === "games" && bareNumber)) {
     draft.mode = "games";
