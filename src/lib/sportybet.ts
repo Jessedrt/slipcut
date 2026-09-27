@@ -494,9 +494,7 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
     return total != null && total >= min && total <= max;
   };
 
-  // Keep 1X2 in the event pool for favourite/context scoring. Risk policy still
-  // decides whether a straight win can ever become a final selection.
-  pull((m) => m.id === "1");
+  // Straight 1X2 Home/Away winners are intentionally excluded.
   pull((m) => m.id === "10");
   pull((m) => m.id === "11");
   pull((m) => m.id === "63" || /1st half.*double chance/i.test(m.desc ?? ""));
@@ -507,23 +505,26 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
   pull((m) => m.id === "64" || /1st half.*(?:gg|both teams to score)/i.test(m.desc ?? ""));
 
   // Do not collapse totals to one hard-coded line. Give the reviewer several
-  // full-time, half-time and team-total lines, including both Over and Under.
-  pull((m) => m.id === "18" && totalBetween(m, 1.5, 4.5));
-  pull((m) => m.id === "68" && totalBetween(m, 1, 2.5));
+  // full-time, half-time and team-total Over lines only; Unders are excluded.
+  pull((m) => m.id === "18" && totalBetween(m, 1.5, 4.5), true);
+  pull((m) => m.id === "68" && totalBetween(m, 1, 2.5), true);
   pull(
     (m) =>
       (m.id === "62" || /2nd half.*over\/under/i.test(m.desc ?? "")) &&
       totalBetween(m, 1, 2.5),
+    true,
   );
   pull(
     (m) =>
       (m.id === "23" || m.id === "24" || m.id === "227" || m.id === "228") &&
       totalBetween(m, 0.5, 2.5),
+    true,
   );
   pull(
     (m) =>
       (m.id === "69" || m.id === "70") &&
       totalBetween(m, 0.5, 2),
+    true,
   );
 
   // Compare a wider set of corner lines instead of only four preset overs.
@@ -532,6 +533,7 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
       /corner/i.test(m.desc ?? "") &&
       /over\/under|total/i.test(m.desc ?? "") &&
       totalBetween(m, 6.5, 13.5),
+    true,
   );
   return picks;
 }
@@ -737,6 +739,7 @@ export function cookablePick(p: TicketPick) {
   const over = /over/i.test(p.selection ?? "");
   if (p.sport === "football") {
     if (fam === "win" || fam === "hcp" || fam === "odd") return false;
+    if (/\bunder\b/i.test(p.selection ?? "")) return false;
     if (over && fam === "ou1h" && (line === 0.5 || line === 1)) return false;
     if (over && (fam === "teamou" || p.sporty.marketId === "69" || p.sporty.marketId === "70") && (line === 0.5 || line === 1)) return false;
     if (over && /2nd half|2h |second half/.test(label) && (line === 0.5 || line === 1)) return false;
