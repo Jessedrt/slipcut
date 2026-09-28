@@ -41,33 +41,47 @@ export function formatOdds(n: number) {
   return `${n.toFixed(2)}×`;
 }
 
-export function buildToOdds<T extends { odds?: number }>(picks: T[], target: number): T[] {
-  const cap = Math.max(1.2, Math.min(1000, target));
+export function buildToOdds<T extends { odds?: number; modelScore?: number; probability?: number }>(picks: T[], target: number): T[] {
+  const cap = Math.max(1.2, Math.min(5000, target));
   const pool = picks
     .filter((p) => p.odds && p.odds > 1.08 && p.odds < 8)
-    .slice()
-    .sort((a, b) => (a.odds as number) - (b.odds as number));
-  const kept: T[] = [];
-  let prod = 1;
-  for (const pick of pool) {
-    const o = pick.odds as number;
-    const next = prod * o;
-    if (kept.length && next > cap * 1.25) continue;
-    kept.push(pick);
-    prod = next;
-    if (prod >= cap * 0.95) break;
-  }
-  if (prod < cap * 0.9) {
-    for (const pick of pool) {
-      if (kept.includes(pick)) continue;
-      const o = pick.odds as number;
-      if (!o) continue;
-      kept.push(pick);
-      prod *= o;
-      if (prod >= cap * 0.95) break;
+    .slice(0, 24);
+  if (!pool.length) return [];
+
+  type State = { indexes: number[]; product: number; strength: number };
+  const closeness = (product: number) => Math.abs(Math.log(product / cap));
+  let states: State[] = [{ indexes: [], product: 1, strength: 0 }];
+  for (let index = 0; index < pool.length; index++) {
+    const pick = pool[index]!;
+    const odds = pick.odds!;
+    const score = Number.isFinite(pick.modelScore) ? pick.modelScore! :
+      Number.isFinite(pick.probability) ? pick.probability! : 50;
+    const next = states.slice();
+    for (const state of states) {
+      if (state.indexes.length >= 15) continue;
+      const product = state.product * odds;
+      // Keep some overshoot options for close targets, but avoid explosive
+      // combinations crowding out a better just-below-target card.
+      if (state.indexes.length && product > cap * 1.25) continue;
+      next.push({ indexes: [...state.indexes, index], product, strength: state.strength + score });
     }
+    next.sort((a, b) => {
+      const distance = closeness(a.product) - closeness(b.product);
+      if (Math.abs(distance) > 0.005) return distance;
+      const avgA = a.indexes.length ? a.strength / a.indexes.length : 0;
+      const avgB = b.indexes.length ? b.strength / b.indexes.length : 0;
+      return avgB - avgA || a.indexes.length - b.indexes.length;
+    });
+    states = next.slice(0, 6000);
   }
-  return kept;
+  const best = states.filter((state) => state.indexes.length).sort((a, b) => {
+    const distance = closeness(a.product) - closeness(b.product);
+    if (Math.abs(distance) > 0.005) return distance;
+    const avgA = a.strength / a.indexes.length;
+    const avgB = b.strength / b.indexes.length;
+    return avgB - avgA || a.indexes.length - b.indexes.length;
+  })[0];
+  return best ? best.indexes.map((index) => pool[index]!) : [];
 }
 
 export function formatEv(n: number) {

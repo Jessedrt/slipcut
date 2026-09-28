@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { combinedOdds, parseCommand, riskTrimToOdds, trimToOdds } from "./workbench";
+import { buildToOdds, combinedOdds, parseCommand, riskTrimToOdds, trimToOdds } from "./workbench";
 import type { AnalyzedPick } from "./types";
 
 function pick(id: string, odds: number, probability: number): AnalyzedPick {
@@ -41,6 +41,19 @@ test("500x target reaches or gets close instead of collapsing far below target",
   assert.ok(odds !== null);
   assert.ok(odds >= 450, `expected >= 450x, received ${odds}x`);
   assert.ok(odds <= 675, `expected <= 675x, received ${odds}x`);
+});
+
+test("target builder supports 5000 and returns the closest attainable card", () => {
+  const rows = Array.from({ length: 15 }, (_, i) => pick(`high-${i}`, 2, 70 - i));
+  const selected = buildToOdds(rows, 5000);
+  const odds = combinedOdds(selected);
+  assert.equal(selected.length, 12);
+  assert.equal(odds, 4096);
+});
+
+test("target builder returns all available unique candidates when the target cannot be reached", () => {
+  const rows = [pick("a", 1.53, 70)];
+  assert.deepEqual(buildToOdds(rows, 500), rows);
 });
 
 test("natural-language target commands parse correctly", () => {

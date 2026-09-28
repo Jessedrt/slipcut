@@ -62,6 +62,7 @@ export type AnalysisDiagnostics = {
     belowHistoricalAverage: number;
   };
   selected: number;
+  qualifiedGames: number;
 };
 
 export type BuildSlipSuccess = {
@@ -314,7 +315,7 @@ function buildBasketballToOdds<T extends TicketPick>(
   const pool = diversifyBasketballCandidates(ranked, 15);
   if (!pool.length) return [];
 
-  const requested = Math.max(1.5, Math.min(50, target));
+  const requested = Math.max(1.5, Math.min(5000, target));
   const kept: T[] = [];
   let product = 1;
   for (const pick of pool) {
@@ -385,7 +386,8 @@ export async function buildSlip(
       notReviewedByAI: 0,
       belowHistoricalAverage: 0,
     },
-    selected: 0,
+      selected: 0,
+      qualifiedGames: 0,
   };
   const eligible = discovered.filter((pick) => {
     const odds = pick.odds ?? 0;
@@ -523,6 +525,7 @@ export async function buildSlip(
     })
     .sort((a, b) => b.modelScore - a.modelScore || (a.odds ?? 99) - (b.odds ?? 99));
   const deduped = uniqueEvents(ranked).picks;
+  analysis.qualifiedGames = deduped.length;
   analysis.rejected.duplicateEvents = ranked.length - deduped.length;
   if (!deduped.length) {
     console.info(
@@ -568,7 +571,7 @@ export async function buildSlip(
   const shortNotice = short
     ? request.mode === "games"
       ? `${request.games} games were requested, but only ${selections.length} passed the analysis rules.`
-      : `The eligible selections reached ${actualCombinedOdds?.toFixed(2) ?? "unknown"} odds, below the requested ${(request.targetOdds ?? 0).toFixed(2)}. No unsupported leg was added.`
+      : `Only ${deduped.length} distinct game${deduped.length === 1 ? "" : "s"} passed SlipCut's market and AI review rules. Their strongest eligible card reached ${actualCombinedOdds?.toFixed(2) ?? "unknown"} odds, below your ${(request.targetOdds ?? 0).toFixed(2)} target. Try Upcoming for more fixtures; SlipCut did not add unsupported games.`
     : undefined;
   const fallbackNotice = analysis.researchFallbackUsed
     ? "Live AI providers were temporarily unavailable, so SlipCut used its internal market-risk fallback for this build."

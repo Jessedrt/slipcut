@@ -296,7 +296,17 @@ describe("buildSlip", () => {
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.equal(result.targetReached, false);
-    assert.match(result.notice ?? "", /No unsupported leg was added/);
+    assert.match(result.notice ?? "", /did not add unsupported games/);
+  });
+
+  it("explains when one reviewed game cannot reach a large target", async () => {
+    const result = await buildSlip({ ...base, mode: "odds", targetOdds: 500 }, deps([pick(1, 1.53)]));
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.actualCombinedOdds, 1.53);
+    assert.equal(result.analysis.qualifiedGames, 1);
+    assert.match(result.notice ?? "", /Only 1 distinct game/);
+    assert.match(result.notice ?? "", /Try Upcoming/);
   });
 
 
