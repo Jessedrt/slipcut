@@ -398,16 +398,20 @@ export function marketFamily(
     return "hcp";
   if (
     id === "68" ||
-    (id === "236" && d.includes("1st")) ||
-    (id !== "69" &&
-      id !== "70" &&
-      d.includes("1st half") &&
+    id === "236" ||
+    ((d.includes("half") || d.includes("quarter") || /\bq[1-4]\b/.test(d)) &&
       (d.includes("over") || d.includes("total")) &&
-      !d.includes("home") &&
-      !d.includes("away"))
+      !/home total|away total|team total/i.test(d))
   )
     return "ou1h";
-  if (id === "227" || id === "228" || id === "69" || id === "70") return "teamou";
+  if (
+    id === "227" ||
+    id === "228" ||
+    id === "69" ||
+    id === "70" ||
+    /home total|away total|team total|individual total/i.test(d)
+  )
+    return "teamou";
   if (id === "8" || d.includes("odd/even") || d.includes("odd or even")) return "odd";
   if (id === "166" || id === "90" || d.includes("corner")) return "corners";
   if (id === "29" || id === "64" || d.includes("gg/ng") || d.includes("both teams to score")) return "gg";
