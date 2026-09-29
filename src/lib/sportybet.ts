@@ -215,8 +215,11 @@ function isStrongLeague(sport: BookSport, name: string) {
   if (sport === "basketball") return BASKETBALL_LEAGUES.test(n) && !WEAK_BASKETBALL_LEAGUE.test(n);
   if (sport === "tennis") return TENNIS_LEAGUES.test(n);
   if (sport === "handball") return HANDBALL_LEAGUES.test(n);
-  if (FOOTBALL_JUNK.test(n)) return false;
-  return FOOTBALL_LEAGUES.test(n) || isChampionsLeague(name);
+
+  // Football now intentionally accepts every real SportyBet competition.
+  // The previous "strong league" allow-list was dropping valid international
+  // qualifiers/cups and could reject every fixture in a requested day.
+  return true;
 }
 
 type EventMarket = {
