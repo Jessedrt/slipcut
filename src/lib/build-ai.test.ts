@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseBuildAIReviews, selectExistingAIScores } from "./build-ai.ts";
+import { buildReviewInstruction, parseBuildAIReviews, selectExistingAIScores } from "./build-ai.ts";
 import type { TicketPick } from "./types.ts";
 import { compactYouAnswerQuery } from "./you.ts";
 
@@ -14,6 +14,41 @@ const option = (id: string, eventId: string): TicketPick => ({
   selection: "Home or Draw",
   odds: 1.5,
   sporty: { eventId, marketId: "10", outcomeId: "1" },
+});
+
+describe("risk-aware AI review instructions", () => {
+  it("puts the basketball Conservative rules into the provider prompt", () => {
+    const prompt = buildReviewInstruction({
+      sport: "basketball",
+      risk: "conservative",
+      minModelScore: 62,
+      minOdds: 1.2,
+      maxOdds: 1.82,
+    });
+    assert.match(prompt, /CONSERVATIVE/);
+    assert.match(prompt, /full-game match Overs/i);
+    assert.match(prompt, /team full-game Overs/i);
+    assert.match(prompt, /match half Overs/i);
+    assert.match(prompt, /Do NOT choose individual\/team half Overs or any quarter Over/i);
+    assert.match(prompt, /62\+/);
+    assert.match(prompt, /1\.20–1\.82/);
+  });
+
+  it("puts the basketball Balanced rules into the provider prompt", () => {
+    const prompt = buildReviewInstruction({
+      sport: "basketball",
+      risk: "balanced",
+      minModelScore: 54,
+      minOdds: 1.16,
+      maxOdds: 2.2,
+    });
+    assert.match(prompt, /BALANCED/);
+    assert.match(prompt, /individual\/team half Overs/i);
+    assert.match(prompt, /quarter Overs/i);
+    assert.match(prompt, /individual\/team quarter Overs/i);
+    assert.match(prompt, /54\+/);
+    assert.match(prompt, /1\.16–2\.20/);
+  });
 });
 
 describe("required AI market review", () => {
