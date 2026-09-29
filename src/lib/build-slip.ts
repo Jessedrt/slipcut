@@ -234,8 +234,6 @@ export function validateBuildRequest(input: unknown): BuildRequestValidation {
 }
 
 function allowedFamily(pick: TicketPick, risk: BuildRisk) {
-  const family = marketFamily(pick.sporty?.marketId, pick.market);
-
   if (pick.sport === "basketball") {
     const kind = basketballOverKind(pick);
     if (!kind) return false;
