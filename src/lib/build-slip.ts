@@ -302,11 +302,37 @@ function diversifyBasketballCandidates<T extends TicketPick>(
   return selected;
 }
 
-function buildBasketballToOdds<T extends TicketPick>(
+const MAX_TARGET_LEGS = 42;
+
+function targetLegBudget(target: number, policy: RiskPolicy) {
+  const requested = Math.max(1.5, Math.min(5000, target));
+  const floor = Math.max(1.02, policy.minOdds);
+  const worstCaseLegs = Math.ceil(Math.log(requested) / Math.log(floor));
+  return Math.min(MAX_TARGET_LEGS, Math.max(15, worstCaseLegs + 2));
+}
+
+function basketballTargetRank<T extends TicketPick & { modelScore?: number }>(
+  ranked: T[],
+  risk: BuildRisk,
+) {
+  const oddsWeight = risk === "conservative" ? 2 : risk === "balanced" ? 9 : 16;
+  return [...ranked].sort((a, b) => {
+    const aOdds = Math.max(1.01, a.odds ?? 1.01);
+    const bOdds = Math.max(1.01, b.odds ?? 1.01);
+    const aScore = (a.modelScore ?? 0) + oddsWeight * Math.log(aOdds);
+    const bScore = (b.modelScore ?? 0) + oddsWeight * Math.log(bOdds);
+    return bScore - aScore || (b.modelScore ?? 0) - (a.modelScore ?? 0);
+  });
+}
+
+function buildBasketballToOdds<T extends TicketPick & { modelScore?: number }>(
   ranked: T[],
   target: number,
+  risk: BuildRisk,
+  limit: number,
 ): T[] {
-  const pool = diversifyBasketballCandidates(ranked, 15);
+  const riskRanked = basketballTargetRank(ranked, risk);
+  const pool = diversifyBasketballCandidates(riskRanked, limit);
   if (!pool.length) return [];
 
   const requested = Math.max(1.5, Math.min(5000, target));
@@ -317,7 +343,7 @@ function buildBasketballToOdds<T extends TicketPick>(
     if (!Number.isFinite(odds) || odds <= 1) continue;
     kept.push(pick);
     product *= odds;
-    if (product >= requested * 0.95) break;
+    if (product >= requested) break;
   }
   return kept;
 }
@@ -359,8 +385,13 @@ export async function buildSlip(
   if (!validated.ok) return validated;
   const request = validated.value;
   const policy = RISK_POLICIES[request.risk];
-  const requestedCount = request.mode === "games" ? (request.games ?? 5) : 15;
-  const discoveryLimit = Math.min(42, Math.max(20, requestedCount * 3));
+  const targetBudget =
+    request.mode === "odds"
+      ? targetLegBudget(request.targetOdds ?? 2, policy)
+      : null;
+  const requestedCount =
+    request.mode === "games" ? (request.games ?? 5) : (targetBudget ?? 15);
+  const discoveryLimit = Math.min(42, Math.max(20, requestedCount * 2));
   const discovered = await dependencies.discover(request.sport, discoveryLimit, request.window);
   if (isFailure(discovered)) return { ok: false, ...discovered };
 
@@ -447,7 +478,10 @@ export async function buildSlip(
     options.push(pick);
     byEvent.set(key, options);
   }
-  const maxGamesToReview = Math.min(24, Math.max(12, requestedCount + 8));
+  const maxGamesToReview = Math.min(
+    request.mode === "odds" ? 42 : 24,
+    Math.max(12, requestedCount + 6),
+  );
   const maxOptionsPerEvent = 8;
   const candidatePool = [...byEvent.values()]
     .sort((a, b) => Math.max(...b.map(deskScore)) - Math.max(...a.map(deskScore)))
@@ -544,22 +578,27 @@ export async function buildSlip(
     };
   }
 
+  const selectionLimit =
+    request.mode === "games" ? (request.games ?? 5) : (targetBudget ?? 15);
   const diversified =
     request.sport === "basketball"
-      ? diversifyBasketballCandidates(
-          deduped,
-          request.mode === "games" ? (request.games ?? 5) : 15,
-        )
+      ? diversifyBasketballCandidates(deduped, selectionLimit)
       : deduped;
   const diversityLimited =
-    request.sport === "basketball" && diversified.length < Math.min(deduped.length, 15);
+    request.sport === "basketball" &&
+    diversified.length < Math.min(deduped.length, selectionLimit);
 
   const selections =
     request.mode === "games"
       ? diversified.slice(0, request.games)
       : request.sport === "basketball"
-        ? buildBasketballToOdds(deduped, request.targetOdds ?? 2).slice(0, 15)
-        : buildToOdds(deduped, request.targetOdds ?? 2).slice(0, 15);
+        ? buildBasketballToOdds(
+            deduped,
+            request.targetOdds ?? 2,
+            request.risk,
+            selectionLimit,
+          )
+        : buildToOdds(deduped, request.targetOdds ?? 2).slice(0, selectionLimit);
   const actualCombinedOdds = combinedOdds(selections);
   const targetReached =
     request.mode === "odds" && actualCombinedOdds !== null
@@ -570,7 +609,7 @@ export async function buildSlip(
   const shortNotice = short
     ? request.mode === "games"
       ? `${request.games} games were requested, but only ${selections.length} passed the analysis rules.`
-      : `Only ${deduped.length} distinct game${deduped.length === 1 ? "" : "s"} passed SlipCut's market and AI review rules. Their strongest eligible card reached ${actualCombinedOdds?.toFixed(2) ?? "unknown"} odds, below your ${(request.targetOdds ?? 0).toFixed(2)} target. Try Upcoming for more fixtures; SlipCut did not add unsupported games.`
+      : `Only ${deduped.length} distinct game${deduped.length === 1 ? "" : "s"} passed SlipCut's ${policy.label.toLowerCase()} market and AI review rules. SlipCut used up to ${selectionLimit} qualified legs and reached ${actualCombinedOdds?.toFixed(2) ?? "unknown"} odds, below your ${(request.targetOdds ?? 0).toFixed(2)} target. Try Upcoming or a wider risk mode for more eligible fixtures; unsupported games were not added.`
     : undefined;
   const fallbackNotice = analysis.researchFallbackUsed
     ? "Live AI providers were temporarily unavailable, so SlipCut used its internal market-risk fallback for this build."
