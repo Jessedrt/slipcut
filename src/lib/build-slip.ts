@@ -584,7 +584,15 @@ export async function buildSlip(
     });
   analysis.marketOptionsReviewed = candidatePool.length;
   const reviewResult = await reviewWithin(
-    Promise.resolve().then(() => dependencies.review(candidatePool)),
+    Promise.resolve().then(() =>
+      dependencies.review(candidatePool, {
+        sport: request.sport,
+        risk: request.risk,
+        minModelScore: policy.minModelScore,
+        minOdds: policy.minOdds,
+        maxOdds: policy.maxOdds,
+      }),
+    ),
     dependencies.analysisTimeoutMs ?? 38_000,
   );
   const aiReview = reviewResult.value;
