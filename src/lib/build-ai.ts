@@ -186,23 +186,36 @@ async function reviewWithYou(groups: TicketPick[][]): Promise<ReviewedMarket[]> 
   const rows = await Promise.all(
     groups.map(async (options) => {
       const first = options[0]!;
-      const choices = options
-        .slice(0, 8)
-        .map(
-          (pick, index) =>
-            `${index + 1})${compact(pick.market, 12)}>${compact(pick.selection, 8)}@${pick.odds?.toFixed(2) ?? "?"}`,
-        )
-        .join(";");
-      const query =
-        `Game ${compact(first.home, 14)} v ${compact(first.away, 14)}. ` +
-        `Pick one option or omit; compare all options and do not default to Over or team totals. Score 0-100 ranking. ${choices}. ` +
-        'JSON {"games":[{"g":1,"o":1,"score":65,"summary":"why"}]}';
-      try {
-        const answer = await youAnswer(query, 9_000);
-        return parseBuildAIReviews(answer, [options]);
-      } catch {
-        return [];
+      const chunks: TicketPick[][] = [];
+      for (let index = 0; index < options.length; index += 8) {
+        chunks.push(options.slice(index, index + 8));
       }
+
+      const chunkReviews = await Promise.all(
+        chunks.map(async (chunk) => {
+          const choices = chunk
+            .map(
+              (pick, index) =>
+                `${index + 1})${compact(pick.market, 12)}>${compact(pick.selection, 8)}@${pick.odds?.toFixed(2) ?? "?"}`,
+            )
+            .join(";");
+          const query =
+            `Game ${compact(first.home, 14)} v ${compact(first.away, 14)}. ` +
+            `Pick one option or omit; compare all supplied options. Score 0-100 ranking. ${choices}. ` +
+            'JSON {"games":[{"g":1,"o":1,"score":65,"summary":"why"}]}';
+          try {
+            const answer = await youAnswer(query, 9_000);
+            return parseBuildAIReviews(answer, [chunk]);
+          } catch {
+            return [];
+          }
+        }),
+      );
+
+      const best = chunkReviews
+        .flat()
+        .sort((a, b) => b.score - a.score)[0];
+      return best ? [best] : [];
     }),
   );
   return rows.flat();
@@ -224,7 +237,7 @@ async function reviewBatch(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
     })),
   }));
   const system =
-    'Review each game and its offered SportyBet markets. Choose AT MOST one numbered option (o) for each numbered game (g), or omit the game. Compare every supplied option before choosing. For basketball, do not default to Over or to team/period totals just because the price is short; compare Under, winner and handicap alternatives too, and prefer full-game markets when evidence is otherwise similar. Score 0-100 is an uncalibrated ranking, NOT win probability. Only use the supplied fixtures, markets and odds; do not invent form, injuries, lineups, results or sources. State brief market/odds reasoning and a concrete risk. Return ONLY JSON {"games":[{"g":1,"o":2,"score":65,"summary":"brief market comparison","reasons":["reason"],"risks":["risk"]}]}';
+    'Review each game and its offered SportyBet markets. Choose AT MOST one numbered option (o) for each numbered game (g), or omit the game. Compare every supplied option before choosing. For football, the supplied list may contain a broad mix of SportyBet markets; compare them instead of defaulting to one familiar family. For basketball, compare the supplied totals/handicap choices rather than inventing unsupported winner markets. Score 0-100 is an uncalibrated ranking, NOT win probability. Only use the supplied fixtures, markets and odds; do not invent form, injuries, lineups, results or sources. State brief market/odds reasoning and a concrete risk. Return ONLY JSON {"games":[{"g":1,"o":2,"score":65,"summary":"brief market comparison","reasons":["reason"],"risks":["risk"]}]}';
   const user = JSON.stringify(games);
   const engines: Array<{ name: string; run: () => Promise<string> }> = [];
   if (geminiKeys().length)
