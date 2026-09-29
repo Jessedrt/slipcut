@@ -364,6 +364,118 @@ describe("buildSlip", () => {
     assert.equal(tooHigh.ok, false);
   });
 
+  it("lets basketball target-odds builds go beyond 15 legs to reach 50x", async () => {
+    const rows: TicketPick[] = Array.from({ length: 30 }, (_, index) => {
+      const id = index + 1;
+      return {
+        id: `bb-target-${id}`,
+        sport: "basketball",
+        league: "Euroleague",
+        country: "Europe",
+        home: `BB Home ${id}`,
+        away: `BB Away ${id}`,
+        market: "Over/Under (incl. overtime) 160.5",
+        selection: "Over 160.5",
+        odds: 1.25,
+        kickoff: Date.now() + (id + 2) * 3_600_000,
+        sporty: {
+          eventId: `bb-target-event-${id}`,
+          marketId: "225",
+          outcomeId: "over",
+          specifier: "total=160.5",
+        },
+      };
+    });
+
+    const result = await buildSlip(
+      {
+        sport: "basketball",
+        mode: "odds",
+        targetOdds: 50,
+        risk: "balanced",
+        window: "upcoming",
+      },
+      deps(rows),
+    );
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.targetReached, true);
+    assert.ok((result.actualCombinedOdds ?? 0) >= 50);
+    assert.ok(result.actualGames > 15);
+    assert.ok(result.selections.every((row) => row.sporty?.marketId === "225"));
+  });
+
+  it("makes basketball risk mode materially change the eligible price range", async () => {
+    const rows: TicketPick[] = [
+      {
+        id: "bb-safe",
+        sport: "basketball",
+        league: "Euroleague",
+        home: "Safe Home",
+        away: "Safe Away",
+        market: "Over/Under (incl. overtime) 160.5",
+        selection: "Over 160.5",
+        odds: 1.6,
+        kickoff: Date.now() + 3_600_000,
+        sporty: {
+          eventId: "bb-safe-event",
+          marketId: "225",
+          outcomeId: "over",
+          specifier: "total=160.5",
+        },
+      },
+      {
+        id: "bb-wide",
+        sport: "basketball",
+        league: "Euroleague",
+        home: "Wide Home",
+        away: "Wide Away",
+        market: "Over/Under (incl. overtime) 166.5",
+        selection: "Over 166.5",
+        odds: 2.4,
+        kickoff: Date.now() + 4_000_000,
+        sporty: {
+          eventId: "bb-wide-event",
+          marketId: "225",
+          outcomeId: "over",
+          specifier: "total=166.5",
+        },
+      },
+    ];
+
+    const balanced = await buildSlip(
+      {
+        sport: "basketball",
+        mode: "odds",
+        targetOdds: 2,
+        risk: "balanced",
+        window: "upcoming",
+      },
+      deps(rows),
+    );
+    assert.equal(balanced.ok, true);
+    if (balanced.ok) {
+      assert.ok(balanced.selections.every((row) => (row.odds ?? 0) <= 2.2));
+      assert.ok(balanced.analysis.rejected.outsideRiskOdds >= 1);
+    }
+
+    const aggressive = await buildSlip(
+      {
+        sport: "basketball",
+        mode: "odds",
+        targetOdds: 2,
+        risk: "aggressive",
+        window: "upcoming",
+      },
+      deps(rows),
+    );
+    assert.equal(aggressive.ok, true);
+    if (aggressive.ok) {
+      assert.ok(aggressive.selections.some((row) => (row.odds ?? 0) > 2.2));
+    }
+  });
+
   it("builds toward target odds without adding unsupported legs", async () => {
     const result = await buildSlip(
       { ...base, mode: "odds", targetOdds: 3 },
@@ -383,7 +495,7 @@ describe("buildSlip", () => {
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.equal(result.targetReached, false);
-    assert.match(result.notice ?? "", /did not add unsupported games/);
+    assert.match(result.notice ?? "", /unsupported games were not added/);
   });
 
   it("explains when one reviewed game cannot reach a large target", async () => {

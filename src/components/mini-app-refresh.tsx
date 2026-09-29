@@ -905,7 +905,12 @@ export function MiniAppRefresh() {
                     ]}
                   />
                   <p className="mt-2 text-[11px] leading-4 text-[#7f6b5b]">
-                    Changes score, odds and market-family limits. It is not a safety guarantee.
+                    {risk === "conservative"
+                      ? "Conservative: 1.20–1.82 odds · model score 62+ · shorter qualifying prices preferred."
+                      : risk === "balanced"
+                        ? "Balanced: 1.16–2.20 odds · model score 54+ · target builds can use moderately higher qualifying prices."
+                        : "Aggressive: 1.16–2.75 odds · model score 45+ · wider qualifying price range and higher variance."}
+                    {" "}It is not a safety guarantee.
                   </p>
                 </div>
                 <div>
