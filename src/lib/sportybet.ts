@@ -661,30 +661,65 @@ function pushMarket(
   }
 }
 
+export function basketballOptionAllowed(pick: TicketPick): boolean {
+  const marketId = pick.sporty?.marketId ?? "";
+  const market = (pick.market ?? "").toLowerCase();
+  const selection = (pick.selection ?? "").toLowerCase();
+  const specifier = (pick.sporty?.specifier ?? "").toLowerCase();
+
+  // Basketball is Over-only.
+  if (!/\bover\b/i.test(selection) || /\bunder\b/i.test(selection)) return false;
+
+  // Only total-score markets are allowed: full game, team/individual team,
+  // halves and quarters. Winners, handicaps, odd/even, margins, races, etc.
+  // are deliberately excluded.
+  const looksLikeTotal =
+    /over\s*\/\s*under|\btotal\b|total points?/i.test(market) ||
+    ["18", "68", "69", "70", "225", "227", "228", "236"].includes(marketId);
+  if (!looksLikeTotal) return false;
+
+  if (
+    /winner|moneyline|handicap|spread|odd\s*\/\s*even|margin|race to|correct score|both teams/i.test(
+      market,
+    )
+  )
+    return false;
+
+  const isFullGame =
+    marketId === "18" ||
+    marketId === "225" ||
+    (/over\s*\/\s*under/i.test(market) &&
+      !/half|quarter|q[1-4]|home total|away total|team total/i.test(market));
+  const isTeamTotal =
+    ["69", "70", "227", "228"].includes(marketId) ||
+    /home total|away total|team total|home team total|away team total|individual total/i.test(
+      market,
+    );
+  const isHalf =
+    marketId === "68" ||
+    /(?:1st|2nd|first|second)\s*half|\b[12]h\b|halftime/i.test(market) ||
+    /half(?:nr|number)=?[12]/i.test(specifier);
+  const isQuarter =
+    marketId === "236" ||
+    /(?:1st|2nd|3rd|4th|first|second|third|fourth)\s*quarter|\bq[1-4]\b/i.test(
+      market,
+    ) ||
+    /quarternr=[1-4]/i.test(specifier);
+
+  return isFullGame || isTeamTotal || isHalf || isQuarter;
+}
+
 function basketballCandidates(ev: EventDetail): TicketPick[] {
-  const markets = (ev.markets ?? []).filter((m) => m.status === 0);
   const picks: TicketPick[] = [];
-  const pushAll = (predicate: (market: EventMarket) => boolean) => {
-    for (const market of markets) {
-      if (predicate(market)) pushMarket(picks, ev, "basketball", market);
+  for (const market of ev.markets ?? []) {
+    if (market.status !== 0) continue;
+    for (const outcome of openOutcomes(market)) {
+      const pick = toPick(ev, "basketball", market, outcome);
+      if (!pick?.odds || !Number.isFinite(pick.odds) || pick.odds <= 1) continue;
+      if (!basketballOptionAllowed(pick)) continue;
+      picks.push(pick);
     }
-  };
-
-  // Straight Winner/Home/Away markets are intentionally excluded from
-  // basketball discovery. SlipCut basketball builds are totals/handicap based.
-
-  // Give the reviewer several real lines instead of collapsing each family to
-  // one "balanced" line before analysis. Candidate pooling later caps each
-  // family, so this stays bounded while still exposing meaningful alternatives.
-  pushAll((m) => m.id === "223" || m.id === "14");
-  pushAll((m) => m.id === "225" || m.id === "18");
-
-  // Derivative markets remain available for aggressive mode, but conservative
-  // and balanced policies filter these out before the AI review.
-  pushAll((m) => m.id === "227" || m.id === "228");
-  pushAll((m) => m.id === "68" || m.id === "69" || m.id === "70");
-  pushAll((m) => m.id === "236" && (m.specifier ?? "").includes("quarternr=1"));
-
+  }
   return picks;
 }
 
@@ -736,6 +771,7 @@ export function cookablePick(p: TicketPick) {
   const league = p.league ?? "";
   if (league && !isStrongLeague(p.sport as BookSport, league)) return false;
   if (p.sport === "football" && !footballOptionAllowed(p)) return false;
+  if (p.sport === "basketball" && !basketballOptionAllowed(p)) return false;
   if (p.sport === "basketball" && /\bnba\b/i.test(league)) return false;
   return true;
 }
@@ -879,32 +915,14 @@ function candidatesFor(sport: BookSport, ev: EventDetail) {
   return footballCandidates(ev);
 }
 
-const FOOTBALL_MARKET_IDS = [
-  "1", "60100", "60200", "60210", "60110", "10", "11", "12", "13", "14",
-  "15", "16", "18", "19", "20", "21", "23", "24", "25", "26", "27", "28",
-  "29", "30", "31", "32", "33", "34", "35", "36", "37", "41", "45", "46",
-  "47", "48", "49", "50", "51", "52", "55", "56", "57", "58", "59", "60",
-  "63", "64", "65", "68", "71", "74", "75", "76", "77", "78", "81", "83",
-  "85", "86", "87", "90", "93", "95", "98", "162", "163", "164", "165",
-  "166", "172", "184",
-] as const;
-
-function chunkIds(ids: readonly string[], size: number) {
-  const chunks: string[] = [];
-  for (let index = 0; index < ids.length; index += size) {
-    chunks.push(ids.slice(index, index + size).join(","));
-  }
-  return chunks;
-}
-
 function requestedMarketIdBatches(sport: BookSport): string[] {
-  if (sport === "basketball") return ["223,14,225,18,227,228,68,69,70,236"];
+  if (sport === "basketball") return ["219,225"];
   if (sport === "tennis") return ["186,187,188,189,202,204"];
   if (sport === "handball") return ["1,10,11,18,68"];
-  // SportyBet rejects football catalogue requests with no marketId. Request the
-  // complete known football catalogue in bounded batches and merge the fixture
-  // markets afterwards.
-  return chunkIds(FOOTBALL_MARKET_IDS, 18);
+  // These IDs are only for fixture discovery. Every football/basketball event
+  // is subsequently hydrated through /factsCenter/event, which returns the full
+  // SportyBet market catalogue (hundreds of markets/lines for many fixtures).
+  return ["1,18"];
 }
 
 type UpcomingTournament = {
@@ -946,6 +964,30 @@ function mergeUpcomingTours(tours: UpcomingTournament[]) {
     }
   }
   return [...events.values()];
+}
+
+async function hydrateFullEventMarkets<T extends EventDetail & { leagueHint?: string }>(
+  event: T,
+): Promise<T> {
+  if (!event.eventId) return event;
+  try {
+    const payload = (await sportyGet(
+      `/factsCenter/event?productId=3&eventId=${encodeURIComponent(String(event.eventId))}`,
+      { timeoutMs: 12_000, cacheMs: 45_000 },
+    )) as { data?: EventDetail };
+    const detail = payload.data;
+    if (!detail?.markets?.length) return event;
+    return {
+      ...event,
+      ...detail,
+      leagueHint: event.leagueHint,
+      markets: detail.markets,
+    } as T;
+  } catch {
+    // Keep the fixture-level markets as a graceful fallback if one detail call
+    // fails; this prevents one SportyBet event from killing the whole build.
+    return event;
+  }
 }
 
 function discoveryFailure(
@@ -1102,10 +1144,21 @@ export async function listUpcomingPicks(
   const upcoming = spreadByDay([...fresh, ...stale], window);
 
   const want = Math.max(1, Math.min(42, limit));
+  const detailScanCount =
+    sport === "football" || sport === "basketball"
+      ? Math.min(upcoming.length, Math.max(24, Math.min(want, 36)))
+      : 0;
+  const detailed =
+    detailScanCount > 0
+      ? await mapPool(upcoming.slice(0, detailScanCount), 6, hydrateFullEventMarkets)
+      : [];
+  const eventPool =
+    detailScanCount > 0 ? [...detailed, ...upcoming.slice(detailScanCount)] : upcoming;
+
   const picks: TicketPick[] = [];
   let events = 0;
 
-  for (const ev of upcoming) {
+  for (const ev of eventPool) {
     if (events >= want) break;
     if (mode === "draw") {
       if (sport !== "football") continue;
