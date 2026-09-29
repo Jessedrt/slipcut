@@ -83,7 +83,7 @@ const base: BuildSlipRequest = {
   sport: "football",
   mode: "games",
   games: 5,
-  risk: "conservative",
+  risk: "balanced",
   window: "upcoming",
 };
 
@@ -489,7 +489,7 @@ describe("buildSlip", () => {
 
   it("returns the lower actual odds when the target cannot be reached", async () => {
     const result = await buildSlip(
-      { ...base, mode: "odds", targetOdds: 10 },
+      { ...base, mode: "odds", targetOdds: 10, risk: "conservative" },
       deps([pick(1, 1.3), pick(2, 1.3)]),
     );
     assert.equal(result.ok, true);
@@ -562,20 +562,38 @@ describe("buildSlip", () => {
     }
   });
 
-  it("uses 1.20 as the conservative minimum odds", async () => {
-    assert.equal(RISK_POLICIES.conservative.minOdds, 1.2);
-    const allowed = await buildSlip(
-      { ...base, games: 2 },
-      deps([pick(1, 1.2), pick(2, 1.21)]),
+  it("uses 1.20-1.30 for football conservative and 1.35+ for football balanced", async () => {
+    const conservativeAllowed = await buildSlip(
+      { ...base, games: 2, risk: "conservative" },
+      deps([pick(1, 1.2), pick(2, 1.3)]),
     );
-    assert.equal(allowed.ok, true);
+    assert.equal(conservativeAllowed.ok, true);
+    if (conservativeAllowed.ok) {
+      assert.equal(conservativeAllowed.policy.minOdds, 1.2);
+      assert.equal(conservativeAllowed.policy.maxOdds, 1.3);
+    }
 
-    const tooShort = await buildSlip(
-      { ...base, games: 2 },
-      deps([pick(1, 1.19), pick(2, 1.19)]),
+    const conservativeTooHigh = await buildSlip(
+      { ...base, games: 2, risk: "conservative" },
+      deps([pick(1, 1.31), pick(2, 1.34)]),
     );
-    assert.equal(tooShort.ok, false);
-    if (!tooShort.ok) assert.equal(tooShort.code, "no_eligible_markets");
+    assert.equal(conservativeTooHigh.ok, false);
+
+    const balancedTooLow = await buildSlip(
+      { ...base, games: 2, risk: "balanced" },
+      deps([pick(1, 1.31), pick(2, 1.34)]),
+    );
+    assert.equal(balancedTooLow.ok, false);
+
+    const balancedAllowed = await buildSlip(
+      { ...base, games: 2, risk: "balanced" },
+      deps([pick(1, 1.35), pick(2, 1.5)]),
+    );
+    assert.equal(balancedAllowed.ok, true);
+    if (balancedAllowed.ok) {
+      assert.equal(balancedAllowed.policy.minOdds, 1.35);
+      assert.equal(balancedAllowed.policy.maxOdds, 2.2);
+    }
   });
 
   it("reviews more than three market options from the same event", async () => {
@@ -658,7 +676,10 @@ describe("buildSlip", () => {
     assert.ok(RISK_POLICIES.conservative.maxOdds < RISK_POLICIES.balanced.maxOdds);
     assert.ok(RISK_POLICIES.balanced.maxOdds < RISK_POLICIES.aggressive.maxOdds);
     const risky = pick(1, 2.5, "18");
-    const conservative = await buildSlip(base, deps([risky]));
+    const conservative = await buildSlip(
+      { ...base, risk: "conservative" },
+      deps([risky]),
+    );
     const aggressive = await buildSlip(
       { ...base, games: 2, risk: "aggressive" },
       deps([risky, pick(2, 2.4, "18")]),

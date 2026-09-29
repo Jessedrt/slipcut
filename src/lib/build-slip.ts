@@ -120,6 +120,33 @@ export const RISK_POLICIES: Record<BuildRisk, RiskPolicy> = {
   },
 };
 
+function policyForSport(sport: BuildSport, risk: BuildRisk): RiskPolicy {
+  const base = RISK_POLICIES[risk];
+  if (sport !== "football") return base;
+
+  if (risk === "conservative") {
+    return {
+      ...base,
+      minOdds: 1.2,
+      maxOdds: 1.3,
+      explanation:
+        "Football conservative uses eligible prices from 1.20 to 1.30 with the stricter AI-review threshold. It is not a safety guarantee.",
+    };
+  }
+
+  if (risk === "balanced") {
+    return {
+      ...base,
+      minOdds: 1.35,
+      maxOdds: 2.2,
+      explanation:
+        "Football balanced starts at 1.35 and keeps the wider 2.20 ceiling while retaining SlipCut's other analysis filters.",
+    };
+  }
+
+  return base;
+}
+
 export type BuildDependencies = {
   discover: typeof listUpcomingPicks;
   review: typeof reviewBuildMarkets;
@@ -384,7 +411,7 @@ export async function buildSlip(
   const validated = validateBuildRequest(input);
   if (!validated.ok) return validated;
   const request = validated.value;
-  const policy = RISK_POLICIES[request.risk];
+  const policy = policyForSport(request.sport, request.risk);
   const targetBudget =
     request.mode === "odds"
       ? targetLegBudget(request.targetOdds ?? 2, policy)
