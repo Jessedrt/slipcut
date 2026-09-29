@@ -3,6 +3,7 @@ import { deskScore } from "./research";
 import { evaluateRecord, loadRecord, type RecordSnapshot, type RecordSummary } from "./track-record";
 import {
   basketballOptionAllowed,
+  basketballOverKind,
   cookablePick,
   footballOptionAllowed,
   listUpcomingPicks,
@@ -122,7 +123,34 @@ export const RISK_POLICIES: Record<BuildRisk, RiskPolicy> = {
 
 function policyForSport(sport: BuildSport, risk: BuildRisk): RiskPolicy {
   const base = RISK_POLICIES[risk];
-  if (sport !== "football") return base;
+
+  if (sport === "basketball") {
+    if (risk === "conservative") {
+      return {
+        ...base,
+        minOdds: 1.2,
+        maxOdds: 1.82,
+        explanation:
+          "Basketball conservative uses full-game Overs, individual/team full-game Overs and match half Overs only, with the stricter 62+ review threshold and 1.20–1.82 prices.",
+      };
+    }
+
+    if (risk === "balanced") {
+      return {
+        ...base,
+        minOdds: 1.16,
+        maxOdds: 2.2,
+        explanation:
+          "Basketball balanced keeps full-game and half Overs, and also allows individual half and quarter Overs, with the 54+ review threshold and 1.16–2.20 prices.",
+      };
+    }
+
+    return {
+      ...base,
+      explanation:
+        "Basketball aggressive uses the same Over-only market catalogue with the wider 1.16–2.75 price band and lower 45+ review threshold.",
+    };
+  }
 
   if (risk === "conservative") {
     return {
@@ -209,9 +237,15 @@ function allowedFamily(pick: TicketPick, risk: BuildRisk) {
   const family = marketFamily(pick.sporty?.marketId, pick.market);
 
   if (pick.sport === "basketball") {
-    // Basketball is deliberately Over-only in every risk mode: full-game
-    // totals, team totals, half totals and quarter totals. Risk mode still
-    // changes price/model thresholds, not the allowed market types.
+    const kind = basketballOverKind(pick);
+    if (!kind) return false;
+
+    // Conservative keeps the lower-variance Over families only. Balanced adds
+    // team/individual half and quarter Overs. Aggressive keeps the same
+    // Over-only catalogue but relies on its wider odds/lower score thresholds.
+    if (risk === "conservative") {
+      return kind === "full_game" || kind === "team_full_game" || kind === "half";
+    }
     return basketballOptionAllowed(pick);
   }
 
