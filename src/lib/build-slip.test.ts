@@ -495,7 +495,7 @@ describe("buildSlip", () => {
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.equal(result.targetReached, false);
-    assert.match(result.notice ?? "", /did not add unsupported games/);
+    assert.match(result.notice ?? "", /unsupported games were not added/);
   });
 
   it("explains when one reviewed game cannot reach a large target", async () => {
