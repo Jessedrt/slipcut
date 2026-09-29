@@ -185,30 +185,40 @@ describe("buildSlip", () => {
   });
 
 
-  it("keeps basketball team totals out of conservative and balanced builds", async () => {
-    const gameTotal: TicketPick = {
-      ...pick(1, 1.5, "225", "bb-main"),
-      sport: "basketball",
-      league: "Euroleague",
-      market: "Over/Under 165.5",
-      selection: "Over",
-      sporty: { eventId: "bb-main", marketId: "225", outcomeId: "over", specifier: "total=165.5" },
-    };
-    const teamTotal: TicketPick = {
-      ...pick(2, 1.47, "227", "bb-team"),
-      sport: "basketball",
-      league: "Euroleague",
-      market: "Home total 61.5",
-      selection: "Over",
-      sporty: { eventId: "bb-team", marketId: "227", outcomeId: "over", specifier: "total=61.5" },
-    };
+  it("allows basketball team and period Overs in every risk mode", async () => {
+    const rows: TicketPick[] = [
+      {
+        ...pick(1, 1.5, "225", "bb-main"),
+        sport: "basketball",
+        league: "Euroleague",
+        market: "Over/Under 165.5",
+        selection: "Over 165.5",
+        sporty: { eventId: "bb-main", marketId: "225", outcomeId: "over", specifier: "total=165.5" },
+      },
+      {
+        ...pick(2, 1.47, "227", "bb-team"),
+        sport: "basketball",
+        league: "Euroleague",
+        market: "Home total 81.5",
+        selection: "Over 81.5",
+        sporty: { eventId: "bb-team", marketId: "227", outcomeId: "over", specifier: "total=81.5" },
+      },
+      {
+        ...pick(3, 1.44, "236", "bb-quarter"),
+        sport: "basketball",
+        league: "Euroleague",
+        market: "3rd Quarter Over/Under 40.5",
+        selection: "Over 40.5",
+        sporty: { eventId: "bb-quarter", marketId: "236", outcomeId: "over", specifier: "quarternr=3;total=40.5" },
+      },
+    ];
 
-    for (const risk of ["conservative", "balanced"] as const) {
+    for (const risk of ["conservative", "balanced", "aggressive"] as const) {
       let reviewedIds: string[] = [];
       const result = await buildSlip(
-        { ...base, sport: "basketball", games: 2, risk },
+        { ...base, sport: "basketball", games: 3, risk },
         {
-          ...deps([gameTotal, teamTotal]),
+          ...deps(rows),
           review: async (picks) => {
             reviewedIds = picks.map((row) => row.id);
             return {
@@ -225,35 +235,12 @@ describe("buildSlip", () => {
           },
         },
       );
-      assert.ok(!reviewedIds.includes(teamTotal.id));
-      assert.ok(reviewedIds.includes(gameTotal.id));
       assert.equal(result.ok, true);
+      assert.ok(reviewedIds.includes(rows[0]!.id));
+      assert.ok(reviewedIds.includes(rows[1]!.id));
+      assert.ok(reviewedIds.includes(rows[2]!.id));
     }
-
-    let aggressiveIds: string[] = [];
-    await buildSlip(
-      { ...base, sport: "basketball", games: 2, risk: "aggressive" },
-      {
-        ...deps([gameTotal, teamTotal]),
-        review: async (picks) => {
-          aggressiveIds = picks.map((row) => row.id);
-          return {
-            reviews: picks.map((row) => ({
-              pickId: row.id,
-              score: 80,
-              summary: "Reviewed.",
-              reasons: [],
-              risks: [],
-            })),
-            attemptedEvents: new Set(picks.map((row) => row.sporty?.eventId)).size,
-            reviewedEvents: new Set(picks.map((row) => row.sporty?.eventId)).size,
-          };
-        },
-      },
-    );
-    assert.ok(aggressiveIds.includes(teamTotal.id));
   });
-
 
   it("never uses straight basketball Winner markets in any risk mode", async () => {
     const winner: TicketPick = {
