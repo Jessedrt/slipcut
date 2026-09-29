@@ -876,13 +876,32 @@ function candidatesFor(sport: BookSport, ev: EventDetail) {
   return footballCandidates(ev);
 }
 
-function requestedMarketIds(sport: BookSport): string | null {
-  if (sport === "basketball") return "223,14,225,18,227,228,68,69,70,236";
-  if (sport === "tennis") return "186,187,188,189,202,204";
-  if (sport === "handball") return "1,10,11,18,68";
-  // Football intentionally omits marketId so SportyBet returns the complete
-  // prematch market catalogue instead of SlipCut's old hard-coded subset.
-  return null;
+const FOOTBALL_MARKET_IDS = [
+  "1", "60100", "60200", "60210", "60110", "10", "11", "12", "13", "14",
+  "15", "16", "18", "19", "20", "21", "23", "24", "25", "26", "27", "28",
+  "29", "30", "31", "32", "33", "34", "35", "36", "37", "41", "45", "46",
+  "47", "48", "49", "50", "51", "52", "55", "56", "57", "58", "59", "60",
+  "63", "64", "65", "68", "71", "74", "75", "76", "77", "78", "81", "83",
+  "85", "86", "87", "90", "93", "95", "98", "162", "163", "164", "165",
+  "166", "172", "184",
+] as const;
+
+function chunkIds(ids: readonly string[], size: number) {
+  const chunks: string[] = [];
+  for (let index = 0; index < ids.length; index += size) {
+    chunks.push(ids.slice(index, index + size).join(","));
+  }
+  return chunks;
+}
+
+function requestedMarketIdBatches(sport: BookSport): string[] {
+  if (sport === "basketball") return ["223,14,225,18,227,228,68,69,70,236"];
+  if (sport === "tennis") return ["186,187,188,189,202,204"];
+  if (sport === "handball") return ["1,10,11,18,68"];
+  // SportyBet rejects football catalogue requests with no marketId. Request the
+  // complete known football catalogue in bounded batches and merge the fixture
+  // markets afterwards.
+  return chunkIds(FOOTBALL_MARKET_IDS, 18);
 }
 
 type UpcomingTournament = {
@@ -896,6 +915,35 @@ type UpcomingPayload = {
     tournaments?: UpcomingTournament[];
   };
 };
+
+function mergeUpcomingTours(tours: UpcomingTournament[]) {
+  const events = new Map<string, EventDetail & { leagueHint?: string }>();
+  for (const tournament of tours) {
+    for (const event of tournament.events ?? []) {
+      if (!event.eventId) continue;
+      const key = String(event.eventId);
+      const existing = events.get(key);
+      const leagueHint = tournament.name ?? leagueName(event.sport);
+      if (!existing) {
+        events.set(key, { ...event, leagueHint });
+        continue;
+      }
+
+      const marketMap = new Map<string, EventMarket>();
+      for (const market of [...(existing.markets ?? []), ...(event.markets ?? [])]) {
+        const marketKey = `${market.id}|${market.specifier ?? ""}|${market.desc ?? ""}`;
+        marketMap.set(marketKey, market);
+      }
+      events.set(key, {
+        ...existing,
+        ...event,
+        leagueHint: existing.leagueHint || leagueHint,
+        markets: [...marketMap.values()],
+      });
+    }
+  }
+  return [...events.values()];
+}
 
 function discoveryFailure(
   code: SportyFailure["code"],
@@ -944,31 +992,28 @@ export async function listUpcomingPicks(
           : window === "week" || window === "weekend"
             ? "504"
             : "720";
-    const marketIds = requestedMarketIds(sport);
-    const pageSize = sport === "football" ? 20 : 100;
-    const pages = sport === "football" ? 2 : 1;
+    const marketBatches = requestedMarketIdBatches(sport);
 
-    for (let pageNum = 1; pageNum <= pages; pageNum += 1) {
-      const query = new URLSearchParams({
-        sportId: sportIdOf(sport),
-        pageSize: String(pageSize),
-        pageNum: String(pageNum),
-        todayGames: window === "today" ? "true" : "false",
-        timeline,
-      });
-      if (marketIds) query.set("marketId", marketIds);
+    const payloads = await Promise.all(
+      marketBatches.map(async (marketIds) => {
+        const query = new URLSearchParams({
+          sportId: sportIdOf(sport),
+          marketId: marketIds,
+          pageSize: "100",
+          pageNum: "1",
+          todayGames: window === "today" ? "true" : "false",
+          timeline,
+        });
+        return (await sportyGet(
+          `/factsCenter/pcUpcomingEvents?${query.toString()}`,
+          { timeoutMs: sport === "football" ? 18_000 : 12_000, cacheMs: 45_000 },
+        )) as UpcomingPayload;
+      }),
+    );
 
-      const payload = (await sportyGet(
-        `/factsCenter/pcUpcomingEvents?${query.toString()}`,
-        { timeoutMs: sport === "football" ? 18_000 : 12_000, cacheMs: 45_000 },
-      )) as UpcomingPayload;
-      const pageTours = Array.isArray(payload.data?.tournaments)
-        ? payload.data.tournaments
-        : [];
-      tours.push(...pageTours);
-      const pageEvents = pageTours.reduce((sum, tournament) => sum + (tournament.events?.length ?? 0), 0);
-      if (pageEvents < pageSize) break;
-    }
+    tours = payloads.flatMap((payload) =>
+      Array.isArray(payload.data?.tournaments) ? payload.data.tournaments : [],
+    );
   } catch (error) {
     const failure =
       error instanceof SportyProviderError
@@ -984,9 +1029,7 @@ export async function listUpcomingPicks(
     );
   }
 
-  const rawEvents = tours.flatMap((t) =>
-    (t.events ?? []).map((event) => ({ ...event, leagueHint: t.name ?? leagueName(event.sport) })),
-  );
+  const rawEvents = mergeUpcomingTours(tours);
   diagnostics.fixturesReturned = rawEvents.length;
   if (!rawEvents.length) {
     return discoveryFailure(
