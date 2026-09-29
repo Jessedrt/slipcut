@@ -267,7 +267,7 @@ describe("buildSlip", () => {
   });
 
 
-  it("allows basketball team and period Overs in every risk mode", async () => {
+  it("applies Conservative and Balanced basketball period rules before AI review", async () => {
     const rows: TicketPick[] = [
       {
         ...pick(1, 1.5, "225", "bb-main"),
@@ -286,7 +286,23 @@ describe("buildSlip", () => {
         sporty: { eventId: "bb-team", marketId: "227", outcomeId: "over", specifier: "total=81.5" },
       },
       {
-        ...pick(3, 1.44, "236", "bb-quarter"),
+        ...pick(3, 1.42, "68", "bb-half"),
+        sport: "basketball",
+        league: "Euroleague",
+        market: "1st Half Over/Under 81.5",
+        selection: "Over 81.5",
+        sporty: { eventId: "bb-half", marketId: "68", outcomeId: "over", specifier: "halfnr=1;total=81.5" },
+      },
+      {
+        ...pick(4, 1.4, "69", "bb-team-half"),
+        sport: "basketball",
+        league: "Euroleague",
+        market: "1st Half Home Team Total 40.5",
+        selection: "Over 40.5",
+        sporty: { eventId: "bb-team-half", marketId: "69", outcomeId: "over", specifier: "halfnr=1;total=40.5" },
+      },
+      {
+        ...pick(5, 1.44, "236", "bb-quarter"),
         sport: "basketball",
         league: "Euroleague",
         market: "3rd Quarter Over/Under 40.5",
@@ -295,10 +311,10 @@ describe("buildSlip", () => {
       },
     ];
 
-    for (const risk of ["conservative", "balanced", "aggressive"] as const) {
+    const reviewed = async (risk: "conservative" | "balanced") => {
       let reviewedIds: string[] = [];
       const result = await buildSlip(
-        { ...base, sport: "basketball", games: 3, risk },
+        { ...base, sport: "basketball", games: 5, risk },
         {
           ...deps(rows),
           review: async (picks) => {
@@ -318,10 +334,18 @@ describe("buildSlip", () => {
         },
       );
       assert.equal(result.ok, true);
-      assert.ok(reviewedIds.includes(rows[0]!.id));
-      assert.ok(reviewedIds.includes(rows[1]!.id));
-      assert.ok(reviewedIds.includes(rows[2]!.id));
-    }
+      return reviewedIds;
+    };
+
+    const conservativeIds = await reviewed("conservative");
+    assert.ok(conservativeIds.includes(rows[0]!.id));
+    assert.ok(conservativeIds.includes(rows[1]!.id));
+    assert.ok(conservativeIds.includes(rows[2]!.id));
+    assert.ok(!conservativeIds.includes(rows[3]!.id));
+    assert.ok(!conservativeIds.includes(rows[4]!.id));
+
+    const balancedIds = await reviewed("balanced");
+    for (const row of rows) assert.ok(balancedIds.includes(row.id));
   });
 
   it("never uses straight basketball Winner markets in any risk mode", async () => {
