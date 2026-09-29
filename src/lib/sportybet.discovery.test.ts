@@ -20,7 +20,7 @@ function event(id: string, markets: unknown[], overrides: Record<string, unknown
   };
 }
 
-const dc = { id: "10", desc: "Double Chance", status: 0, outcomes: [{ id: "10", desc: "Home or Away", odds: "1.50", isActive: 1 }] };
+const over = { id: "18", desc: "Over/Under", specifier: "total=1.5", status: 0, outcomes: [{ id: "over", desc: "Over 1.5", odds: "1.50", isActive: 1 }] };
 const win = { id: "1", desc: "1X2", status: 0, outcomes: [{ id: "1", desc: "Home", odds: "1.50", isActive: 1 }] };
 
 describe("SportyBet discovery diagnostics", () => {
@@ -60,7 +60,7 @@ describe("SportyBet discovery diagnostics", () => {
       if (!Array.isArray(noEligible)) assert.equal(noEligible.code, "no_eligible_markets");
 
       clearSportyCacheForTests();
-      globalThis.fetch = async () => response([event("live", [dc], { status: 1 })]);
+      globalThis.fetch = async () => response([event("live", [over], { status: 1 })]);
       const stale = await listUpcomingPicks("football", 5, "upcoming");
       if (!Array.isArray(stale)) assert.equal(stale.code, "no_events");
     } finally { globalThis.fetch = original; }
@@ -81,7 +81,7 @@ describe("SportyBet discovery diagnostics", () => {
                 {
                   name: "World Cup Qualification CAF",
                   events: [
-                    event("qualifier", [dc], {
+                    event("qualifier", [over], {
                       sport: {
                         id: "sr:sport:1",
                         name: "Football",
@@ -111,7 +111,7 @@ describe("SportyBet discovery diagnostics", () => {
     const original = globalThis.fetch;
     try {
       clearSportyCacheForTests();
-      globalThis.fetch = async () => response([event("same", [dc, dc]), event("same", [dc])]);
+      globalThis.fetch = async () => response([event("same", [over, over]), event("same", [over])]);
       const result = await listUpcomingPicks("football", 5, "upcoming");
       assert.equal(Array.isArray(result), true);
       if (Array.isArray(result)) {
@@ -121,7 +121,7 @@ describe("SportyBet discovery diagnostics", () => {
     } finally { globalThis.fetch = original; }
   });
 
-  it("hydrates a fixture from SportyBet event detail so non-whitelisted markets can be considered", async () => {
+  it("hydrates a fixture from SportyBet event detail so additional score-Over markets can be considered", async () => {
     const original = globalThis.fetch;
     try {
       clearSportyCacheForTests();
@@ -133,14 +133,15 @@ describe("SportyBet discovery diagnostics", () => {
               bizCode: 10000,
               message: "0#0",
               data: event("full", [
-                dc,
+                over,
                 {
                   id: "999",
-                  desc: "Team to score in both halves",
+                  desc: "2nd Half Home Team Total 0.5",
+                  specifier: "halfnr=2;total=0.5",
                   status: 0,
                   outcomes: [
-                    { id: "yes", desc: "Yes", odds: "1.65", isActive: 1 },
-                    { id: "no", desc: "No", odds: "2.10", isActive: 1 },
+                    { id: "over", desc: "Over 0.5", odds: "1.65", isActive: 1 },
+                    { id: "under", desc: "Under 0.5", odds: "2.10", isActive: 1 },
                   ],
                 },
               ]),
@@ -148,7 +149,7 @@ describe("SportyBet discovery diagnostics", () => {
             { status: 200, headers: { "content-type": "application/json" } },
           );
         }
-        return response([event("full", [dc])]);
+        return response([event("full", [over])]);
       };
 
       const result = await listUpcomingPicks("football", 5, "upcoming");

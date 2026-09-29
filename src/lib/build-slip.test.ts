@@ -10,7 +10,7 @@ import {
 import { basketballOptionAllowed, footballOptionAllowed } from "./sportybet.ts";
 import type { TicketPick } from "./types.ts";
 
-function pick(id: number, odds = 1.5, marketId = "10", eventId = `event-${id}`): TicketPick {
+function pick(id: number, odds = 1.5, marketId = "18", eventId = `event-${id}`): TicketPick {
   const market =
     marketId === "10"
       ? "Double Chance"
@@ -88,38 +88,53 @@ const base: BuildSlipRequest = {
 };
 
 describe("football SportyBet option policy", () => {
-  it("removes Home-or-Draw, Draw-or-Away and both Draw-No-Bet sides", () => {
-    const homeDraw = { ...pick(1, 1.3, "10"), selection: "Home or Draw" };
-    const drawAway = { ...pick(2, 1.3, "10"), selection: "Draw or Away" };
-    const homeAway = { ...pick(3, 1.3, "10"), selection: "Home or Away" };
-    const homeDnb = { ...pick(4, 1.3, "11"), selection: "Home" };
-    const awayDnb = { ...pick(5, 1.3, "11"), selection: "Away" };
-
-    assert.equal(footballOptionAllowed(homeDraw), false);
-    assert.equal(footballOptionAllowed(drawAway), false);
-    assert.equal(footballOptionAllowed(homeDnb), false);
-    assert.equal(footballOptionAllowed(awayDnb), false);
-    assert.equal(footballOptionAllowed(homeAway), true);
+  const fb = (
+    id: string,
+    market: string,
+    selection: string,
+    specifier = "",
+  ): TicketPick => ({
+    id: `fb-${id}-${selection}`,
+    sport: "football",
+    league: "England Premier League",
+    home: "Home",
+    away: "Away",
+    market,
+    selection,
+    odds: 1.42,
+    kickoff: Date.now() + 3_600_000,
+    sporty: { eventId: `fb-${id}`, marketId: id, outcomeId: "o", specifier },
   });
 
-  it("keeps other SportyBet football market types eligible", () => {
-    assert.equal(footballOptionAllowed(pick(1, 1.4, "16")), true);
-    assert.equal(footballOptionAllowed(pick(2, 1.4, "26")), true);
-    assert.equal(footballOptionAllowed(pick(3, 1.4, "29")), true);
-    assert.equal(footballOptionAllowed(pick(4, 1.4, "45")), true);
-    assert.equal(footballOptionAllowed(pick(5, 1.4, "18")), true);
+  it("allows only football score Overs for full game, team totals and halves", () => {
+    assert.equal(
+      footballOptionAllowed(fb("18", "Over/Under 2.5", "Over 2.5", "total=2.5")),
+      true,
+    );
+    assert.equal(
+      footballOptionAllowed(fb("23", "Home Team Total 1.5", "Over 1.5", "total=1.5")),
+      true,
+    );
+    assert.equal(
+      footballOptionAllowed(fb("68", "1st Half Over/Under 1.5", "Over 1.5", "total=1.5")),
+      true,
+    );
+    assert.equal(
+      footballOptionAllowed(
+        fb("999", "2nd Half Away Team Total 0.5", "Over 0.5", "halfnr=2;total=0.5"),
+      ),
+      true,
+    );
   });
 
-  it("still respects the earlier no-Under and no-standard-1X2 rule", () => {
-    const under = { ...pick(1, 1.4, "18"), selection: "Under 2.5" };
-    const straight: TicketPick = {
-      ...pick(2, 1.4, "1"),
-      market: "1X2",
-      selection: "Home",
-      sporty: { eventId: "straight", marketId: "1", outcomeId: "1" },
-    };
-    assert.equal(footballOptionAllowed(under), false);
-    assert.equal(footballOptionAllowed(straight), false);
+  it("removes all other football markets, including Under and non-score Overs", () => {
+    assert.equal(footballOptionAllowed(fb("18", "Over/Under 2.5", "Under 2.5", "total=2.5")), false);
+    assert.equal(footballOptionAllowed(fb("10", "Double Chance", "Home or Away")), false);
+    assert.equal(footballOptionAllowed(fb("29", "Both Teams To Score", "Yes")), false);
+    assert.equal(footballOptionAllowed(fb("16", "Asian Handicap", "Home -0.5")), false);
+    assert.equal(footballOptionAllowed(fb("166", "Corners Over/Under 9.5", "Over 9.5", "total=9.5")), false);
+    assert.equal(footballOptionAllowed(fb("45", "Correct Score", "1:0")), false);
+    assert.equal(footballOptionAllowed(fb("1", "1X2", "Home")), false);
   });
 });
 
@@ -161,11 +176,21 @@ describe("basketball SportyBet option policy", () => {
 describe("buildSlip", () => {
   it("excludes historically below-average families only after comparable sample thresholds", async () => {
     const record = async () => ({ available: true, rows: [
-      { sport: "football", family: "dc", band: "medium", won: 10, lost: 20 },
-      { sport: "football", family: "ou", band: "medium", won: 25, lost: 5 },
+      { sport: "football", family: "ou", band: "medium", won: 10, lost: 20 },
+      { sport: "football", family: "dc", band: "medium", won: 50, lost: 10 },
+      { sport: "football", family: "ou", band: "short", won: 25, lost: 5 },
+      { sport: "football", family: "dc", band: "short", won: 35, lost: 25 },
     ] });
+    const weakA = pick(1, 1.5, "18");
+    const weakB = pick(2, 1.5, "18");
+    const strong: TicketPick = {
+      ...pick(3, 1.4, "18"),
+      market: "Over/Under 1.5",
+      selection: "Over 1.5",
+      sporty: { eventId: "event-3", marketId: "18", outcomeId: "over", specifier: "total=1.5" },
+    };
     const result = await buildSlip({ ...base, games: 2 }, {
-      ...deps([pick(1), pick(2), pick(3, 1.5, "18")]), record,
+      ...deps([weakA, weakB, strong]), record,
     });
     assert.equal(result.ok, true);
     if (!result.ok) return;
@@ -509,56 +534,57 @@ describe("buildSlip", () => {
   });
 
 
-  it("never uses football Unders or straight 1X2 winners in any risk mode", async () => {
-    const straightHome: TicketPick = {
-      ...pick(1, 1.45, "1", "fb-home"),
-      market: "1X2",
-      selection: "Home",
-      sporty: { eventId: "fb-home", marketId: "1", outcomeId: "home" },
-    };
-    const under: TicketPick = {
-      ...pick(2, 1.42, "18", "fb-under"),
-      market: "Over/Under 2.5",
-      selection: "Under 2.5",
-      sporty: {
-        eventId: "fb-under",
-        marketId: "18",
-        outcomeId: "under",
-        specifier: "total=2.5",
-      },
-    };
-    const over: TicketPick = {
-      ...pick(3, 1.38, "18", "fb-over"),
+  it("uses only football score Overs in every risk mode", async () => {
+    const validA: TicketPick = {
+      ...pick(1, 1.28, "18", "fb-over-a"),
       market: "Over/Under 1.5",
       selection: "Over 1.5",
-      sporty: {
-        eventId: "fb-over",
-        marketId: "18",
-        outcomeId: "over",
-        specifier: "total=1.5",
-      },
+      sporty: { eventId: "fb-over-a", marketId: "18", outcomeId: "over", specifier: "total=1.5" },
     };
-    const doubleChance: TicketPick = {
-      ...pick(4, 1.3, "10", "fb-dc"),
-      market: "Double Chance",
-      selection: "Home or Away",
-      sporty: {
-        eventId: "fb-dc",
-        marketId: "10",
-        outcomeId: "12",
-      },
+    const validB: TicketPick = {
+      ...pick(2, 1.29, "68", "fb-over-b"),
+      market: "1st Half Over/Under 0.5",
+      selection: "Over 0.5",
+      sporty: { eventId: "fb-over-b", marketId: "68", outcomeId: "over", specifier: "total=0.5" },
     };
+    const invalid: TicketPick[] = [
+      {
+        ...pick(3, 1.25, "10", "fb-dc"),
+        market: "Double Chance",
+        selection: "Home or Away",
+        sporty: { eventId: "fb-dc", marketId: "10", outcomeId: "12" },
+      },
+      {
+        ...pick(4, 1.25, "18", "fb-under"),
+        market: "Over/Under 2.5",
+        selection: "Under 2.5",
+        sporty: { eventId: "fb-under", marketId: "18", outcomeId: "under", specifier: "total=2.5" },
+      },
+      {
+        ...pick(5, 1.25, "166", "fb-corners"),
+        market: "Corners Over/Under 8.5",
+        selection: "Over 8.5",
+        sporty: { eventId: "fb-corners", marketId: "166", outcomeId: "over", specifier: "total=8.5" },
+      },
+    ];
 
     for (const risk of ["conservative", "balanced", "aggressive"] as const) {
+      const rows =
+        risk === "conservative"
+          ? [validA, validB, ...invalid]
+          : [
+              { ...validA, odds: 1.45 },
+              { ...validB, odds: 1.5 },
+              ...invalid.map((row) => ({ ...row, odds: 1.45 })),
+            ];
       const result = await buildSlip(
         { ...base, games: 2, risk },
-        deps([straightHome, under, over, doubleChance]),
+        deps(rows),
       );
       assert.equal(result.ok, true);
       if (!result.ok) continue;
-      assert.ok(result.selections.every((row) => row.sporty?.marketId !== "1"));
-      assert.ok(result.selections.every((row) => !/\bunder\b/i.test(row.selection)));
-      assert.ok(result.selections.some((row) => /over/i.test(row.selection) || row.sporty?.marketId === "10"));
+      assert.ok(result.selections.every((row) => /\bover\b/i.test(row.selection)));
+      assert.ok(result.selections.every((row) => footballOptionAllowed(row)));
     }
   });
 
@@ -596,58 +622,56 @@ describe("buildSlip", () => {
     }
   });
 
-  it("reviews more than three market options from the same event", async () => {
+  it("reviews many score-Over options from the same event", async () => {
     const eventId = "event-wide";
     const rows: TicketPick[] = [
-      pick(1, 1.32, "10", eventId),
-      { ...pick(2, 1.34, "11", eventId), market: "Draw No Bet", selection: "Home" },
       {
-        ...pick(3, 1.28, "18", eventId),
-        id: "event-wide-ou-15",
+        ...pick(1, 1.28, "18", eventId),
+        id: "ft-15",
         market: "Over/Under 1.5",
         selection: "Over 1.5",
         sporty: { eventId, marketId: "18", outcomeId: "over15", specifier: "total=1.5" },
       },
       {
-        ...pick(4, 1.46, "18", eventId),
-        id: "event-wide-ou-25",
-        market: "Over/Under 2.5",
-        selection: "Over 2.5",
-        sporty: { eventId, marketId: "18", outcomeId: "over25", specifier: "total=2.5" },
+        ...pick(2, 1.30, "18", eventId),
+        id: "ft-20",
+        market: "Over/Under 2",
+        selection: "Over 2",
+        sporty: { eventId, marketId: "18", outcomeId: "over20", specifier: "total=2" },
       },
       {
-        ...pick(5, 1.38, "29", eventId),
-        id: "event-wide-btts",
-        market: "GG/NG",
-        selection: "Yes",
-        sporty: { eventId, marketId: "29", outcomeId: "yes" },
+        ...pick(3, 1.29, "68", eventId),
+        id: "h1-05",
+        market: "1st Half Over/Under 0.5",
+        selection: "Over 0.5",
+        sporty: { eventId, marketId: "68", outcomeId: "over05", specifier: "halfnr=1;total=0.5" },
       },
       {
-        ...pick(6, 1.55, "166", eventId),
-        id: "event-wide-corners",
-        market: "Corners 9.5",
-        selection: "Over 9.5",
-        sporty: { eventId, marketId: "166", outcomeId: "corners-over", specifier: "total=9.5" },
+        ...pick(4, 1.30, "68", eventId),
+        id: "h1-10",
+        market: "1st Half Over/Under 1",
+        selection: "Over 1",
+        sporty: { eventId, marketId: "68", outcomeId: "over10", specifier: "halfnr=1;total=1" },
       },
       {
-        ...pick(7, 1.6, "16", eventId),
-        id: "event-wide-handicap",
-        market: "Asian Handicap",
-        selection: "Home -0.5",
-        sporty: { eventId, marketId: "16", outcomeId: "home", specifier: "hcp=-0.5" },
+        ...pick(5, 1.26, "23", eventId),
+        id: "home-05",
+        market: "Home Team Total 0.5",
+        selection: "Over 0.5",
+        sporty: { eventId, marketId: "23", outcomeId: "over05", specifier: "total=0.5" },
       },
       {
-        ...pick(8, 1.72, "45", eventId),
-        id: "event-wide-correct-score",
-        market: "Correct Score",
-        selection: "1:0",
-        sporty: { eventId, marketId: "45", outcomeId: "1:0" },
+        ...pick(6, 1.27, "24", eventId),
+        id: "away-05",
+        market: "Away Team Total 0.5",
+        selection: "Over 0.5",
+        sporty: { eventId, marketId: "24", outcomeId: "over05", specifier: "total=0.5" },
       },
     ];
 
     let reviewed = 0;
     const result = await buildSlip(
-      { ...base, games: 2 },
+      { ...base, games: 2, risk: "conservative" },
       {
         discover: async () => rows,
         record: async () => ({ available: false, rows: [] }),
@@ -657,7 +681,7 @@ describe("buildSlip", () => {
             reviews: [{
               pickId: picks[0]!.id,
               score: 80,
-              summary: "Compared the wider market set.",
+              summary: "Compared the score Over set.",
               reasons: [],
               risks: [],
             }],
@@ -788,21 +812,34 @@ describe("buildSlip", () => {
     assert.match(result.notice ?? "", /only 1 passed/);
   });
 
-  it("allows AI to select a different eligible market within the same event", async () => {
-    const first = pick(1, 1.5, "10");
-    const alternate = pick(2, 1.6, "18", "event-1");
+  it("allows AI to select a different eligible Over line within the same event", async () => {
+    const first: TicketPick = {
+      ...pick(1, 1.5, "18", "event-1"),
+      id: "event-1-over-15",
+      market: "Over/Under 1.5",
+      selection: "Over 1.5",
+      sporty: { eventId: "event-1", marketId: "18", outcomeId: "over15", specifier: "total=1.5" },
+    };
+    const alternate: TicketPick = {
+      ...pick(2, 1.6, "18", "event-1"),
+      id: "event-1-over-25",
+      market: "Over/Under 2.5",
+      selection: "Over 2.5",
+      sporty: { eventId: "event-1", marketId: "18", outcomeId: "over25", specifier: "total=2.5" },
+    };
+    const other = pick(3);
     const result = await buildSlip(
       { ...base, games: 2 },
       {
-        discover: async () => [first, alternate, pick(3)],
+        discover: async () => [first, alternate, other],
         review: async (picks) => {
           assert.ok(picks.some((item) => item.id === first.id));
           assert.ok(picks.some((item) => item.id === alternate.id));
           return {
-            reviews: [alternate, pick(3)].map((item) => ({
+            reviews: [alternate, other].map((item) => ({
               pickId: item.id,
               score: 85,
-              summary: "Compared eligible options.",
+              summary: "Compared eligible Over lines.",
               reasons: [],
               risks: [],
             })),

@@ -486,51 +486,75 @@ function openOutcomes(market: EventMarket) {
   return (market.outcomes ?? []).filter((o) => o.isActive === 1 && o.id != null);
 }
 
-export function footballOptionAllowed(pick: TicketPick): boolean {
+function scoreTotalOverAllowed(
+  pick: TicketPick,
+  includeQuarters: boolean,
+): boolean {
   const marketId = pick.sporty?.marketId ?? "";
   const market = (pick.market ?? "").toLowerCase();
-  const selection = (pick.selection ?? "")
-    .toLowerCase()
-    .replace(/[–—]/g, "-")
-    .replace(/\s+/g, " ")
-    .trim();
+  const selection = (pick.selection ?? "").toLowerCase();
+  const specifier = (pick.sporty?.specifier ?? "").toLowerCase();
 
-  // Existing football policy: no standard straight-result picks and no Unders.
-  if (marketId === "1" || marketId === "60") return false;
-  if (/\bunder\b/i.test(selection)) return false;
+  // Both football and basketball are score-Over only. Never allow Under or
+  // non-Over outcomes even when the surrounding market is a total.
+  if (!/\bover\b/i.test(selection) || /\bunder\b/i.test(selection)) return false;
 
-  // Explicitly remove Draw No Bet (Home DNB + Away DNB).
-  if (marketId === "11" || /draw\s*no\s*bet|\bdnb\b/i.test(market)) return false;
-
-  // From Double Chance, remove only Home-or-Draw and Draw-or-Away. Home-or-Away
-  // remains eligible, as do all other SportyBet market types.
-  const isDoubleChance =
-    marketId === "10" ||
-    marketId === "63" ||
-    /double\s*chance/i.test(market);
-  if (isDoubleChance) {
-    if (
-      /home\s*(?:or|\/)\s*draw/i.test(selection) ||
-      /(?:^|\s)1x(?:\s|$)/i.test(selection)
+  // Exclude totals that are not the match/team score itself.
+  if (
+    /corner|booking|card|foul|offside|throw[- ]?in|shot|possession|goal kick|free kick|player|scorer|assist|rebound|steal|block|three[- ]?pointer|3[- ]?pointer|race to|odd\s*\/\s*even|correct score|winning margin|handicap|spread|moneyline|winner|both teams/i.test(
+      market,
     )
-      return false;
-    if (
-      /draw\s*(?:or|\/)\s*away/i.test(selection) ||
-      /(?:^|\s)x2(?:\s|$)/i.test(selection)
-    )
-      return false;
-  }
+  )
+    return false;
 
-  return true;
+  const looksLikeScoreTotal =
+    /over\s*\/\s*under|\btotal\b|total (?:goals?|points?)|goals? over\/under|points? over\/under/i.test(
+      market,
+    ) ||
+    ["18", "23", "24", "62", "68", "69", "70", "90", "225", "227", "228", "236"].includes(
+      marketId,
+    );
+  if (!looksLikeScoreTotal) return false;
+
+  const isTeamTotal =
+    ["23", "24", "69", "70", "227", "228"].includes(marketId) ||
+    /home (?:team )?total|away (?:team )?total|team total|individual total/i.test(market) ||
+    /(?:home|away).*(?:goals?|points?).*(?:over\s*\/\s*under|total)/i.test(market);
+
+  const isHalf =
+    ["62", "68", "90"].includes(marketId) ||
+    /(?:1st|2nd|first|second)\s*half|\b[12]h\b|half[- ]?time/i.test(market) ||
+    /half(?:nr|number)=?[12]/i.test(specifier);
+
+  const isQuarter =
+    marketId === "236" ||
+    /(?:1st|2nd|3rd|4th|first|second|third|fourth)\s*quarter|\bq[1-4]\b/i.test(
+      market,
+    ) ||
+    /quarternr=[1-4]/i.test(specifier);
+
+  const isFullGame =
+    ["18", "225"].includes(marketId) ||
+    ((/over\s*\/\s*under|\btotal\b/i.test(market)) &&
+      !isTeamTotal &&
+      !isHalf &&
+      !isQuarter);
+
+  if (isQuarter && !includeQuarters) return false;
+  return isFullGame || isTeamTotal || isHalf || (includeQuarters && isQuarter);
+}
+
+export function footballOptionAllowed(pick: TicketPick): boolean {
+  // Football: full-time score Overs, team/individual-team Overs and half Overs.
+  // Everything else is excluded.
+  return scoreTotalOverAllowed(pick, false);
 }
 
 function footballCandidates(ev: EventDetail): TicketPick[] {
   const picks: TicketPick[] = [];
 
-  // SportyBet can expose hundreds of football markets on one fixture. Do not
-  // maintain a hard-coded whitelist here: every active selectable outcome is
-  // admitted into discovery, then the explicit football exclusions above and
-  // the selected risk-mode odds/AI thresholds decide what can reach a slip.
+  // Hydrated SportyBet fixtures can expose hundreds of lines. Scan the whole
+  // event catalogue, then keep only score-Over markets allowed above.
   for (const market of ev.markets ?? []) {
     if (market.status !== 0) continue;
     for (const outcome of openOutcomes(market)) {
@@ -666,51 +690,9 @@ function pushMarket(
 }
 
 export function basketballOptionAllowed(pick: TicketPick): boolean {
-  const marketId = pick.sporty?.marketId ?? "";
-  const market = (pick.market ?? "").toLowerCase();
-  const selection = (pick.selection ?? "").toLowerCase();
-  const specifier = (pick.sporty?.specifier ?? "").toLowerCase();
-
-  // Basketball is Over-only.
-  if (!/\bover\b/i.test(selection) || /\bunder\b/i.test(selection)) return false;
-
-  // Only total-score markets are allowed: full game, team/individual team,
-  // halves and quarters. Winners, handicaps, odd/even, margins, races, etc.
-  // are deliberately excluded.
-  const looksLikeTotal =
-    /over\s*\/\s*under|\btotal\b|total points?/i.test(market) ||
-    ["18", "68", "69", "70", "225", "227", "228", "236"].includes(marketId);
-  if (!looksLikeTotal) return false;
-
-  if (
-    /winner|moneyline|handicap|spread|odd\s*\/\s*even|margin|race to|correct score|both teams/i.test(
-      market,
-    )
-  )
-    return false;
-
-  const isFullGame =
-    marketId === "18" ||
-    marketId === "225" ||
-    (/over\s*\/\s*under/i.test(market) &&
-      !/half|quarter|q[1-4]|home total|away total|team total/i.test(market));
-  const isTeamTotal =
-    ["69", "70", "227", "228"].includes(marketId) ||
-    /home total|away total|team total|home team total|away team total|individual total/i.test(
-      market,
-    );
-  const isHalf =
-    marketId === "68" ||
-    /(?:1st|2nd|first|second)\s*half|\b[12]h\b|halftime/i.test(market) ||
-    /half(?:nr|number)=?[12]/i.test(specifier);
-  const isQuarter =
-    marketId === "236" ||
-    /(?:1st|2nd|3rd|4th|first|second|third|fourth)\s*quarter|\bq[1-4]\b/i.test(
-      market,
-    ) ||
-    /quarternr=[1-4]/i.test(specifier);
-
-  return isFullGame || isTeamTotal || isHalf || isQuarter;
+  // Basketball: full-game score Overs, team/individual-team Overs, half Overs
+  // and quarter Overs. Everything else is excluded.
+  return scoreTotalOverAllowed(pick, true);
 }
 
 function basketballCandidates(ev: EventDetail): TicketPick[] {
@@ -1150,7 +1132,7 @@ export async function listUpcomingPicks(
   const want = Math.max(1, Math.min(42, limit));
   const detailScanCount =
     sport === "football" || sport === "basketball"
-      ? Math.min(upcoming.length, Math.max(24, Math.min(want, 36)))
+      ? Math.min(upcoming.length, want)
       : 0;
   const detailed =
     detailScanCount > 0
@@ -1165,22 +1147,17 @@ export async function listUpcomingPicks(
   for (const ev of eventPool) {
     if (events >= want) break;
     if (mode === "draw") {
-      if (sport !== "football") continue;
-      const draw = drawFromEvent(ev);
-      if (draw) {
-        picks.push(draw);
-        events += 1;
-      }
-    } else {
-      const open = candidatesFor(sport, ev);
-      const bookable = open.filter(cookablePick);
-      if (!bookable.length) {
-        diagnostics.rejected.noEligibleMarkets += 1;
-        continue;
-      }
-      picks.push(...open);
-      events += 1;
+      diagnostics.rejected.noEligibleMarkets += 1;
+      continue;
     }
+    const open = candidatesFor(sport, ev);
+    const bookable = open.filter(cookablePick);
+    if (!bookable.length) {
+      diagnostics.rejected.noEligibleMarkets += 1;
+      continue;
+    }
+    picks.push(...open);
+    events += 1;
   }
   if (!picks.length) {
     const noMarketData = diagnostics.fixturesInEligibleLeagues > 0 && diagnostics.eventsWithMarkets === 0;

@@ -201,7 +201,7 @@ async function reviewWithYou(groups: TicketPick[][]): Promise<ReviewedMarket[]> 
             .join(";");
           const query =
             `Game ${compact(first.home, 14)} v ${compact(first.away, 14)}. ` +
-            `Pick one option or omit; compare all supplied options. Score 0-100 ranking. ${choices}. ` +
+            `All supplied options are score Overs. Compare full-game, team, half and quarter lines where present; pick one option or omit. Score 0-100 ranking. ${choices}. ` +
             'JSON {"games":[{"g":1,"o":1,"score":65,"summary":"why"}]}';
           try {
             const answer = await youAnswer(query, 9_000);
@@ -237,7 +237,7 @@ async function reviewBatch(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
     })),
   }));
   const system =
-    'Review each game and its offered SportyBet markets. Choose AT MOST one numbered option (o) for each numbered game (g), or omit the game. Compare every supplied option before choosing. For football, the supplied list may contain a broad mix of SportyBet markets; compare them instead of defaulting to one familiar family. For basketball, compare the supplied totals/handicap choices rather than inventing unsupported winner markets. Score 0-100 is an uncalibrated ranking, NOT win probability. Only use the supplied fixtures, markets and odds; do not invent form, injuries, lineups, results or sources. State brief market/odds reasoning and a concrete risk. Return ONLY JSON {"games":[{"g":1,"o":2,"score":65,"summary":"brief market comparison","reasons":["reason"],"risks":["risk"]}]}';
+    'Review each game and its offered SportyBet score-Over markets. Choose AT MOST one numbered option (o) for each numbered game (g), or omit the game. Compare every supplied line before choosing: full-game Over, team/individual-team Over, half Over, and for basketball quarter Over when present. Do not invent winners, handicaps, Unders, corners, cards, props or any market not supplied. Score 0-100 is an uncalibrated ranking, NOT win probability. Only use the supplied fixtures, markets and odds; do not invent form, injuries, lineups, results or sources. State brief market/odds reasoning and a concrete risk. Return ONLY JSON {"games":[{"g":1,"o":2,"score":65,"summary":"brief market comparison","reasons":["reason"],"risks":["risk"]}]}';
   const user = JSON.stringify(games);
   const engines: Array<{ name: string; run: () => Promise<string> }> = [];
   if (geminiKeys().length)

@@ -215,8 +215,8 @@ function allowedFamily(pick: TicketPick, risk: BuildRisk) {
     return basketballOptionAllowed(pick);
   }
 
-  // Football market coverage is intentionally broad. The risk mode controls
-  // odds/model thresholds; explicit market exclusions live in one shared rule.
+  // Football is score-Over only in every risk mode: full-time totals,
+  // team/individual-team totals and half totals.
   return footballOptionAllowed(pick);
 }
 
@@ -509,7 +509,7 @@ export async function buildSlip(
     request.mode === "odds" ? 42 : 24,
     Math.max(12, requestedCount + 6),
   );
-  const maxOptionsPerEvent = 8;
+  const maxOptionsPerEvent = 24;
   const candidatePool = [...byEvent.values()]
     .sort((a, b) => Math.max(...b.map(deskScore)) - Math.max(...a.map(deskScore)))
     .slice(0, maxGamesToReview)
@@ -520,14 +520,19 @@ export async function buildSlip(
       const buckets = new Map<string, TicketPick[]>();
       for (const pick of ranked) {
         const family = marketFamily(pick.sporty?.marketId, pick.market);
-        const bucketKey =
-          request.sport === "football"
-            ? `${family}:${pick.sporty?.marketId ?? pick.market}`
-            : family;
+        const specifier = pick.sporty?.specifier ?? "";
+        const periodKey =
+          specifier
+            .split(";")
+            .filter((part) => part && !/^total=/i.test(part))
+            .sort()
+            .join(";") || "main";
+        const bucketKey = `${family}:${pick.sporty?.marketId ?? pick.market}:${periodKey}`;
         const bucket = buckets.get(bucketKey) ?? [];
-        // Keep multiple line/outcome alternatives for a real SportyBet market,
-        // but do not let one market ID crowd out the rest of the event.
-        if (bucket.length < 3) {
+        // SportyBet may expose hundreds of score-total lines per fixture.
+        // Keep several lines from every full-game/team/half/quarter bucket,
+        // then round-robin them so one period cannot crowd out the rest.
+        if (bucket.length < 4) {
           bucket.push(pick);
           buckets.set(bucketKey, bucket);
         }
@@ -536,12 +541,11 @@ export async function buildSlip(
         .sort((a, b) => deskScore(b[1]![0]!) - deskScore(a[1]![0]!))
         .map(([family]) => family);
       const selected: TicketPick[] = [];
-      const perEventCap = request.sport === "football" ? 24 : maxOptionsPerEvent;
-      for (let round = 0; round < 3 && selected.length < perEventCap; round++) {
+      for (let round = 0; round < 4 && selected.length < maxOptionsPerEvent; round++) {
         for (const family of families) {
           const pick = buckets.get(family)?.[round];
           if (pick) selected.push(pick);
-          if (selected.length >= perEventCap) break;
+          if (selected.length >= maxOptionsPerEvent) break;
         }
       }
       return selected;
