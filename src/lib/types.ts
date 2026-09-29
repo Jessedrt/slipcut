@@ -24,6 +24,7 @@ export type NormalizedMarketFamily =
   | "handicap"
   | "btts"
   | "odd_even"
+  | "cards"
   | "corners"
   | "other";
 

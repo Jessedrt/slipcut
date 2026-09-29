@@ -1,28 +1,18 @@
+import { buildSlip } from "./build-slip";
+import { mintReviewedSlip } from "./book-slip";
+import { automaticMarketAllowed, riskOddsAllowed } from "./selection-policy";
 import { accuracyFilter, loadAccuracy } from "./accuracy";
-import { deskScore } from "./research";
-import {
-  cookablePick,
-  listUpcomingPicks,
-  marketFamily,
-  mintShare,
-  sportyOf,
-  type CookWindow,
-} from "./sportybet";
-import { getSetting, listChats, loadOddsBand, recordSlip, setSetting, studyCode } from "./study";
+import { marketFamily, listUpcomingPicks, sportyOf, type CookWindow } from "./sportybet";
+import { getSetting, listChats, recordSlip, setSetting, studyCode } from "./study";
 import { combinedOdds, formatOdds, uniqueEvents } from "./workbench";
-import { applyBand } from "./intent";
 import type { BookSport, TicketPick } from "./types";
 
 /** Five cards, short to long. A longer card is a longer shot. */
 export const ENGINE_LADDER = [2, 3, 5, 8, 12] as const;
-const ENGINE_POLICY_VERSION = "conservative-diversified-v3";
+const ENGINE_POLICY_VERSION = "evidence-conservative-v4";
 
 export type EngineMarketKind = "first_half_over" | "team_over" | "full_time_over";
-const ENGINE_MARKET_ORDER: EngineMarketKind[] = [
-  "first_half_over",
-  "team_over",
-  "full_time_over",
-];
+const ENGINE_MARKET_ORDER: EngineMarketKind[] = ["first_half_over", "team_over", "full_time_over"];
 
 export type EngineLeg = {
   home: string;
@@ -136,122 +126,15 @@ export function engineMarketKind(pick: TicketPick): EngineMarketKind | null {
 }
 
 export function enginePriceAllowed(pick: TicketPick): boolean {
-  const odds = pick.odds;
-  if (!odds || !Number.isFinite(odds)) return false;
-  if (odds < 1.2) return false;
-
-  const kind = engineMarketKind(pick);
-  if (!kind) return false;
-
-  // Engine Accumulators are intentionally more conservative than the normal
-  // Build flow. Football first-half overs are the highest-variance family, so
-  // they get the tightest ceiling.
-  if (pick.sport === "football") {
-    if (kind === "first_half_over") return odds <= 1.45;
-    if (kind === "team_over") return odds <= 1.5;
-    return odds <= 1.55;
-  }
-
-  if (pick.sport === "basketball") {
-    if (kind === "team_over") return odds <= 1.5;
-    return odds <= 1.55;
-  }
-
-  return odds <= 1.55;
+  return automaticMarketAllowed(pick) && riskOddsAllowed(pick.odds, "conservative");
 }
 
-function engineLineKey(pick: TicketPick): string {
-  const kind = engineMarketKind(pick) ?? "other";
-  const specifier = pick.sporty?.specifier ?? "";
-  const total =
-    specifier.match(/(?:^|[;,&])\s*total=([+-]?\d+(?:\.\d+)?)/i)?.[1] ??
-    pick.market.match(/([+-]?\d+(?:\.\d+)?)/)?.[1] ??
-    pick.selection.match(/([+-]?\d+(?:\.\d+)?)/)?.[1] ??
-    "na";
-  return `${kind}:${total}`;
-}
-
-export function selectDiversifiedEngineCard(
-  ranked: TicketPick[],
-  n: number,
-): TicketPick[] {
-  if (n < 1) return [];
-
-  const familyCap = n === 1 ? 1 : Math.ceil(n / 2);
-  const lineCap = n <= 3 ? 1 : Math.ceil(n / 3);
-  const familyCount = new Map<EngineMarketKind, number>();
-  const lineCount = new Map<string, number>();
-  const selected: TicketPick[] = [];
-
-  for (const pick of ranked) {
-    const kind = engineMarketKind(pick);
-    if (!kind) continue;
-
-    const familyUsed = familyCount.get(kind) ?? 0;
-    if (familyUsed >= familyCap) continue;
-
-    const lineKey = engineLineKey(pick);
-    const lineUsed = lineCount.get(lineKey) ?? 0;
-    if (lineUsed >= lineCap) continue;
-
-    selected.push(pick);
-    familyCount.set(kind, familyUsed + 1);
-    lineCount.set(lineKey, lineUsed + 1);
-
-    if (selected.length >= n) break;
-  }
-
-  if (selected.length < n) return selected;
-  if (n >= 2 && familyCount.size < 2) return [];
-  return selected;
-}
-
-
-
-function rankEngineOvers(picks: TicketPick[]): TicketPick[] {
-  const groups = new Map<EngineMarketKind, TicketPick[]>(
-    ENGINE_MARKET_ORDER.map((kind) => [kind, []]),
+export function selectDiversifiedEngineCard(ranked: TicketPick[], n: number): TicketPick[] {
+  // Input has already been evidence-ranked: preserve merit, not artificial variety.
+  return uniqueEvents(ranked.filter((p) => automaticMarketAllowed(p))).picks.slice(
+    0,
+    Math.max(0, n),
   );
-
-  for (const pick of picks) {
-    const kind = engineMarketKind(pick);
-    if (!kind) continue;
-    groups.get(kind)!.push(pick);
-  }
-
-  for (const kind of ENGINE_MARKET_ORDER) {
-    groups.get(kind)!.sort(
-      (a, b) =>
-        deskScore(b) - deskScore(a) ||
-        (a.odds ?? 99) - (b.odds ?? 99),
-    );
-  }
-
-  // Cycle through the three requested market types instead of letting one
-  // family dominate the whole ladder. Each event still appears only once.
-  const ranked: TicketPick[] = [];
-  const usedEvents = new Set<string>();
-  while (ranked.length < 24) {
-    let added = false;
-
-    for (const kind of ENGINE_MARKET_ORDER) {
-      const bucket = groups.get(kind)!;
-      while (bucket.length) {
-        const pick = bucket.shift()!;
-        const eventKey = pick.sporty?.eventId ?? pick.id;
-        if (usedEvents.has(eventKey)) continue;
-        usedEvents.add(eventKey);
-        ranked.push(pick);
-        added = true;
-        break;
-      }
-      if (ranked.length >= 24) break;
-    }
-
-    if (!added) break;
-  }
-
-  return ranked;
 }
 
 async function discoverEngineMarkets(
@@ -259,8 +142,7 @@ async function discoverEngineMarkets(
   skip: string[],
   sport: EngineScope,
 ): Promise<TicketPick[]> {
-  const sports: BookSport[] =
-    sport === "all" ? ["football", "basketball"] : [sport];
+  const sports: BookSport[] = sport === "all" ? ["football", "basketball"] : [sport];
   const batches = await Promise.all(
     sports.map((item) => listUpcomingPicks(item, 42, window, "any", skip)),
   );
@@ -291,32 +173,20 @@ async function poolForEngine(
     };
   }
 
-  const allowedOvers = listed.filter(
-    (pick) =>
-      cookablePick(pick) &&
-      engineMarketKind(pick) !== null &&
-      enginePriceAllowed(pick),
+  const results = await Promise.all(
+    (sport === "all" ? (["football", "basketball"] as const) : [sport]).map(async (item) => {
+      const built = await buildSlip(
+        { sport: item, mode: "games", games: 15, risk: "conservative", window: "upcoming" },
+        { discover: async () => listed.filter((p) => p.sport === item) },
+      );
+      return built.ok ? built.selections : [];
+    }),
   );
-  if (!allowedOvers.length) {
-    return {
-      error:
-        "No conservative 1.20-1.55 Over market is available for the engine right now.",
-    };
-  }
-
-  const acc = await loadAccuracy();
-  const gated = accuracyFilter(allowedOvers, acc);
-  if (!gated.kept.length) {
-    return { error: "No requested Over market passed the engine accuracy gate right now." };
-  }
-
-  const band = await loadOddsBand();
-  const pool = applyBand(gated.kept, band);
-  const ranked = rankEngineOvers(pool);
-  if (ranked.length < 2) {
-    return { error: "The engine did not find enough reviewed Over markets to issue a card." };
-  }
-  return ranked;
+  const ranked = results.flat().sort((a, b) => b.modelScore - a.modelScore);
+  const gated = accuracyFilter(ranked, await loadAccuracy());
+  if (gated.kept.length < 2)
+    return { error: "Insufficient evidence-qualified Conservative selections for engine cards." };
+  return gated.kept;
 }
 
 export async function buildEngineCards(
@@ -333,8 +203,8 @@ export async function buildEngineCards(
     if (take.length < n) continue;
     const selections = sportyOf(take);
     if (selections.length !== take.length) continue;
-    const minted = await mintShare(selections, "ng");
-    if ("error" in minted) continue;
+    const minted = await mintReviewedSlip(take, "ng", undefined, { acceptOddsChanges: false });
+    if (!minted.ok) continue;
     await recordSlip(minted.shareCode, take);
     await rememberEngineEventIds(
       sport,
@@ -397,7 +267,7 @@ export function engineIntro(accSample: number, average: number) {
     "<b>Engine Accumulators</b>",
     "",
     "The engine builds these itself. It may only use sports and prediction types whose settled record beats its own average hit rate.",
-    "Handicaps are excluded. Cards must mix at least two eligible Over families, so the engine will not fill a ladder with one repeated market type.",
+    "Cards use evidence-qualified Conservative selections at 1.20–1.40 per leg. Each fixture appears once; market variety follows statistical support.",
     "",
     `Five cards go out daily. Settled hit rate: <b>${rate}</b> · ${accSample} legs.`,
     "Nothing here is advice — a longer card is a longer shot.",

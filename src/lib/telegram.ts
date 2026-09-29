@@ -241,9 +241,9 @@ function dailyOverBlock(
   index: number,
 ) {
   const pick = row.pick;
-  const average = row.h2hAverage.toFixed(1);
-  const hitPct = Math.round(row.h2hHitRate * 100);
-  const hits = row.h2hTotals.filter((value) => {
+  const average = row.average.toFixed(1);
+  const hitPct = Math.round(row.hitRate * 100);
+  const hits = row.totals.filter((value) => {
     const line = Number(
       pick.sporty?.specifier?.match(/total=([\d.]+)/)?.[1] ??
         pick.market.match(/([\d.]+)/)?.[1] ??
@@ -254,8 +254,8 @@ function dailyOverBlock(
   return [
     `${index + 1}. ${pick.home} vs ${pick.away}`,
     `${pick.selection} · ${pick.market} @ ${pick.odds ? formatOdds(pick.odds) : "—"}`,
-    `H2H avg total: ${average} · Over hit: ${hits}/${row.sample} (${hitPct}%)`,
-    `H2H totals: ${row.h2hTotals.join(", ")} · score ${row.score}/100`,
+    `Recent avg total: ${average} · Over hit: ${hits}/${row.sample} (${hitPct}%)`,
+    `Recent totals: ${row.totals.join(", ")} · score ${row.score}/100`,
     formatKickoff(pick.kickoff),
   ]
     .filter(Boolean)
@@ -266,7 +266,7 @@ async function runDailyOvers(chatId: number) {
   await tg("sendMessage", {
     chat_id: chatId,
     text:
-      "Scanning today's SportyBet basketball full-game totals and checking verified H2H final scores…",
+      "Scanning today's SportyBet basketball full-game totals and checking source-corroborated recent scoring…",
   });
 
   try {
@@ -274,8 +274,8 @@ async function runDailyOvers(chatId: number) {
     const heading = [
       "Daily Basketball Over scan",
       `SportyBet games checked: ${scan.scannedEvents}`,
-      `Games with 1.20–1.82 full-game Over lines: ${scan.eventsWithConservativeOver}`,
-      `H2H verified (3+ meetings): ${scan.h2hVerifiedEvents}`,
+      `Games with 1.20–1.40 full-game Over lines: ${scan.eventsWithConservativeOver}`,
+      `Evidence-qualified events (10+ results per team): ${scan.evidenceQualifiedEvents}`,
       `Qualified Overs: ${scan.recommendations.length}`,
     ];
     if (scan.warnings.length) heading.push(...scan.warnings.map((warning) => `Note: ${warning}`));
@@ -289,7 +289,7 @@ async function runDailyOvers(chatId: number) {
       await tg("sendMessage", {
         chat_id: chatId,
         text:
-          "No Over line passed the H2H rules today. SlipCut requires at least 3 verified H2Hs, 60%+ strict Over hits and an average-total cushion above the offered line.",
+          "No Over line passed Conservative rules today: 1.20–1.40, 10+ relevant results per team, 80%+ exact-line hits and robust scoring support.",
       });
       return;
     }

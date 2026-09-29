@@ -1,3 +1,4 @@
+import { canonicalMarket } from "../selection-policy";
 import type {
   BookmakerId,
   BookmakerSelectionRef,
@@ -13,16 +14,16 @@ const TEAM_ALIASES: Record<string, string> = {
   "man united": "manchester united",
   "man u": "manchester united",
   "man city": "manchester city",
-  "psg": "paris saint germain",
-  "inter": "inter milan",
+  psg: "paris saint germain",
+  inter: "inter milan",
   "inter milano": "inter milan",
-  "bayern": "bayern munich",
+  bayern: "bayern munich",
   "bayern munchen": "bayern munich",
-  "atletico": "atletico madrid",
+  atletico: "atletico madrid",
   "atletico de madrid": "atletico madrid",
-  "spurs": "tottenham hotspur",
-  "wolves": "wolverhampton wanderers",
-  "newcastle": "newcastle united",
+  spurs: "tottenham hotspur",
+  wolves: "wolverhampton wanderers",
+  newcastle: "newcastle united",
   "west ham": "west ham united",
 };
 
@@ -40,7 +41,9 @@ export function normalizeName(value: string): string {
 }
 
 function extractNumber(text: string): number | undefined {
-  const hit = text.match(/(?:total|over|under|o\/u|handicap|hcp|games?|corners?)?\s*([+-]?\d+(?:\.\d+)?)/i);
+  const hit = text.match(
+    /(?:total|over|under|o\/u|handicap|hcp|games?|corners?)?\s*([+-]?\d+(?:\.\d+)?)/i,
+  );
   if (!hit) return undefined;
   const value = Number(hit[1]);
   return Number.isFinite(value) ? value : undefined;
@@ -91,16 +94,17 @@ export function normalizeMarket(
   else if (/corner/.test(blob)) family = "corners";
   else if (/handicap|\bhcp\b/.test(blob)) family = "handicap";
   else if (/home.*total|away.*total|team total/.test(blob)) family = "team_total";
-  else if (/over|under|o\/u|total games|total points|total goals|total/.test(blob)) family = "total";
-  else if (/winner|moneyline|1x2|match result|to win|\bhome\b|\baway\b|\bdraw\b/.test(blob)) family = "winner";
+  else if (/over|under|o\/u|total games|total points|total goals|total/.test(blob))
+    family = "total";
+  else if (/winner|moneyline|1x2|match result|to win|\bhome\b|\baway\b|\bdraw\b/.test(blob))
+    family = "winner";
 
   const scope = /home.*total|home team/.test(blob)
     ? "home"
     : /away.*total|away team/.test(blob)
       ? "away"
       : "match";
-  const fromSpecifier =
-    specifier?.match(/(?:total|hcp)=([+-]?\d+(?:\.\d+)?)/i)?.[1];
+  const fromSpecifier = specifier?.match(/(?:total|hcp)=([+-]?\d+(?:\.\d+)?)/i)?.[1];
   const line = fromSpecifier ? Number(fromSpecifier) : extractNumber(`${market} ${selection}`);
 
   return {
@@ -122,13 +126,23 @@ export function normalizePick(pick: TicketPick): TicketPick {
         specifier: pick.sporty.specifier,
       }
     : undefined;
+  const canonical = canonicalMarket(pick);
+  const normalized: NormalizedMarket = {
+    family: canonical.family,
+    period: canonical.period === "unknown" ? "other" : canonical.period,
+    scope: canonical.scope === "unknown" ? undefined : canonical.scope,
+    line: canonical.line,
+    outcome: canonical.outcome,
+  };
   return {
     ...pick,
     normalizedHome: normalizeName(pick.home),
     normalizedAway: normalizeName(pick.away),
     normalizedLeague: normalizeName(pick.league),
     normalizedMarket:
-      pick.normalizedMarket ?? normalizeMarket(pick.market, pick.selection, pick.sporty?.specifier),
+      pick.sport === "football" || pick.sport === "basketball"
+        ? normalized
+        : normalizeMarket(pick.market, pick.selection, pick.sporty?.specifier),
     bookmakerRefs: {
       ...(pick.bookmakerRefs ?? {}),
       ...(sportyRef ? { sportybet: sportyRef } : {}),
@@ -191,7 +205,14 @@ export function toRelayBookPick(pick: TicketPick): RelayBookPick | null {
 
   if (m.family === "winner") {
     market = m.period === "first_half" ? "HT 1X2" : "1X2";
-    selected = m.outcome === "home" ? "Home" : m.outcome === "draw" ? "Draw" : m.outcome === "away" ? "Away" : pick.selection;
+    selected =
+      m.outcome === "home"
+        ? "Home"
+        : m.outcome === "draw"
+          ? "Draw"
+          : m.outcome === "away"
+            ? "Away"
+            : pick.selection;
   } else if (m.family === "double_chance") {
     market = `${prefix}DC`.trim();
     selected = m.outcome.toUpperCase();

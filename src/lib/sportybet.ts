@@ -1,3 +1,4 @@
+import { automaticMarketAllowed, canonicalMarket } from "./selection-policy";
 import type { BookSport, SportKind, SportySelection, TicketPick } from "./types";
 import { normalizePick } from "./bookmakers/normalize";
 import { isChampionsLeague } from "./intent.ts";
@@ -120,10 +121,16 @@ export async function fetchShare(code: string, country: string): Promise<SharePa
   }
 }
 
-export async function loadBookingCode(code: string, preferred?: string): Promise<{
-  picks: TicketPick[];
-  shareCode: string;
-} | { error: string }> {
+export async function loadBookingCode(
+  code: string,
+  preferred?: string,
+): Promise<
+  | {
+      picks: TicketPick[];
+      shareCode: string;
+    }
+  | { error: string }
+> {
   const order = [preferred, ...COUNTRY_FALLBACKS].filter(
     (c, i, arr): c is string => Boolean(c) && arr.indexOf(c) === i,
   );
@@ -145,6 +152,7 @@ export type MintResult = {
   shareCode: string;
   shareURL: string;
   unavailable: number;
+  unavailableOutcomes?: unknown[];
 };
 
 export async function mintShare(
@@ -177,6 +185,7 @@ export async function mintShare(
       return {
         shareCode: code,
         shareURL,
+        unavailableOutcomes: payload.data?.unavailableOutcomes,
         unavailable: Array.isArray(payload.data?.unavailableOutcomes)
           ? payload.data.unavailableOutcomes.length
           : 0,
@@ -199,10 +208,11 @@ const FOOTBALL_LEAGUES =
 const FOOTBALL_JUNK =
   /southern|northern premier|isthmian|vanarama|non[-\s]?league|national league|serie [cd]\b|tercera|preferente|autonomica|federacion|hypermotion|segunda|cearense|paulista|carioca|mineiro|qatar|stars league|u-?1[89]|u-?2[01]|reserve|youth|women|friendly|amateur/i;
 const BASKETBALL_LEAGUES =
-  /\beuroleague\b|eurocup|ncaa|wnba|nbl|acb|bbl|cba|kbl|fiba|eurobasket|aba league|liga endesa|pro a|lnb|vtb|nbb|cebl|bnxt/i;
+  /\bnba\b|\beuroleague\b|eurocup|ncaa|wnba|nbl|acb|bbl|cba|kbl|fiba|eurobasket|aba league|liga endesa|pro a|lnb|vtb|nbb|cebl|bnxt/i;
 const WEAK_BASKETBALL_LEAGUE =
   /3x3|tbt\b|the basketball tournament|development|reserve|u-?1[89]|u-?2[01]|youth|cadet|junior|amateur|friendly|liga nacional|lnbp|libobasquet|liga boliviana|liga uruguaya|liga sudamericana|bcl americas|paraguayan|venezuelan|cuban|nicaragu|hondur|kosovo|albanian|mongolian|n1 league|b2 league|east asia super/i;
-const TENNIS_LEAGUES = /atp|wta|us open|australian open|wimbledon|roland|french open|masters|challenger|grand slam/i;
+const TENNIS_LEAGUES =
+  /atp|wta|us open|australian open|wimbledon|roland|french open|masters|challenger|grand slam/i;
 const HANDBALL_LEAGUES =
   /ehf|champions league|bundesliga|starligue|asobal|seha|olympic|world championship|herre|eliteserien|nexe|barcelona|psg|kiel|flensburg|vesszem|pick szeged/i;
 /** Simulated / virtual leagues — never real fixtures, always excluded. */
@@ -285,11 +295,7 @@ class SportyProviderError extends Error {
   readonly code: ProviderErrorCode;
   readonly retryable: boolean;
 
-  constructor(
-    code: ProviderErrorCode,
-    message: string,
-    retryable = false,
-  ) {
+  constructor(code: ProviderErrorCode, message: string, retryable = false) {
     super(message);
     this.name = "SportyProviderError";
     this.code = code;
@@ -365,11 +371,7 @@ async function sportyGet(
         true,
       );
     }
-    throw new SportyProviderError(
-      "provider_unavailable",
-      "SportyBet could not be reached.",
-      true,
-    );
+    throw new SportyProviderError("provider_unavailable", "SportyBet could not be reached.", true);
   } finally {
     clearTimeout(timer);
   }
@@ -390,11 +392,19 @@ function inBookWindow(odds?: number) {
 export function marketFamily(
   id?: string,
   desc?: string,
-): "win" | "dc" | "ou" | "gg" | "dnb" | "hcp" | "ou1h" | "teamou" | "odd" | "corners" {
+): "win" | "dc" | "ou" | "gg" | "dnb" | "hcp" | "ou1h" | "teamou" | "odd" | "corners" | "other" {
   const d = (desc ?? "").toLowerCase();
   if (id === "10" || id === "63" || d.includes("double chance")) return "dc";
   if (id === "186" || id === "202" || id === "1" || id === "219" || id === "60") return "win";
-  if (id === "187" || id === "188" || id === "16" || id === "14" || id === "223" || id === "66" || d.includes("handicap"))
+  if (
+    id === "187" ||
+    id === "188" ||
+    id === "16" ||
+    id === "14" ||
+    id === "223" ||
+    id === "66" ||
+    d.includes("handicap")
+  )
     return "hcp";
   if (
     id === "68" ||
@@ -414,7 +424,8 @@ export function marketFamily(
     return "teamou";
   if (id === "8" || d.includes("odd/even") || d.includes("odd or even")) return "odd";
   if (id === "166" || id === "90" || d.includes("corner")) return "corners";
-  if (id === "29" || id === "64" || d.includes("gg/ng") || d.includes("both teams to score")) return "gg";
+  if (id === "29" || id === "64" || d.includes("gg/ng") || d.includes("both teams to score"))
+    return "gg";
   if (id === "11" || d.includes("draw no bet")) return "dnb";
   if (
     id === "189" ||
@@ -427,7 +438,7 @@ export function marketFamily(
     d.includes("total games")
   )
     return "ou";
-  return "win";
+  return "other";
 }
 
 function toPick(
@@ -442,26 +453,8 @@ function toPick(
   const total = spec.match(/total=([\d.]+)/)?.[1] ?? "";
   const hcp = spec.match(/hcp=([-\d.]+)/)?.[1] ?? "";
   let label = market.desc ?? "Market";
-  if (market.id === "18" || market.id === "225") label = `Over/Under ${total}`.trim();
-  else if (market.id === "16") label = `Asian Handicap ${hcp}`.trim();
-  else if (market.id === "223" || market.id === "14") label = `Handicap ${hcp}`.trim();
-  else if (market.id === "68") label = `1st Half O/U ${total}`.trim();
-  else if (market.id === "227") label = `Home total ${total}`.trim();
-  else if (market.id === "228") label = `Away total ${total}`.trim();
-  else if (market.id === "69") label = `1H home total ${total}`.trim();
-  else if (market.id === "70") label = `1H away total ${total}`.trim();
-  else if (market.id === "66") label = `1st Half Handicap ${hcp}`.trim();
-  else if (market.id === "62" || market.id === "90") label = `2nd Half O/U ${total}`.trim();
-  else if (market.id === "63") label = "1st Half Double Chance";
-  else if (market.id === "64") label = "1st Half GG";
-  else if (market.id === "8") label = "Odd/Even";
-  else if (market.id === "166" || /corner/i.test(market.desc ?? "")) label = `Corners ${total}`.trim();
-  else if (market.id === "186") label = "Winner";
-  else if (market.id === "187") label = `Game handicap ${hcp}`.trim();
-  else if (market.id === "188") label = `Set handicap ${hcp}`.trim();
-  else if (market.id === "189") label = `Total games ${total}`.trim();
-  else if (market.id === "202") label = "1st set winner";
-  else if (market.id === "204") label = `1st set total ${total}`.trim();
+  if (total && !label.includes(total)) label = `${label} ${total}`;
+  if (hcp && !label.includes(hcp)) label = `${label} ${hcp}`;
   return normalizePick({
     id: `${ev.eventId}-${market.id}-${market.specifier ?? ""}-${outcome.id}`,
     sport,
@@ -486,68 +479,8 @@ function openOutcomes(market: EventMarket) {
   return (market.outcomes ?? []).filter((o) => o.isActive === 1 && o.id != null);
 }
 
-function scoreTotalOverAllowed(
-  pick: TicketPick,
-  includeQuarters: boolean,
-): boolean {
-  const marketId = pick.sporty?.marketId ?? "";
-  const market = (pick.market ?? "").toLowerCase();
-  const selection = (pick.selection ?? "").toLowerCase();
-  const specifier = (pick.sporty?.specifier ?? "").toLowerCase();
-
-  // Both football and basketball are score-Over only. Never allow Under or
-  // non-Over outcomes even when the surrounding market is a total.
-  if (!/\bover\b/i.test(selection) || /\bunder\b/i.test(selection)) return false;
-
-  // Exclude totals that are not the match/team score itself.
-  if (
-    /corner|booking|card|foul|offside|throw[- ]?in|shot|possession|goal kick|free kick|player|scorer|assist|rebound|steal|block|three[- ]?pointer|3[- ]?pointer|race to|odd\s*\/\s*even|correct score|winning margin|handicap|spread|moneyline|winner|both teams/i.test(
-      market,
-    )
-  )
-    return false;
-
-  const looksLikeScoreTotal =
-    /over\s*\/\s*under|\btotal\b|total (?:goals?|points?)|goals? over\/under|points? over\/under/i.test(
-      market,
-    ) ||
-    ["18", "23", "24", "62", "68", "69", "70", "90", "225", "227", "228", "236"].includes(
-      marketId,
-    );
-  if (!looksLikeScoreTotal) return false;
-
-  const isTeamTotal =
-    ["23", "24", "69", "70", "227", "228"].includes(marketId) ||
-    /home (?:team )?total|away (?:team )?total|team total|individual total/i.test(market) ||
-    /(?:home|away).*(?:goals?|points?).*(?:over\s*\/\s*under|total)/i.test(market);
-
-  const isHalf =
-    ["62", "68", "90"].includes(marketId) ||
-    /(?:1st|2nd|first|second)\s*half|\b[12]h\b|half[- ]?time/i.test(market) ||
-    /half(?:nr|number)=?[12]/i.test(specifier);
-
-  const isQuarter =
-    marketId === "236" ||
-    /(?:1st|2nd|3rd|4th|first|second|third|fourth)\s*quarter|\bq[1-4]\b/i.test(
-      market,
-    ) ||
-    /quarternr=[1-4]/i.test(specifier);
-
-  const isFullGame =
-    ["18", "225"].includes(marketId) ||
-    ((/over\s*\/\s*under|\btotal\b/i.test(market)) &&
-      !isTeamTotal &&
-      !isHalf &&
-      !isQuarter);
-
-  if (isQuarter && !includeQuarters) return false;
-  return isFullGame || isTeamTotal || isHalf || (includeQuarters && isQuarter);
-}
-
 export function footballOptionAllowed(pick: TicketPick): boolean {
-  // Football: full-time score Overs, team/individual-team Overs and half Overs.
-  // Everything else is excluded.
-  return scoreTotalOverAllowed(pick, false);
+  return pick.sport === "football" && automaticMarketAllowed(pick);
 }
 
 function footballCandidates(ev: EventDetail): TicketPick[] {
@@ -596,7 +529,8 @@ function mostBalanced(markets: EventMarket[]): EventMarket | undefined {
 function isPrematch(ev: EventDetail, now = Date.now()) {
   if (ev.status !== 0 || ev.banned) return false;
   if (typeof ev.period === "number" && ev.period > 0) return false;
-  if (/live|started|1st|2nd|3rd|4th|q1|q2|q3|q4|\bht\b|half/i.test(ev.matchStatus ?? "")) return false;
+  if (/live|started|1st|2nd|3rd|4th|q1|q2|q3|q4|\bht\b|half/i.test(ev.matchStatus ?? ""))
+    return false;
   const t = ev.estimateStartTime ?? 0;
   if (t && t < now + 18 * 60_000) return false;
   return true;
@@ -630,10 +564,15 @@ function balancedOver(
       best = market;
     }
   }
-  return best ?? mostBalanced(markets.filter((m) => {
-    const t = specTotal(m);
-    return t != null && t >= minLine && t <= maxLine;
-  }));
+  return (
+    best ??
+    mostBalanced(
+      markets.filter((m) => {
+        const t = specTotal(m);
+        return t != null && t >= minLine && t <= maxLine;
+      }),
+    )
+  );
 }
 
 function lowerOverLine(markets: EventMarket[]): EventMarket | undefined {
@@ -690,43 +629,17 @@ function pushMarket(
 }
 
 export type BasketballOverKind =
-  | "full_game"
-  | "team_full_game"
-  | "half"
-  | "team_half"
-  | "quarter"
-  | "team_quarter";
+  "full_game" | "team_full_game" | "half" | "team_half" | "quarter" | "team_quarter";
 
 export function basketballOverKind(pick: TicketPick): BasketballOverKind | null {
-  if (!scoreTotalOverAllowed(pick, true)) return null;
-
-  const marketId = pick.sporty?.marketId ?? "";
-  const market = (pick.market ?? "").toLowerCase();
-  const specifier = (pick.sporty?.specifier ?? "").toLowerCase();
-
-  const team =
-    ["227", "228", "69", "70"].includes(marketId) ||
-    /home (?:team )?total|away (?:team )?total|team total|individual total/i.test(market) ||
-    /(?:home|away).*(?:points?|total)/i.test(market);
-
-  const quarter =
-    marketId === "236" ||
-    /(?:1st|2nd|3rd|4th|first|second|third|fourth)\s*quarter|\bq[1-4]\b/i.test(market) ||
-    /quarternr=[1-4]/i.test(specifier);
-
-  const half =
-    ["68", "69", "70"].includes(marketId) ||
-    /(?:1st|2nd|first|second)\s*half|\b[12]h\b|half[- ]?time/i.test(market) ||
-    /half(?:nr|number)=?[12]/i.test(specifier);
-
-  if (quarter) return team ? "team_quarter" : "quarter";
-  if (half) return team ? "team_half" : "half";
+  if (pick.sport !== "basketball" || !automaticMarketAllowed(pick)) return null;
+  const c = canonicalMarket(pick),
+    team = c.family === "team_total";
+  if (c.period.startsWith("q")) return team ? "team_quarter" : "quarter";
+  if (c.period !== "match") return team ? "team_half" : "half";
   return team ? "team_full_game" : "full_game";
 }
-
 export function basketballOptionAllowed(pick: TicketPick): boolean {
-  // Basketball: full-game score Overs, team/individual-team Overs, half Overs
-  // and quarter Overs. Everything else is excluded.
   return basketballOverKind(pick) !== null;
 }
 
@@ -747,7 +660,12 @@ function basketballCandidates(ev: EventDetail): TicketPick[] {
 function tennisCandidates(ev: EventDetail): TicketPick[] {
   const markets = (ev.markets ?? []).filter((m) => m.status === 0);
   const picks: TicketPick[] = [];
-  pushMarket(picks, ev, "tennis", markets.find((m) => m.id === "186"));
+  pushMarket(
+    picks,
+    ev,
+    "tennis",
+    markets.find((m) => m.id === "186"),
+  );
   pushMarket(picks, ev, "tennis", mostBalanced(markets.filter((m) => m.id === "188")));
   pushMarket(picks, ev, "tennis", mostBalanced(markets.filter((m) => m.id === "187")));
   pushMarket(picks, ev, "tennis", mostBalanced(markets.filter((m) => m.id === "189")));
@@ -769,31 +687,66 @@ function tennisCandidates(ev: EventDetail): TicketPick[] {
 function handballCandidates(ev: EventDetail): TicketPick[] {
   const markets = (ev.markets ?? []).filter((m) => m.status === 0);
   const picks: TicketPick[] = [];
-  pushMarket(picks, ev, "handball", markets.find((m) => m.id === "1"));
-  pushMarket(picks, ev, "handball", markets.find((m) => m.id === "10"));
-  pushMarket(picks, ev, "handball", markets.find((m) => m.id === "11"));
+  pushMarket(
+    picks,
+    ev,
+    "handball",
+    markets.find((m) => m.id === "1"),
+  );
+  pushMarket(
+    picks,
+    ev,
+    "handball",
+    markets.find((m) => m.id === "10"),
+  );
+  pushMarket(
+    picks,
+    ev,
+    "handball",
+    markets.find((m) => m.id === "11"),
+  );
   pushOver(picks, ev, "handball", lowerOverLine(markets.filter((m) => m.id === "18")));
   pushOver(
     picks,
     ev,
     "handball",
-    lowerOverLine(markets.filter((m) => m.id === "18" && /total=4[5-9]\.5|total=5[0-6]\.5/.test(m.specifier ?? ""))),
+    lowerOverLine(
+      markets.filter(
+        (m) => m.id === "18" && /total=4[5-9]\.5|total=5[0-6]\.5/.test(m.specifier ?? ""),
+      ),
+    ),
   );
-  const ou = markets.find((m) => m.id === "18" && (m.specifier === "total=48.5" || m.specifier === "total=47.5" || m.specifier === "total=49.5"));
+  const ou = markets.find(
+    (m) =>
+      m.id === "18" &&
+      (m.specifier === "total=48.5" ||
+        m.specifier === "total=47.5" ||
+        m.specifier === "total=49.5"),
+  );
   if (ou) pushOver(picks, ev, "handball", ou);
   pushOver(picks, ev, "handball", lowerOverLine(markets.filter((m) => m.id === "68")));
   return picks;
 }
 
 export function cookablePick(p: TicketPick) {
-  if (!p.sporty?.eventId || !p.sporty?.marketId) return false;
+  if (
+    !p.sporty?.eventId ||
+    !p.sporty?.marketId ||
+    !p.sporty?.outcomeId ||
+    !Number.isFinite(p.odds) ||
+    p.odds! <= 1 ||
+    !p.home ||
+    !p.away ||
+    !p.league ||
+    !p.kickoff
+  )
+    return false;
   if (p.sport === "other") return false;
   if (p.kickoff && p.kickoff < Date.now() + 15 * 60_000) return false;
   const league = p.league ?? "";
   if (league && !isStrongLeague(p.sport as BookSport, league)) return false;
   if (p.sport === "football" && !footballOptionAllowed(p)) return false;
   if (p.sport === "basketball" && !basketballOptionAllowed(p)) return false;
-  if (p.sport === "basketball" && /\bnba\b/i.test(league)) return false;
   return true;
 }
 
@@ -837,13 +790,7 @@ function drawFromEvent(ev: EventDetail): TicketPick | null {
 }
 
 export type CookWindow =
-  | "soon"
-  | "today"
-  | "tomorrow"
-  | "week"
-  | "fortnight"
-  | "weekend"
-  | "upcoming";
+  "soon" | "today" | "tomorrow" | "week" | "fortnight" | "weekend" | "upcoming";
 
 function watDay(ms: number) {
   const d = new Date(ms + 3_600_000);
@@ -869,7 +816,10 @@ function inCookWindow(ts: number, window: CookWindow, now: number) {
   return (dow === 0 || dow === 6) && ts <= now + 21 * 86_400_000;
 }
 
-function spreadByDay<T extends { estimateStartTime?: number }>(events: T[], window: CookWindow): T[] {
+function spreadByDay<T extends { estimateStartTime?: number }>(
+  events: T[],
+  window: CookWindow,
+): T[] {
   if (window === "soon" || window === "today" || events.length < 3) return events;
   const buckets = new Map<string, T[]>();
   for (const e of events) {
@@ -1070,10 +1020,10 @@ export async function listUpcomingPicks(
           todayGames: window === "today" ? "true" : "false",
           timeline,
         });
-        return (await sportyGet(
-          `/factsCenter/pcUpcomingEvents?${query.toString()}`,
-          { timeoutMs: sport === "football" ? 18_000 : 12_000, cacheMs: 45_000 },
-        )) as UpcomingPayload;
+        return (await sportyGet(`/factsCenter/pcUpcomingEvents?${query.toString()}`, {
+          timeoutMs: sport === "football" ? 18_000 : 12_000,
+          cacheMs: 45_000,
+        })) as UpcomingPayload;
       }),
     );
 
@@ -1144,31 +1094,36 @@ export async function listUpcomingPicks(
     eligible.push(event);
   }
 
-  const ranked = eligible
-    .sort((a, b) => {
-      const as = skip.has(String(a.eventId)) ? 1 : 0;
-      const bs = skip.has(String(b.eventId)) ? 1 : 0;
-      if (as !== bs) return as - bs;
-      if (sport === "football") {
-        const ra = isChampionsLeague(a.leagueHint ?? "") ? 0 : prefer.test(a.leagueHint ?? "") ? 1 : 5;
-        const rb = isChampionsLeague(b.leagueHint ?? "") ? 0 : prefer.test(b.leagueHint ?? "") ? 1 : 5;
-        if (ra !== rb) return ra - rb;
-      } else {
-        const ap = prefer.test(a.leagueHint ?? "") ? 0 : 1;
-        const bp = prefer.test(b.leagueHint ?? "") ? 0 : 1;
-        if (ap !== bp) return ap - bp;
-      }
-      return (a.estimateStartTime ?? 0) - (b.estimateStartTime ?? 0);
-    });
+  const ranked = eligible.sort((a, b) => {
+    const as = skip.has(String(a.eventId)) ? 1 : 0;
+    const bs = skip.has(String(b.eventId)) ? 1 : 0;
+    if (as !== bs) return as - bs;
+    if (sport === "football") {
+      const ra = isChampionsLeague(a.leagueHint ?? "")
+        ? 0
+        : prefer.test(a.leagueHint ?? "")
+          ? 1
+          : 5;
+      const rb = isChampionsLeague(b.leagueHint ?? "")
+        ? 0
+        : prefer.test(b.leagueHint ?? "")
+          ? 1
+          : 5;
+      if (ra !== rb) return ra - rb;
+    } else {
+      const ap = prefer.test(a.leagueHint ?? "") ? 0 : 1;
+      const bp = prefer.test(b.leagueHint ?? "") ? 0 : 1;
+      if (ap !== bp) return ap - bp;
+    }
+    return (a.estimateStartTime ?? 0) - (b.estimateStartTime ?? 0);
+  });
   const fresh = shuffle(ranked.filter((e) => !skip.has(String(e.eventId))));
   const stale = ranked.filter((e) => skip.has(String(e.eventId)));
   const upcoming = spreadByDay([...fresh, ...stale], window);
 
   const want = Math.max(1, Math.min(42, limit));
   const detailScanCount =
-    sport === "football" || sport === "basketball"
-      ? Math.min(upcoming.length, want)
-      : 0;
+    sport === "football" || sport === "basketball" ? Math.min(upcoming.length, want) : 0;
   const detailed =
     detailScanCount > 0
       ? await mapPool(upcoming.slice(0, detailScanCount), 6, hydrateFullEventMarkets)
@@ -1195,9 +1150,14 @@ export async function listUpcomingPicks(
     events += 1;
   }
   if (!picks.length) {
-    const noMarketData = diagnostics.fixturesInEligibleLeagues > 0 && diagnostics.eventsWithMarkets === 0;
+    const noMarketData =
+      diagnostics.fixturesInEligibleLeagues > 0 && diagnostics.eventsWithMarkets === 0;
     return discoveryFailure(
-      noMarketData ? "no_markets" : diagnostics.fixturesInWindow === 0 ? "no_events" : "no_eligible_markets",
+      noMarketData
+        ? "no_markets"
+        : diagnostics.fixturesInWindow === 0
+          ? "no_events"
+          : "no_eligible_markets",
       league === "champions"
         ? "No open Champions League markets matched SlipCut's current filters."
         : diagnostics.fixturesInWindow === 0
@@ -1211,7 +1171,6 @@ export async function listUpcomingPicks(
   console.info("[sportybet.discovery]", JSON.stringify(diagnostics));
   return uniquePicks;
 }
-
 
 /**
  * Return every prematch full-game Over line SportyBet exposes for today's real
@@ -1236,13 +1195,11 @@ export async function listDailyBasketballOverMarkets(): Promise<TicketPick[] | S
         todayGames: "true",
         timeline: "48",
       });
-      const payload = (await sportyGet(
-        `/factsCenter/pcUpcomingEvents?${query.toString()}`,
-        { timeoutMs: 12_000, cacheMs: 45_000 },
-      )) as UpcomingPayload;
-      const tournaments = Array.isArray(payload.data?.tournaments)
-        ? payload.data.tournaments
-        : [];
+      const payload = (await sportyGet(`/factsCenter/pcUpcomingEvents?${query.toString()}`, {
+        timeoutMs: 12_000,
+        cacheMs: 45_000,
+      })) as UpcomingPayload;
+      const tournaments = Array.isArray(payload.data?.tournaments) ? payload.data.tournaments : [];
       const pageEvents = tournaments.flatMap((tournament) =>
         (tournament.events ?? []).map((event) => ({
           ...event,
@@ -1333,7 +1290,8 @@ export function parseCookAsks(text: string): CookAsk[] {
   const hasQ1 = /1st\s*quarter|first\s*quarter|\bq1\b/.test(t);
   const hasOver = /\bovers?\b|\bover\b/.test(t);
   const hasUnder = /\bunders?\b|\bunder\b/.test(t);
-  const side: CookAsk["side"] = hasUnder && !hasOver ? "under" : hasOver || has1h || hasFt || hasQ1 ? "over" : "any";
+  const side: CookAsk["side"] =
+    hasUnder && !hasOver ? "under" : hasOver || has1h || hasFt || hasQ1 ? "over" : "any";
 
   const lines: number[] = [];
   if (/over\s*3\.5|o\s*3\.5|ou\s*3\.5|o3\.5/.test(t)) lines.push(3.5);
@@ -1342,10 +1300,21 @@ export function parseCookAsks(text: string): CookAsk[] {
   if (/over\s*1\.5|o\s*1\.5|ou\s*1\.5|o1\.5/.test(t)) lines.push(1.5);
   if (/over\s*0\.5|o0\.5|ou\s*0\.5/.test(t)) lines.push(0.5);
 
-  if (/\bgg\b|btts|both teams/.test(t)) add({ period: /1st\s*half|first\s*half|\b1h\b/.test(t) ? "1h" : "any", side: "any", family: "gg" });
+  if (/\bgg\b|btts|both teams/.test(t))
+    add({
+      period: /1st\s*half|first\s*half|\b1h\b/.test(t) ? "1h" : "any",
+      side: "any",
+      family: "gg",
+    });
   if (/draw no bet|\bdnb\b/.test(t)) add({ period: "any", side: "any", family: "dnb" });
-  if (/double chance|\bdc\b/.test(t) || (/home or away/.test(t) && !hasOver)) add({ period: /1st\s*half|first\s*half|\b1h\b/.test(t) ? "1h" : "any", side: "any", family: "dc" });
-  if (/corners?/.test(t)) add({ period: "any", side: side === "any" ? "over" : side, family: "corners" });
+  if (/double chance|\bdc\b/.test(t) || (/home or away/.test(t) && !hasOver))
+    add({
+      period: /1st\s*half|first\s*half|\b1h\b/.test(t) ? "1h" : "any",
+      side: "any",
+      family: "dc",
+    });
+  if (/corners?/.test(t))
+    add({ period: "any", side: side === "any" ? "over" : side, family: "corners" });
   // handicap / 1x2 win no longer primary cook options
   if (/team totals?|home total|away total|individual over/.test(t)) {
     add({ period: "ft", side: side === "any" ? "over" : side, family: "teamou" });
@@ -1380,7 +1349,8 @@ export function formatCookAsks(asks: CookAsk[]): string {
       if (a.family === "teamou") return a.side === "under" ? "team Under" : "team Over";
       if (a.family === "corners") return "corners";
       if (a.family === "odd") return "odd/even";
-      const when = a.period === "1h" ? "1H " : a.period === "q1" ? "Q1 " : a.period === "ft" ? "FT " : "";
+      const when =
+        a.period === "1h" ? "1H " : a.period === "q1" ? "Q1 " : a.period === "ft" ? "FT " : "";
       const side = a.side === "under" ? "Under" : a.side === "over" ? "Over" : "O/U";
       return `${when}${side}${a.line != null ? ` ${a.line}` : ""}`.trim();
     })
@@ -1390,7 +1360,15 @@ export function formatCookAsks(asks: CookAsk[]): string {
 function pickPeriod(p: TicketPick): "ft" | "1h" | "q1" | "other" {
   const id = p.sporty?.marketId;
   if (id === "236" || /1st quarter/i.test(p.market)) return "q1";
-  if (id === "68" || id === "69" || id === "70" || id === "63" || id === "64" || /1st half|1h /i.test(p.market)) return "1h";
+  if (
+    id === "68" ||
+    id === "69" ||
+    id === "70" ||
+    id === "63" ||
+    id === "64" ||
+    /1st half|1h /i.test(p.market)
+  )
+    return "1h";
   if (id === "18" || id === "225" || id === "227" || id === "228") return "ft";
   const fam = marketFamily(p.sporty?.marketId, p.market);
   if (fam === "ou1h") return "1h";
@@ -1434,7 +1412,10 @@ export function pickMatchesAsks(p: TicketPick, asks: CookAsk[]): boolean {
     if (ask.period === "1h" && period !== "1h") return false;
     if (ask.period === "ft" && period !== "ft") return false;
     if (ask.period === "q1" && period !== "q1") return false;
-    if (ask.period === "ft" && (fam === "teamou" || p.sporty?.marketId === "227" || p.sporty?.marketId === "228"))
+    if (
+      ask.period === "ft" &&
+      (fam === "teamou" || p.sporty?.marketId === "227" || p.sporty?.marketId === "228")
+    )
       return false;
     if (ask.side === "over" && !over) return false;
     if (ask.side === "under" && !under) return false;
@@ -1485,16 +1466,22 @@ export async function refreshSelections(picks: TicketPick[]): Promise<RefreshedS
       )) as { data?: EventDetail } | null;
       return { event: body?.data ?? null };
     } catch (error) {
-      const failure = error instanceof SportyProviderError
-        ? error
-        : new SportyProviderError("provider_unavailable", "SportyBet could not be reached.", true);
+      const failure =
+        error instanceof SportyProviderError
+          ? error
+          : new SportyProviderError(
+              "provider_unavailable",
+              "SportyBet could not be reached.",
+              true,
+            );
       return {
         event: null,
         error: {
           code: failure.code,
-          error: failure.code === "provider_timeout"
-            ? "SportyBet took too long while refreshing the selected outcomes."
-            : "SportyBet could not refresh the selected outcomes.",
+          error:
+            failure.code === "provider_timeout"
+              ? "SportyBet took too long while refreshing the selected outcomes."
+              : "SportyBet could not refresh the selected outcomes.",
           retryable: failure.retryable,
         } satisfies SportyFailure,
       };
@@ -1509,7 +1496,15 @@ export async function refreshSelections(picks: TicketPick[]): Promise<RefreshedS
   for (const pick of picks) {
     const selection = pick.sporty;
     const event = selection ? byId.get(selection.eventId) : null;
-    if (!selection || !event || !isPrematch(event)) {
+    if (
+      !selection ||
+      !event ||
+      String(event.eventId) !== selection.eventId ||
+      mapSport(event.sport?.name, event.sport?.id) !== pick.sport ||
+      event.homeTeamName !== pick.home ||
+      event.awayTeamName !== pick.away ||
+      !isPrematch(event)
+    ) {
       unavailable.push({ pick, reason: "The event is no longer available for prematch booking." });
       continue;
     }
@@ -1522,8 +1517,9 @@ export async function refreshSelections(picks: TicketPick[]): Promise<RefreshedS
     const outcome = market?.outcomes?.find(
       (item) => item.isActive === 1 && String(item.id) === selection.outcomeId,
     );
-    const refreshed = market && outcome ? toPick(event, pick.sport as BookSport, market, outcome) : null;
-    if (!refreshed) {
+    const refreshed =
+      market && outcome ? toPick(event, pick.sport as BookSport, market, outcome) : null;
+    if (!refreshed || !Number.isFinite(refreshed.odds) || refreshed.odds! <= 1) {
       unavailable.push({ pick, reason: "The selected market or outcome is no longer open." });
       continue;
     }
@@ -1546,13 +1542,15 @@ export type EventScore = {
   clock?: string;
 };
 
-export function eventScore(ev: {
-  status?: number;
-  setScore?: string;
-  gameScore?: string[];
-  matchStatus?: string;
-  period?: number;
-} | null): EventScore | null {
+export function eventScore(
+  ev: {
+    status?: number;
+    setScore?: string;
+    gameScore?: string[];
+    matchStatus?: string;
+    period?: number;
+  } | null,
+): EventScore | null {
   if (!ev) return null;
   const raw = ev.setScore || ev.gameScore?.[0] || "";
   const m = String(raw).match(/(\d+)\s*[:-]\s*(\d+)/);
@@ -1615,7 +1613,11 @@ function chooseOutcome(
   return hit ?? outs[0];
 }
 
-function marketForTarget(ev: EventDetail, sport: TicketPick["sport"], target: MarketTarget): EventMarket | null {
+function marketForTarget(
+  ev: EventDetail,
+  sport: TicketPick["sport"],
+  target: MarketTarget,
+): EventMarket | null {
   const markets = (ev.markets ?? []).filter((m) => m.status === 0);
   if (sport === "basketball") {
     if (target === "win") {
@@ -1640,7 +1642,7 @@ function marketForTarget(ev: EventDetail, sport: TicketPick["sport"], target: Ma
   const spec = target === "ou15" ? "total=1.5" : target === "ou35" ? "total=3.5" : "total=2.5";
   return (
     markets.find((m) => m.id === "18" && m.specifier === spec) ??
-    markets.find((m) => m.id === "18" && (m.specifier === spec.replace(".5", ""))) ??
+    markets.find((m) => m.id === "18" && m.specifier === spec.replace(".5", "")) ??
     null
   );
 }
@@ -1683,7 +1685,10 @@ export async function retargetPicks(
     }
     const market = marketForTarget(ev, pick.sport, target);
     const outcome = market ? chooseOutcome(market, preferForTarget(target, pick)) : undefined;
-    const swapped = market && outcome ? toPick(ev, pick.sport === "basketball" ? "basketball" : "football", market, outcome) : null;
+    const swapped =
+      market && outcome
+        ? toPick(ev, pick.sport === "basketball" ? "basketball" : "football", market, outcome)
+        : null;
     next.push(swapped ?? pick);
   }
   return next;

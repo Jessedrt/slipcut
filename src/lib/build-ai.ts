@@ -1,8 +1,7 @@
+import { SELECTION_POLICIES } from "./selection-policy";
 import { geminiChat } from "./gemini";
-import { deskScore } from "./research";
 import { refreshKeys, geminiKeys, seekaiKeys } from "./keys";
 import { seekChat } from "./seekai";
-import { marketFamily } from "./sportybet";
 import type { AnalyzedPick, TicketPick } from "./types";
 import { youAnswer, youKeys } from "./you";
 
@@ -32,28 +31,8 @@ export type AIReviewContext = {
 
 export function buildReviewInstruction(context: AIReviewContext = {}) {
   const risk = context.risk ?? "balanced";
-  const score = context.minModelScore ?? (risk === "conservative" ? 62 : risk === "balanced" ? 54 : 45);
-  const minOdds = context.minOdds ?? (risk === "conservative" ? 1.2 : 1.16);
-  const maxOdds = context.maxOdds ?? (risk === "conservative" ? 1.82 : risk === "balanced" ? 2.2 : 2.75);
-  const band = `${minOdds.toFixed(2)}–${maxOdds.toFixed(2)}`;
-
-  if (context.sport === "basketball") {
-    if (risk === "conservative") {
-      return `RISK MODE: CONSERVATIVE. Basketball only. Choose only full-game match Overs, individual/team full-game Overs, or match half Overs. Do NOT choose individual/team half Overs or any quarter Over. The candidate odds band is ${band}; score selections for a strict ${score}+ acceptance threshold. Prefer the lower-variance line when evidence is otherwise similar.`;
-    }
-    if (risk === "balanced") {
-      return `RISK MODE: BALANCED. Basketball only. You may choose full-game match Overs, individual/team full-game Overs, match half Overs, individual/team half Overs, quarter Overs, and individual/team quarter Overs. The candidate odds band is ${band}; score selections for a ${score}+ acceptance threshold. Balance line safety against useful price; do not default to the highest line or highest odds.`;
-    }
-    return `RISK MODE: AGGRESSIVE. Basketball only. Use the same Over-only catalogue: full-game, team/individual, half, team/individual half, quarter, and team/individual quarter Overs. The candidate odds band is ${band}; score selections for a ${score}+ acceptance threshold. Higher variance is allowed, but unsupported markets are not.`;
-  }
-
-  if (risk === "conservative") {
-    return `RISK MODE: CONSERVATIVE. Football candidates are already policy-filtered. Prefer the least volatile supplied score-Over line inside ${band}; score selections for a strict ${score}+ acceptance threshold.`;
-  }
-  if (risk === "balanced") {
-    return `RISK MODE: BALANCED. Football candidates are already policy-filtered. Compare all supplied score-Over lines inside ${band}; score selections for a ${score}+ acceptance threshold and balance price against line difficulty.`;
-  }
-  return `RISK MODE: AGGRESSIVE. Football candidates are already policy-filtered. Compare all supplied score-Over lines inside ${band}; score selections for a ${score}+ acceptance threshold while acknowledging the wider variance.`;
+  const p = SELECTION_POLICIES[risk];
+  return `RISK MODE: ${risk.toUpperCase()}. Individual odds ${p.minOdds.toFixed(2)}–${p.maxOdds.toFixed(2)}; minimum score ${p.minModelScore}+. Require at least ${p.minSample} exact-scope historical results and ${(p.minHitRate * 100).toFixed(0)}% exact-line hits. Compare ALL supplied eligible single markets. Basketball: only match/team Overs for full game, halves and quarters, using the exact team's offense AND opponent defense. Never substitute full-game data for a half or quarter. Football: no Unders, home/away straight wins, 1X/X2 or DNB. Reject weak samples, outlier-inflated averages and unsupported markets. Never loosen rules to reach target odds.`;
 }
 
 export class AIAnalysisError extends Error {
@@ -166,47 +145,6 @@ export function selectExistingAIScores(
   });
 }
 
-function fallbackMarketReviews(groups: TicketPick[][]): ReviewedMarket[] {
-  return groups.flatMap((options) => {
-    const ranked = options
-      .filter((pick) => Number.isFinite(pick.odds) && (pick.odds ?? 0) > 1)
-      .map((pick) => {
-        const implied = Math.min(95, Math.max(4, 100 / (pick.odds ?? 9)));
-        const family = marketFamily(pick.sporty?.marketId, pick.market);
-        const volatilityPenalty =
-          family === "hcp" || family === "gg" || family === "corners"
-            ? 5
-            : family === "win"
-              ? 3
-              : 0;
-        const score = Math.max(
-          4,
-          Math.min(96, Math.round(0.68 * deskScore(pick) + 0.32 * implied - volatilityPenalty)),
-        );
-        return { pick, score, family };
-      })
-      .sort((a, b) => b.score - a.score || (a.pick.odds ?? 99) - (b.pick.odds ?? 99));
-    const best = ranked[0];
-    if (!best) return [];
-    return [
-      {
-        pickId: best.pick.id,
-        score: best.score,
-        summary:
-          "Live AI providers were unavailable, so SlipCut used its internal market-risk model for this event.",
-        reasons: [
-          `Current price ${best.pick.odds?.toFixed(2) ?? "unknown"} and ${best.family.toUpperCase()} market shape ranked best among the eligible options.`,
-          "The pick passed the existing league, kickoff, market-family and odds filters.",
-        ],
-        risks: [
-          "This fallback does not include live injury, lineup or form verification.",
-          "Provider recovery may change the preferred market on a later run.",
-        ],
-      },
-    ];
-  });
-}
-
 function compact(value: string, max: number) {
   const clean = value.replace(/\s+/g, " ").trim();
   return clean.length <= max ? clean : `${clean.slice(0, Math.max(1, max - 1))}…`;
@@ -217,7 +155,10 @@ function safeProviderError(error: unknown) {
   return message.replace(/(?:AIza|ydc-|sk-)[A-Za-z0-9._-]+/g, "[redacted]").slice(0, 140);
 }
 
-async function reviewWithYou(groups: TicketPick[][], context: AIReviewContext): Promise<ReviewedMarket[]> {
+async function reviewWithYou(
+  groups: TicketPick[][],
+  context: AIReviewContext,
+): Promise<ReviewedMarket[]> {
   const rows = await Promise.all(
     groups.map(async (options) => {
       const first = options[0]!;
@@ -252,16 +193,17 @@ async function reviewWithYou(groups: TicketPick[][], context: AIReviewContext): 
         }),
       );
 
-      const best = chunkReviews
-        .flat()
-        .sort((a, b) => b.score - a.score)[0];
+      const best = chunkReviews.flat().sort((a, b) => b.score - a.score)[0];
       return best ? [best] : [];
     }),
   );
   return rows.flat();
 }
 
-async function reviewBatch(groups: TicketPick[][], context: AIReviewContext): Promise<ReviewedMarket[]> {
+async function reviewBatch(
+  groups: TicketPick[][],
+  context: AIReviewContext,
+): Promise<ReviewedMarket[]> {
   const games = groups.map((options, index) => ({
     g: index + 1,
     sport: options[0]!.sport,
@@ -280,8 +222,7 @@ async function reviewBatch(groups: TicketPick[][], context: AIReviewContext): Pr
     ...context,
     sport: groups[0]?.[0]?.sport === "basketball" ? "basketball" : "football",
   });
-  const system =
-    `Review each game and its offered SportyBet score-Over markets. ${modeRule} Choose AT MOST one numbered option (o) for each numbered game (g), or omit the game. Compare every supplied eligible line before choosing. Do not invent winners, handicaps, Unders, corners, cards, props or any market not supplied. Score 0-100 is an uncalibrated ranking, NOT win probability. Only use the supplied fixtures, markets and odds; do not invent form, injuries, lineups, results or sources. State brief market/odds reasoning and a concrete risk. Return ONLY JSON {"games":[{"g":1,"o":2,"score":65,"summary":"brief market comparison","reasons":["reason"],"risks":["risk"]}]}`;
+  const system = `Review each game and its offered SportyBet eligible single markets. ${modeRule} Choose AT MOST one numbered option (o) for each numbered game (g), or omit the game. Compare every supplied eligible line before choosing. Do not invent any market not supplied. Never approve prohibited markets. A market-shape score alone is insufficient historical evidence. Score 0-100 is an uncalibrated ranking, NOT win probability. Only use the supplied fixtures, markets and odds; do not invent form, injuries, lineups, results or sources. State brief market/odds reasoning and a concrete risk. Return ONLY JSON {"games":[{"g":1,"o":2,"score":65,"summary":"brief market comparison","reasons":["reason"],"risks":["risk"]}]}`;
   const user = JSON.stringify(games);
   const engines: Array<{ name: string; run: () => Promise<string> }> = [];
   if (geminiKeys().length)
@@ -360,21 +301,14 @@ async function reviewBatch(groups: TicketPick[][], context: AIReviewContext): Pr
       );
     }
   }
-  const fallback = fallbackMarketReviews(groups);
-  console.warn(
-    "[slipcut.ai.review]",
-    JSON.stringify({
-      provider: "internal_market_model",
-      status: fallback.length ? "fallback" : "invalid_response",
-      games: groups.length,
-      accepted: fallback.length,
-      durationMs: 0,
-    }),
-  );
-  return fallback;}
+  return [];
+}
 
 /** AI must choose one of the supplied, already-eligible outcomes for each returned event. */
-export async function reviewBuildMarkets(picks: TicketPick[], context: AIReviewContext = {}): Promise<AIReviewResult> {
+export async function reviewBuildMarkets(
+  picks: TicketPick[],
+  context: AIReviewContext = {},
+): Promise<AIReviewResult> {
   await refreshKeys();
   const providers = [
     ...(geminiKeys().length ? ["gemini"] : []),
@@ -383,7 +317,12 @@ export async function reviewBuildMarkets(picks: TicketPick[], context: AIReviewC
   ];
   console.info(
     "[slipcut.ai.config]",
-    JSON.stringify({ providers, candidates: picks.length, sport: context.sport, risk: context.risk }),
+    JSON.stringify({
+      providers,
+      candidates: picks.length,
+      sport: context.sport,
+      risk: context.risk,
+    }),
   );
   if (!providers.length) {
     throw new AIAnalysisError("AI analysis is not configured. No slip was built.");

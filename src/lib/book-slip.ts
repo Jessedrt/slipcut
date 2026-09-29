@@ -1,3 +1,4 @@
+import { riskOddsAllowed, type SelectionRisk } from "./selection-policy";
 import { combinedOdds } from "./workbench";
 import { mintShare, refreshSelections, sportyOf } from "./sportybet";
 import { uniqueEvents } from "./workbench";
@@ -90,14 +91,29 @@ export async function mintReviewedSlip(
       unavailable: refreshed.unavailable,
     };
   }
+  const identity = (p: TicketPick) =>
+    `${p.sport}:${p.sporty?.eventId}:${p.sporty?.marketId}:${p.sporty?.outcomeId}:${p.sporty?.specifier ?? ""}`;
+  const expected = new Set(unique.picks.map(identity));
+  if (
+    refreshed.available.length !== unique.picks.length ||
+    new Set(refreshed.available.map(identity)).size !== expected.size ||
+    refreshed.available.some((p) => !expected.has(identity(p)))
+  ) {
+    return {
+      ok: false,
+      code: "selection_unavailable",
+      error:
+        "Refreshed selections do not match the analysed fixture, market, outcome and line. No replacement or partial code was created.",
+    };
+  }
   const originals = new Map(
     unique.picks.map((pick) => [
-      `${pick.sporty?.eventId ?? pick.id}:${pick.sporty?.marketId ?? pick.market}:${pick.sporty?.outcomeId ?? pick.selection}`,
+      `${pick.sporty?.eventId ?? pick.id}:${pick.sporty?.marketId ?? pick.market}:${pick.sporty?.outcomeId ?? pick.selection}:${pick.sporty?.specifier ?? ""}`,
       pick,
     ]),
   );
   const changes = refreshed.available.flatMap((pick): OddsChange[] => {
-    const key = `${pick.sporty?.eventId ?? pick.id}:${pick.sporty?.marketId ?? pick.market}:${pick.sporty?.outcomeId ?? pick.selection}`;
+    const key = `${pick.sporty?.eventId ?? pick.id}:${pick.sporty?.marketId ?? pick.market}:${pick.sporty?.outcomeId ?? pick.selection}:${pick.sporty?.specifier ?? ""}`;
     const before = originals.get(key)?.odds;
     const after = pick.odds;
     if (
@@ -124,6 +140,22 @@ export async function mintReviewedSlip(
       changes,
     };
   }
+  for (const pick of refreshed.available) {
+    const risk = (picks.find((p) => p.id === pick.id) as TicketPick & { riskMode?: SelectionRisk })
+      ?.riskMode;
+    if (
+      risk &&
+      (!["conservative", "balanced", "aggressive"].includes(risk) ||
+        !riskOddsAllowed(pick.odds, risk))
+    ) {
+      return {
+        ok: false,
+        code: "selection_unavailable",
+        error: `${pick.home} vs ${pick.away}: refreshed price ${pick.odds} is outside the ${risk} range. No replacement was made.`,
+        unavailable: [{ pick, reason: "Risk-mode odds range failed after refresh." }],
+      };
+    }
+  }
   const selections = sportyOf(refreshed.available);
   if (selections.length !== refreshed.available.length) {
     return {
@@ -137,15 +169,36 @@ export async function mintReviewedSlip(
     return {
       ok: false,
       code: "mint_failed",
-      error: "Booking code creation failed. No code was created.",
+      error: `SportyBet booking failed: ${minted.error}. Submitted selections: ${refreshed.available.map((p) => `${p.home} vs ${p.away}: ${p.market} / ${p.selection}`).join("; ")}.`,
     };
   }
   if (minted.unavailable > 0) {
+    const affected = refreshed.available.filter((p) =>
+      minted.unavailableOutcomes?.some((raw) => {
+        if (!raw || typeof raw !== "object") return false;
+        const row = raw as Record<string, unknown>;
+        return (
+          String(row.eventId) === p.sporty?.eventId &&
+          String(row.marketId) === p.sporty?.marketId &&
+          String(row.outcomeId) === p.sporty?.outcomeId
+        );
+      }),
+    );
+    const detail = affected.length
+      ? affected.map((p) => `${p.home} vs ${p.away}: ${p.market} / ${p.selection}`).join("; ")
+      : "SportyBet did not identify the failed outcome in its response.";
     return {
       ok: false,
       code: "selection_unavailable",
-      error:
-        "SportyBet reported that one or more outcomes became unavailable. No code was accepted; review and retry.",
+      error: `SportyBet rejected unavailable outcomes: ${detail}. No code was accepted; review and retry.`,
+      ...(affected.length
+        ? {
+            unavailable: affected.map((pick) => ({
+              pick,
+              reason: "SportyBet rejected this outcome during booking.",
+            })),
+          }
+        : {}),
       available: refreshed.available,
     };
   }

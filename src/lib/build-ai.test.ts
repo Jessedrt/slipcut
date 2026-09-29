@@ -17,37 +17,14 @@ const option = (id: string, eventId: string): TicketPick => ({
 });
 
 describe("risk-aware AI review instructions", () => {
-  it("puts the basketball Conservative rules into the provider prompt", () => {
-    const prompt = buildReviewInstruction({
-      sport: "basketball",
-      risk: "conservative",
-      minModelScore: 62,
-      minOdds: 1.2,
-      maxOdds: 1.82,
-    });
-    assert.match(prompt, /CONSERVATIVE/);
-    assert.match(prompt, /full-game match Overs/i);
-    assert.match(prompt, /team full-game Overs/i);
-    assert.match(prompt, /match half Overs/i);
-    assert.match(prompt, /Do NOT choose individual\/team half Overs or any quarter Over/i);
-    assert.match(prompt, /62\+/);
-    assert.match(prompt, /1\.20–1\.82/);
-  });
-
-  it("puts the basketball Balanced rules into the provider prompt", () => {
-    const prompt = buildReviewInstruction({
-      sport: "basketball",
-      risk: "balanced",
-      minModelScore: 54,
-      minOdds: 1.16,
-      maxOdds: 2.2,
-    });
-    assert.match(prompt, /BALANCED/);
-    assert.match(prompt, /individual\/team half Overs/i);
-    assert.match(prompt, /quarter Overs/i);
-    assert.match(prompt, /individual\/team quarter Overs/i);
-    assert.match(prompt, /54\+/);
-    assert.match(prompt, /1\.16–2\.20/);
+  it("uses the central hard ranges despite stale context overrides", () => {
+    const c = buildReviewInstruction({ risk: "conservative", minOdds: 1.16, maxOdds: 1.82 });
+    assert.match(c, /1.20–1.40/);
+    assert.match(c, /10 exact-scope/);
+    const b = buildReviewInstruction({ sport: "basketball", risk: "balanced" });
+    assert.match(b, /1.40–1.80/);
+    assert.match(b, /opponent defense/);
+    assert.match(b, /8 exact-scope/);
   });
 });
 
@@ -79,18 +56,19 @@ describe("required AI market review", () => {
     );
   });
 
-
   it("accepts the eighth supplied market option", () => {
-    const groups = [[
-      option("o1", "event-a"),
-      option("o2", "event-a"),
-      option("o3", "event-a"),
-      option("o4", "event-a"),
-      option("o5", "event-a"),
-      option("o6", "event-a"),
-      option("o7", "event-a"),
-      option("o8", "event-a"),
-    ]];
+    const groups = [
+      [
+        option("o1", "event-a"),
+        option("o2", "event-a"),
+        option("o3", "event-a"),
+        option("o4", "event-a"),
+        option("o5", "event-a"),
+        option("o6", "event-a"),
+        option("o7", "event-a"),
+        option("o8", "event-a"),
+      ],
+    ];
     const reviews = parseBuildAIReviews(
       JSON.stringify({
         games: [{ g: 1, o: 8, score: 73, summary: "Eighth option is preferred." }],
@@ -140,7 +118,6 @@ describe("required AI market review", () => {
       ["b"],
     );
   });
-
 
   it("parses JSON even when the research provider adds citation markers", () => {
     const groups = [[option("a", "event-a")]];

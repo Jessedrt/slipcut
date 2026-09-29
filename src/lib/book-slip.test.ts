@@ -77,7 +77,8 @@ describe("reviewed booking", () => {
     assert.deepEqual(result, {
       ok: false,
       code: "mint_failed",
-      error: "Booking code creation failed. No code was created.",
+      error:
+        "SportyBet booking failed: upstream. Submitted selections: H1 vs A1: Double Chance / Home or Draw.",
     });
   });
 
