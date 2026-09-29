@@ -7,9 +7,38 @@ import {
   type BuildDependencies,
   type BuildSlipRequest,
 } from "./build-slip.ts";
+import { footballOptionAllowed } from "./sportybet.ts";
 import type { TicketPick } from "./types.ts";
 
-function pick(id: number, odds = 1.5, marketId = "10", eventId = `event-${id}`): TicketPick {
+function pick(id: number, odds = 1.5, marketId = "18", eventId = `event-${id}`): TicketPick {
+  const market =
+    marketId === "10"
+      ? "Double Chance"
+      : marketId === "11"
+        ? "Draw No Bet"
+        : marketId === "29"
+          ? "GG/NG"
+          : marketId === "16"
+            ? "Asian Handicap"
+            : marketId === "26"
+              ? "Odd/Even"
+              : marketId === "45"
+                ? "Correct Score"
+                : "Over/Under 2.5";
+  const selection =
+    marketId === "29"
+      ? "Yes"
+      : marketId === "10"
+        ? "Home or Away"
+        : marketId === "11"
+          ? "Home"
+          : marketId === "16"
+            ? "Home -0.5"
+            : marketId === "26"
+              ? "Odd"
+              : marketId === "45"
+                ? "1:0"
+                : "Over 2.5";
   return {
     id: `${eventId}-${marketId}-${id}`,
     sport: "football",
@@ -17,8 +46,8 @@ function pick(id: number, odds = 1.5, marketId = "10", eventId = `event-${id}`):
     country: "England",
     home: `Home ${id}`,
     away: `Away ${id}`,
-    market: marketId === "10" ? "Double Chance" : marketId === "29" ? "GG/NG" : "Over/Under 2.5",
-    selection: marketId === "29" ? "Yes" : marketId === "10" ? "Home or Draw" : "Over",
+    market,
+    selection,
     odds,
     kickoff: Date.now() + (id + 2) * 3_600_000,
     sporty: {
@@ -57,6 +86,42 @@ const base: BuildSlipRequest = {
   risk: "conservative",
   window: "upcoming",
 };
+
+describe("football SportyBet option policy", () => {
+  it("removes Home-or-Draw, Draw-or-Away and both Draw-No-Bet sides", () => {
+    const homeDraw = { ...pick(1, 1.3, "10"), selection: "Home or Draw" };
+    const drawAway = { ...pick(2, 1.3, "10"), selection: "Draw or Away" };
+    const homeAway = { ...pick(3, 1.3, "10"), selection: "Home or Away" };
+    const homeDnb = { ...pick(4, 1.3, "11"), selection: "Home" };
+    const awayDnb = { ...pick(5, 1.3, "11"), selection: "Away" };
+
+    assert.equal(footballOptionAllowed(homeDraw), false);
+    assert.equal(footballOptionAllowed(drawAway), false);
+    assert.equal(footballOptionAllowed(homeDnb), false);
+    assert.equal(footballOptionAllowed(awayDnb), false);
+    assert.equal(footballOptionAllowed(homeAway), true);
+  });
+
+  it("keeps other SportyBet football market types eligible", () => {
+    assert.equal(footballOptionAllowed(pick(1, 1.4, "16")), true);
+    assert.equal(footballOptionAllowed(pick(2, 1.4, "26")), true);
+    assert.equal(footballOptionAllowed(pick(3, 1.4, "29")), true);
+    assert.equal(footballOptionAllowed(pick(4, 1.4, "45")), true);
+    assert.equal(footballOptionAllowed(pick(5, 1.4, "18")), true);
+  });
+
+  it("still respects the earlier no-Under and no-standard-1X2 rule", () => {
+    const under = { ...pick(1, 1.4, "18"), selection: "Under 2.5" };
+    const straight: TicketPick = {
+      ...pick(2, 1.4, "1"),
+      market: "1X2",
+      selection: "Home",
+      sporty: { eventId: "straight", marketId: "1", outcomeId: "1" },
+    };
+    assert.equal(footballOptionAllowed(under), false);
+    assert.equal(footballOptionAllowed(straight), false);
+  });
+});
 
 describe("buildSlip", () => {
   it("excludes historically below-average families only after comparable sample thresholds", async () => {
