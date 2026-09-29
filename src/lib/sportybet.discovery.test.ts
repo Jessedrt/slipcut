@@ -92,7 +92,7 @@ describe("SportyBet discovery diagnostics", () => {
       await listUpcomingPicks("football", 5, "today");
       assert.match(requested, /todayGames=true/);
       assert.match(requested, /timeline=48/);
-      assert.doesNotMatch(requested, /marketId=/);
+      assert.match(requested, /marketId=/);
     } finally { globalThis.fetch = original; }
   });
 });
