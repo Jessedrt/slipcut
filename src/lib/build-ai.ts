@@ -21,6 +21,41 @@ export type AIReviewResult = {
   fallbackUsed?: boolean;
 };
 
+export type AIReviewRisk = "conservative" | "balanced" | "aggressive";
+export type AIReviewContext = {
+  sport?: "football" | "basketball";
+  risk?: AIReviewRisk;
+  minModelScore?: number;
+  minOdds?: number;
+  maxOdds?: number;
+};
+
+export function buildReviewInstruction(context: AIReviewContext = {}) {
+  const risk = context.risk ?? "balanced";
+  const score = context.minModelScore ?? (risk === "conservative" ? 62 : risk === "balanced" ? 54 : 45);
+  const minOdds = context.minOdds ?? (risk === "conservative" ? 1.2 : 1.16);
+  const maxOdds = context.maxOdds ?? (risk === "conservative" ? 1.82 : risk === "balanced" ? 2.2 : 2.75);
+  const band = `${minOdds.toFixed(2)}–${maxOdds.toFixed(2)}`;
+
+  if (context.sport === "basketball") {
+    if (risk === "conservative") {
+      return `RISK MODE: CONSERVATIVE. Basketball only. Choose only full-game match Overs, individual/team full-game Overs, or match half Overs. Do NOT choose individual/team half Overs or any quarter Over. The candidate odds band is ${band}; score selections for a strict ${score}+ acceptance threshold. Prefer the lower-variance line when evidence is otherwise similar.`;
+    }
+    if (risk === "balanced") {
+      return `RISK MODE: BALANCED. Basketball only. You may choose full-game match Overs, individual/team full-game Overs, match half Overs, individual/team half Overs, quarter Overs, and individual/team quarter Overs. The candidate odds band is ${band}; score selections for a ${score}+ acceptance threshold. Balance line safety against useful price; do not default to the highest line or highest odds.`;
+    }
+    return `RISK MODE: AGGRESSIVE. Basketball only. Use the same Over-only catalogue: full-game, team/individual, half, team/individual half, quarter, and team/individual quarter Overs. The candidate odds band is ${band}; score selections for a ${score}+ acceptance threshold. Higher variance is allowed, but unsupported markets are not.`;
+  }
+
+  if (risk === "conservative") {
+    return `RISK MODE: CONSERVATIVE. Football candidates are already policy-filtered. Prefer the least volatile supplied score-Over line inside ${band}; score selections for a strict ${score}+ acceptance threshold.`;
+  }
+  if (risk === "balanced") {
+    return `RISK MODE: BALANCED. Football candidates are already policy-filtered. Compare all supplied score-Over lines inside ${band}; score selections for a ${score}+ acceptance threshold and balance price against line difficulty.`;
+  }
+  return `RISK MODE: AGGRESSIVE. Football candidates are already policy-filtered. Compare all supplied score-Over lines inside ${band}; score selections for a ${score}+ acceptance threshold while acknowledging the wider variance.`;
+}
+
 export class AIAnalysisError extends Error {
   constructor(message: string) {
     super(message);
@@ -182,7 +217,7 @@ function safeProviderError(error: unknown) {
   return message.replace(/(?:AIza|ydc-|sk-)[A-Za-z0-9._-]+/g, "[redacted]").slice(0, 140);
 }
 
-async function reviewWithYou(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
+async function reviewWithYou(groups: TicketPick[][], context: AIReviewContext): Promise<ReviewedMarket[]> {
   const rows = await Promise.all(
     groups.map(async (options) => {
       const first = options[0]!;
@@ -199,9 +234,14 @@ async function reviewWithYou(groups: TicketPick[][]): Promise<ReviewedMarket[]> 
                 `${index + 1})${compact(pick.market, 12)}>${compact(pick.selection, 8)}@${pick.odds?.toFixed(2) ?? "?"}`,
             )
             .join(";");
+          const modeRule = buildReviewInstruction({
+            ...context,
+            sport: first.sport === "basketball" ? "basketball" : "football",
+          });
           const query =
             `Game ${compact(first.home, 14)} v ${compact(first.away, 14)}. ` +
-            `All supplied options are score Overs. Compare full-game, team, half and quarter lines where present; pick one option or omit. Score 0-100 ranking. ${choices}. ` +
+            `${compact(modeRule, 170)} ` +
+            `Compare every supplied option, pick one or omit; score 0-100. ${choices}. ` +
             'JSON {"games":[{"g":1,"o":1,"score":65,"summary":"why"}]}';
           try {
             const answer = await youAnswer(query, 9_000);
@@ -221,7 +261,7 @@ async function reviewWithYou(groups: TicketPick[][]): Promise<ReviewedMarket[]> 
   return rows.flat();
 }
 
-async function reviewBatch(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
+async function reviewBatch(groups: TicketPick[][], context: AIReviewContext): Promise<ReviewedMarket[]> {
   const games = groups.map((options, index) => ({
     g: index + 1,
     sport: options[0]!.sport,
@@ -236,8 +276,12 @@ async function reviewBatch(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
       odds: pick.odds,
     })),
   }));
+  const modeRule = buildReviewInstruction({
+    ...context,
+    sport: groups[0]?.[0]?.sport === "basketball" ? "basketball" : "football",
+  });
   const system =
-    'Review each game and its offered SportyBet score-Over markets. Choose AT MOST one numbered option (o) for each numbered game (g), or omit the game. Compare every supplied line before choosing: full-game Over, team/individual-team Over, half Over, and for basketball quarter Over when present. Do not invent winners, handicaps, Unders, corners, cards, props or any market not supplied. Score 0-100 is an uncalibrated ranking, NOT win probability. Only use the supplied fixtures, markets and odds; do not invent form, injuries, lineups, results or sources. State brief market/odds reasoning and a concrete risk. Return ONLY JSON {"games":[{"g":1,"o":2,"score":65,"summary":"brief market comparison","reasons":["reason"],"risks":["risk"]}]}';
+    `Review each game and its offered SportyBet score-Over markets. ${modeRule} Choose AT MOST one numbered option (o) for each numbered game (g), or omit the game. Compare every supplied eligible line before choosing. Do not invent winners, handicaps, Unders, corners, cards, props or any market not supplied. Score 0-100 is an uncalibrated ranking, NOT win probability. Only use the supplied fixtures, markets and odds; do not invent form, injuries, lineups, results or sources. State brief market/odds reasoning and a concrete risk. Return ONLY JSON {"games":[{"g":1,"o":2,"score":65,"summary":"brief market comparison","reasons":["reason"],"risks":["risk"]}]}`;
   const user = JSON.stringify(games);
   const engines: Array<{ name: string; run: () => Promise<string> }> = [];
   if (geminiKeys().length)
@@ -290,7 +334,7 @@ async function reviewBatch(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
   if (youKeys().length) {
     const started = Date.now();
     try {
-      const reviews = await reviewWithYou(groups);
+      const reviews = await reviewWithYou(groups, context);
       console.info(
         "[slipcut.ai.review]",
         JSON.stringify({
@@ -330,14 +374,17 @@ async function reviewBatch(groups: TicketPick[][]): Promise<ReviewedMarket[]> {
   return fallback;}
 
 /** AI must choose one of the supplied, already-eligible outcomes for each returned event. */
-export async function reviewBuildMarkets(picks: TicketPick[]): Promise<AIReviewResult> {
+export async function reviewBuildMarkets(picks: TicketPick[], context: AIReviewContext = {}): Promise<AIReviewResult> {
   await refreshKeys();
   const providers = [
     ...(geminiKeys().length ? ["gemini"] : []),
     ...(seekaiKeys().length ? ["seekai"] : []),
     ...(youKeys().length ? ["you"] : []),
   ];
-  console.info("[slipcut.ai.config]", JSON.stringify({ providers, candidates: picks.length }));
+  console.info(
+    "[slipcut.ai.config]",
+    JSON.stringify({ providers, candidates: picks.length, sport: context.sport, risk: context.risk }),
+  );
   if (!providers.length) {
     throw new AIAnalysisError("AI analysis is not configured. No slip was built.");
   }
@@ -357,7 +404,7 @@ export async function reviewBuildMarkets(picks: TicketPick[]): Promise<AIReviewR
     Array.from({ length: Math.min(2, batches.length) }, async () => {
       while (index < batches.length) {
         const batch = batches[index++];
-        if (batch) reviews.push(...(await reviewBatch(batch)));
+        if (batch) reviews.push(...(await reviewBatch(batch, context)));
       }
     }),
   );
