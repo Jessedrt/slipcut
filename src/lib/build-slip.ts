@@ -97,17 +97,17 @@ export const RISK_POLICIES: Record<BuildRisk, RiskPolicy> = {
     label: "Conservative",
     minModelScore: 62,
     minOdds: 1.2,
-    maxOdds: 1.82,
+    maxOdds: 1.3,
     explanation:
-      "Prioritises eligible prices from 1.20 upward and stronger AI-reviewed rankings across SportyBet's available markets. It is not a safety guarantee.",
+      "Uses short eligible prices from 1.20 to 1.30 with the stricter AI-review threshold. It is not a safety guarantee.",
   },
   balanced: {
     label: "Balanced",
     minModelScore: 54,
-    minOdds: 1.16,
+    minOdds: 1.35,
     maxOdds: 2.2,
     explanation:
-      "Allows a wider price and market range while retaining SlipCut's league, kickoff and market filters.",
+      "Starts at 1.35 and allows a wider price range while retaining SlipCut's other market and analysis filters.",
   },
   aggressive: {
     label: "Aggressive",
