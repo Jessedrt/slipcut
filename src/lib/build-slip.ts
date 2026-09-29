@@ -2,6 +2,7 @@ import { AIAnalysisError, reviewBuildMarkets } from "./build-ai";
 import { deskScore } from "./research";
 import { evaluateRecord, loadRecord, type RecordSnapshot, type RecordSummary } from "./track-record";
 import {
+  basketballOptionAllowed,
   cookablePick,
   footballOptionAllowed,
   listUpcomingPicks,
@@ -181,13 +182,10 @@ function allowedFamily(pick: TicketPick, risk: BuildRisk) {
   const family = marketFamily(pick.sporty?.marketId, pick.market);
 
   if (pick.sport === "basketball") {
-    // Never issue straight basketball Winner/Home/Away picks in any risk mode.
-    // Conservative stays on full-game totals; balanced may add handicaps;
-    // aggressive may add derivative total families, but still never Winner.
-    if (family === "win" || family === "odd") return false;
-    if (risk === "conservative") return family === "ou";
-    if (risk === "balanced") return family === "ou" || family === "hcp";
-    return ["ou", "hcp", "teamou", "ou1h"].includes(family);
+    // Basketball is deliberately Over-only in every risk mode: full-game
+    // totals, team totals, half totals and quarter totals. Risk mode still
+    // changes price/model thresholds, not the allowed market types.
+    return basketballOptionAllowed(pick);
   }
 
   // Football market coverage is intentionally broad. The risk mode controls
