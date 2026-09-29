@@ -121,6 +121,46 @@ describe("SportyBet discovery diagnostics", () => {
     } finally { globalThis.fetch = original; }
   });
 
+  it("hydrates a fixture from SportyBet event detail so non-whitelisted markets can be considered", async () => {
+    const original = globalThis.fetch;
+    try {
+      clearSportyCacheForTests();
+      globalThis.fetch = async (input) => {
+        const url = String(input);
+        if (url.includes("/factsCenter/event?")) {
+          return new Response(
+            JSON.stringify({
+              bizCode: 10000,
+              message: "0#0",
+              data: event("full", [
+                dc,
+                {
+                  id: "999",
+                  desc: "Team to score in both halves",
+                  status: 0,
+                  outcomes: [
+                    { id: "yes", desc: "Yes", odds: "1.65", isActive: 1 },
+                    { id: "no", desc: "No", odds: "2.10", isActive: 1 },
+                  ],
+                },
+              ]),
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return response([event("full", [dc])]);
+      };
+
+      const result = await listUpcomingPicks("football", 5, "upcoming");
+      assert.equal(Array.isArray(result), true);
+      if (Array.isArray(result)) {
+        assert.ok(result.some((pick) => pick.sporty?.marketId === "999"));
+      }
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("requests the provider's dedicated today feed for a today build", async () => {
     const original = globalThis.fetch;
     let requested = "";
