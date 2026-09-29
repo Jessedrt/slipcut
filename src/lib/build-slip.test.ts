@@ -165,6 +165,63 @@ describe("basketball SportyBet option policy", () => {
     assert.equal(basketballOptionAllowed(bb("999", "2nd Half Home Team Total 39.5", "Over 39.5", "halfnr=2;total=39.5")), true);
   });
 
+  it("applies distinct conservative and balanced basketball rules", async () => {
+    const rows: TicketPick[] = [
+      bb("225", "Over/Under (incl. overtime) 164.5", "Over 164.5", "total=164.5"),
+      bb("227", "Home total 82.5", "Over 82.5", "total=82.5"),
+      bb("68", "1st Half Over/Under 81.5", "Over 81.5", "total=81.5"),
+      bb("69", "1st Half Home Team Total 40.5", "Over 40.5", "halfnr=1;total=40.5"),
+      bb("236", "3rd Quarter Over/Under 40.5", "Over 40.5", "quarternr=3;total=40.5"),
+      bb("999", "3rd Quarter Home Team Total 20.5", "Over 20.5", "quarternr=3;total=20.5"),
+    ];
+
+    const conservative = await buildSlip(
+      {
+        sport: "basketball",
+        mode: "games",
+        games: 6,
+        risk: "conservative",
+        window: "upcoming",
+      },
+      deps(rows),
+    );
+    assert.equal(conservative.ok, true);
+    if (conservative.ok) {
+      assert.equal(conservative.policy.minModelScore, 62);
+      assert.equal(conservative.policy.minOdds, 1.2);
+      assert.equal(conservative.policy.maxOdds, 1.82);
+      assert.ok(
+        conservative.selections.every((row) =>
+          ["225", "227", "68"].includes(row.sporty?.marketId ?? ""),
+        ),
+      );
+      assert.ok(
+        conservative.selections.every(
+          (row) => !/quarter/i.test(row.market) && !/1st half home team/i.test(row.market),
+        ),
+      );
+    }
+
+    const balanced = await buildSlip(
+      {
+        sport: "basketball",
+        mode: "games",
+        games: 6,
+        risk: "balanced",
+        window: "upcoming",
+      },
+      deps(rows),
+    );
+    assert.equal(balanced.ok, true);
+    if (balanced.ok) {
+      assert.equal(balanced.policy.minModelScore, 54);
+      assert.equal(balanced.policy.minOdds, 1.16);
+      assert.equal(balanced.policy.maxOdds, 2.2);
+      assert.ok(balanced.selections.some((row) => /quarter/i.test(row.market)));
+      assert.ok(balanced.selections.some((row) => /1st half home team/i.test(row.market)));
+    }
+  });
+
   it("removes basketball unders, winners, handicaps and other non-total markets", () => {
     assert.equal(basketballOptionAllowed(bb("225", "Over/Under 164.5", "Under 164.5", "total=164.5")), false);
     assert.equal(basketballOptionAllowed(bb("219", "Winner (incl. overtime)", "Home")), false);
