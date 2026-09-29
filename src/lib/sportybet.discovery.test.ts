@@ -66,6 +66,47 @@ describe("SportyBet discovery diagnostics", () => {
     } finally { globalThis.fetch = original; }
   });
 
+  it("accepts real football competitions outside the old strong-league allow-list", async () => {
+    const original = globalThis.fetch;
+    try {
+      clearSportyCacheForTests();
+      globalThis.fetch = async () =>
+        new Response(
+          JSON.stringify({
+            bizCode: 10000,
+            message: "0#0",
+            data: {
+              totalNum: 1,
+              tournaments: [
+                {
+                  name: "World Cup Qualification CAF",
+                  events: [
+                    event("qualifier", [dc], {
+                      sport: {
+                        id: "sr:sport:1",
+                        name: "Football",
+                        category: {
+                          name: "International",
+                          tournament: { name: "World Cup Qualification CAF" },
+                        },
+                      },
+                    }),
+                  ],
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+
+      const result = await listUpcomingPicks("football", 5, "upcoming");
+      assert.equal(Array.isArray(result), true);
+      if (Array.isArray(result)) assert.ok(result.length > 0);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("deduplicates repeated event and market rows", async () => {
     const original = globalThis.fetch;
     try {

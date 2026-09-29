@@ -23,7 +23,7 @@ describe("football quality", () => {
     assert.equal(cookablePick(p), false);
   });
 
-  it("blocks live-style 1H team Over 0.5 and Spanish 4th tier", () => {
+  it("keeps non-banned football markets across real leagues but still blocks banned DC", () => {
     assert.equal(
       cookablePick(
         pick({
@@ -38,7 +38,7 @@ describe("football quality", () => {
           sporty: { eventId: "6", marketId: "69", outcomeId: "1", specifier: "total=0.5" },
         }),
       ),
-      false,
+      true,
     );
     assert.equal(
       cookablePick(
