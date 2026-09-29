@@ -177,15 +177,17 @@ describe("buildSlip", () => {
   it("excludes historically below-average families only after comparable sample thresholds", async () => {
     const record = async () => ({ available: true, rows: [
       { sport: "football", family: "ou", band: "medium", won: 10, lost: 20 },
-      { sport: "football", family: "ou1h", band: "medium", won: 25, lost: 5 },
+      { sport: "football", family: "dc", band: "medium", won: 50, lost: 10 },
+      { sport: "football", family: "ou", band: "short", won: 25, lost: 5 },
+      { sport: "football", family: "dc", band: "short", won: 35, lost: 25 },
     ] });
     const weakA = pick(1, 1.5, "18");
     const weakB = pick(2, 1.5, "18");
     const strong: TicketPick = {
-      ...pick(3, 1.5, "68"),
-      market: "1st Half Over/Under 0.5",
-      selection: "Over 0.5",
-      sporty: { eventId: "event-3", marketId: "68", outcomeId: "over", specifier: "total=0.5" },
+      ...pick(3, 1.3, "18"),
+      market: "Over/Under 1.5",
+      selection: "Over 1.5",
+      sporty: { eventId: "event-3", marketId: "18", outcomeId: "over", specifier: "total=1.5" },
     };
     const result = await buildSlip({ ...base, games: 2 }, {
       ...deps([weakA, weakB, strong]), record,
@@ -810,21 +812,34 @@ describe("buildSlip", () => {
     assert.match(result.notice ?? "", /only 1 passed/);
   });
 
-  it("allows AI to select a different eligible market within the same event", async () => {
-    const first = pick(1, 1.5, "10");
-    const alternate = pick(2, 1.6, "18", "event-1");
+  it("allows AI to select a different eligible Over line within the same event", async () => {
+    const first: TicketPick = {
+      ...pick(1, 1.5, "18", "event-1"),
+      id: "event-1-over-15",
+      market: "Over/Under 1.5",
+      selection: "Over 1.5",
+      sporty: { eventId: "event-1", marketId: "18", outcomeId: "over15", specifier: "total=1.5" },
+    };
+    const alternate: TicketPick = {
+      ...pick(2, 1.6, "18", "event-1"),
+      id: "event-1-over-25",
+      market: "Over/Under 2.5",
+      selection: "Over 2.5",
+      sporty: { eventId: "event-1", marketId: "18", outcomeId: "over25", specifier: "total=2.5" },
+    };
+    const other = pick(3);
     const result = await buildSlip(
       { ...base, games: 2 },
       {
-        discover: async () => [first, alternate, pick(3)],
+        discover: async () => [first, alternate, other],
         review: async (picks) => {
           assert.ok(picks.some((item) => item.id === first.id));
           assert.ok(picks.some((item) => item.id === alternate.id));
           return {
-            reviews: [alternate, pick(3)].map((item) => ({
+            reviews: [alternate, other].map((item) => ({
               pickId: item.id,
               score: 85,
-              summary: "Compared eligible options.",
+              summary: "Compared eligible Over lines.",
               reasons: [],
               risks: [],
             })),
