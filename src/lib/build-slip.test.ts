@@ -10,7 +10,7 @@ import {
 import { footballOptionAllowed } from "./sportybet.ts";
 import type { TicketPick } from "./types.ts";
 
-function pick(id: number, odds = 1.5, marketId = "10", eventId = `event-${id}`): TicketPick {
+function pick(id: number, odds = 1.25, marketId = "10", eventId = `event-${id}`): TicketPick {
   const market =
     marketId === "10"
       ? "Double Chance"
@@ -129,8 +129,8 @@ describe("buildSlip", () => {
       { sport: "football", family: "dc", band: "medium", won: 10, lost: 20 },
       { sport: "football", family: "ou", band: "medium", won: 25, lost: 5 },
     ] });
-    const result = await buildSlip({ ...base, games: 2 }, {
-      ...deps([pick(1), pick(2), pick(3, 1.5, "18")]), record,
+    const result = await buildSlip({ ...base, games: 2, risk: "balanced" }, {
+      ...deps([pick(1, 1.5), pick(2, 1.5), pick(3, 1.5, "18")]), record,
     });
     assert.equal(result.ok, true);
     if (!result.ok) return;
@@ -344,7 +344,7 @@ describe("buildSlip", () => {
 
   it("builds toward target odds without adding unsupported legs", async () => {
     const result = await buildSlip(
-      { ...base, mode: "odds", targetOdds: 3 },
+      { ...base, mode: "odds", targetOdds: 3, risk: "balanced" },
       deps([pick(1, 1.5), pick(2, 1.6), pick(3, 1.7)]),
     );
     assert.equal(result.ok, true);
@@ -365,7 +365,10 @@ describe("buildSlip", () => {
   });
 
   it("explains when one reviewed game cannot reach a large target", async () => {
-    const result = await buildSlip({ ...base, mode: "odds", targetOdds: 500 }, deps([pick(1, 1.53)]));
+    const result = await buildSlip(
+      { ...base, mode: "odds", targetOdds: 500, risk: "balanced" },
+      deps([pick(1, 1.53)]),
+    );
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.equal(result.actualCombinedOdds, 1.53);
@@ -428,16 +431,16 @@ describe("buildSlip", () => {
     }
   });
 
-  it("uses 1.20-1.30 for conservative and 1.35+ for balanced", async () => {
-    assert.equal(RISK_POLICIES.conservative.minOdds, 1.2);
-    assert.equal(RISK_POLICIES.conservative.maxOdds, 1.3);
-    assert.equal(RISK_POLICIES.balanced.minOdds, 1.35);
-
+  it("uses 1.20-1.30 for football conservative and 1.35+ for football balanced", async () => {
     const conservativeAllowed = await buildSlip(
       { ...base, games: 2, risk: "conservative" },
       deps([pick(1, 1.2), pick(2, 1.3)]),
     );
     assert.equal(conservativeAllowed.ok, true);
+    if (conservativeAllowed.ok) {
+      assert.equal(conservativeAllowed.policy.minOdds, 1.2);
+      assert.equal(conservativeAllowed.policy.maxOdds, 1.3);
+    }
 
     const conservativeTooHigh = await buildSlip(
       { ...base, games: 2, risk: "conservative" },
@@ -460,6 +463,10 @@ describe("buildSlip", () => {
       deps([pick(1, 1.35), pick(2, 1.5)]),
     );
     assert.equal(balancedAllowed.ok, true);
+    if (balancedAllowed.ok) {
+      assert.equal(balancedAllowed.policy.minOdds, 1.35);
+      assert.equal(balancedAllowed.policy.maxOdds, 2.2);
+    }
   });
 
   it("reviews more than three market options from the same event", async () => {
@@ -513,7 +520,7 @@ describe("buildSlip", () => {
 
     let reviewed = 0;
     const result = await buildSlip(
-      { ...base, games: 2 },
+      { ...base, games: 2, risk: "balanced" },
       {
         discover: async () => rows,
         record: async () => ({ available: false, rows: [] }),
@@ -539,7 +546,7 @@ describe("buildSlip", () => {
   });
 
   it("documents distinct risk policies and aggressive accepts a wider price", async () => {
-    assert.ok(RISK_POLICIES.conservative.maxOdds < RISK_POLICIES.balanced.minOdds);
+    assert.ok(RISK_POLICIES.conservative.maxOdds < RISK_POLICIES.balanced.maxOdds);
     assert.ok(RISK_POLICIES.balanced.maxOdds < RISK_POLICIES.aggressive.maxOdds);
     const risky = pick(1, 2.5, "18");
     const conservative = await buildSlip(base, deps([risky]));
@@ -655,9 +662,9 @@ describe("buildSlip", () => {
     const first = pick(1, 1.5, "10");
     const alternate = pick(2, 1.6, "18", "event-1");
     const result = await buildSlip(
-      { ...base, games: 2 },
+      { ...base, games: 2, risk: "balanced" },
       {
-        discover: async () => [first, alternate, pick(3)],
+        discover: async () => [first, alternate, pick(3, 1.4)],
         review: async (picks) => {
           assert.ok(picks.some((item) => item.id === first.id));
           assert.ok(picks.some((item) => item.id === alternate.id));
