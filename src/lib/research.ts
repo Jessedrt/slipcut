@@ -71,7 +71,11 @@ export function deskScore(pick: TicketPick): number {
 
 function isJunk(pick: TicketPick) {
   const blob = `${pick.league ?? ""} ${pick.home} ${pick.away}`;
-  if (pick.sport === "football") return WEAK_FB.test(blob);
+  // Football discovery already removes simulated/virtual fixtures. Do not
+  // discard real leagues here; weaker competitions are penalised by deskScore
+  // instead of being hidden from the option pool.
+  if (pick.sport === "football")
+    return /virtual|esport|simulat|simulation|\besoccer\b|e-?soccer|\bsrl\b|\bfifa\b/i.test(blob);
   if (pick.sport === "basketball") return WEAK_BB.test(blob) || /\bnba\b/i.test(pick.league ?? "");
   if (pick.sport === "handball")
     return /friendly|women|u-?1[89]|youth|virtual/i.test(blob) && !TOP_HB.test(pick.league ?? "");
@@ -219,10 +223,7 @@ function footballShapePick<T extends TicketPick>(picks: T[]): T[] {
   const used: Record<string, number> = {};
   const best: T[] = [];
   for (const arr of groups.values()) {
-    const bookable = arr.filter((p) => {
-      const f = familyOf(p);
-      return f !== "win" && f !== "hcp";
-    });
+    const bookable = arr;
     if (!bookable.length) continue;
     const ranked = bookable
       .map((p) => ({ p, s: footballMarketScore(p, arr, used) }))
@@ -352,15 +353,13 @@ export async function researchPicks<T extends TicketPick>(
   const strong = shortlist.filter(
     (p) => (p.probability ?? 0) >= bar && (researched || isTop(p) || (p.probability ?? 0) >= 66),
   );
-  const mixed = mixFamilies(strong.length ? strong : shortlist, Math.max(1, want)).filter(
-    (p) => familyOf(p) !== "win" && familyOf(p) !== "hcp",
-  );
+  const mixed = mixFamilies(strong.length ? strong : shortlist, Math.max(1, want));
   const keep = mixed.slice(0, Math.max(1, want)) as T[];
   if (!keep.length && shortlist.length) {
     const fallback = shortlist
-      .filter((p) => familyOf(p) !== "win" && familyOf(p) !== "hcp" && isTop(p))
+      .filter((p) => isTop(p))
       .slice(0, Math.max(1, Math.min(want, 8))) as T[];
-    const any = shortlist.filter((p) => familyOf(p) !== "win" && familyOf(p) !== "hcp");
+    const any = shortlist;
     return {
       keep: fallback.length ? fallback : (any.slice(0, 1) as T[]),
       dropped: unique.length - 1,
