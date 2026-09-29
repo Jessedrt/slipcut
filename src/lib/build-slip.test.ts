@@ -10,7 +10,7 @@ import {
 import { footballOptionAllowed } from "./sportybet.ts";
 import type { TicketPick } from "./types.ts";
 
-function pick(id: number, odds = 1.5, marketId = "18", eventId = `event-${id}`): TicketPick {
+function pick(id: number, odds = 1.5, marketId = "10", eventId = `event-${id}`): TicketPick {
   const market =
     marketId === "10"
       ? "Double Chance"
@@ -407,11 +407,11 @@ describe("buildSlip", () => {
     const doubleChance: TicketPick = {
       ...pick(4, 1.3, "10", "fb-dc"),
       market: "Double Chance",
-      selection: "Home or Draw",
+      selection: "Home or Away",
       sporty: {
         eventId: "fb-dc",
         marketId: "10",
-        outcomeId: "1x",
+        outcomeId: "12",
       },
     };
 
@@ -453,29 +453,43 @@ describe("buildSlip", () => {
         ...pick(3, 1.28, "18", eventId),
         id: "event-wide-ou-15",
         market: "Over/Under 1.5",
-        selection: "Over",
+        selection: "Over 1.5",
         sporty: { eventId, marketId: "18", outcomeId: "over15", specifier: "total=1.5" },
       },
       {
         ...pick(4, 1.46, "18", eventId),
         id: "event-wide-ou-25",
         market: "Over/Under 2.5",
-        selection: "Over",
+        selection: "Over 2.5",
         sporty: { eventId, marketId: "18", outcomeId: "over25", specifier: "total=2.5" },
       },
       {
-        ...pick(5, 1.38, "18", eventId),
-        id: "event-wide-under-35",
-        market: "Over/Under 3.5",
-        selection: "Under",
-        sporty: { eventId, marketId: "18", outcomeId: "under35", specifier: "total=3.5" },
+        ...pick(5, 1.38, "29", eventId),
+        id: "event-wide-btts",
+        market: "GG/NG",
+        selection: "Yes",
+        sporty: { eventId, marketId: "29", outcomeId: "yes" },
       },
       {
         ...pick(6, 1.55, "166", eventId),
         id: "event-wide-corners",
         market: "Corners 9.5",
-        selection: "Over",
+        selection: "Over 9.5",
         sporty: { eventId, marketId: "166", outcomeId: "corners-over", specifier: "total=9.5" },
+      },
+      {
+        ...pick(7, 1.6, "16", eventId),
+        id: "event-wide-handicap",
+        market: "Asian Handicap",
+        selection: "Home -0.5",
+        sporty: { eventId, marketId: "16", outcomeId: "home", specifier: "hcp=-0.5" },
+      },
+      {
+        ...pick(8, 1.72, "45", eventId),
+        id: "event-wide-correct-score",
+        market: "Correct Score",
+        selection: "1:0",
+        sporty: { eventId, marketId: "45", outcomeId: "1:0" },
       },
     ];
 
