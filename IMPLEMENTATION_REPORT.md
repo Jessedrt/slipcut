@@ -1,6 +1,6 @@
 # SlipCut market-selection repair
 
-Implemented and verified locally. Not pushed, merged or deployed.
+Market-selection repair verified and pushed to main as `79141cd`. Deployment runtime was not independently verified.
 
 ## Previous behavior found
 
@@ -85,3 +85,33 @@ Tests cover all requested Conservative/Balanced odds boundaries; blacklist alias
 - `src/lib/engine.ts`, `src/lib/daily-overs.ts` — eliminate parallel policy/evidence bypasses.
 - `src/lib/telegram.ts`, `src/components/mini-app-refresh.tsx` — correct policy/evidence descriptions; no unrelated redesign.
 - `src/lib/build-slip.test.ts`, `src/lib/build-ai.test.ts`, `src/lib/book-slip.test.ts`, `src/lib/engine-policy.test.ts`, `src/lib/daily-overs.test.ts` — regression coverage.
+
+## Parse FlashScore integration
+
+Added `src/lib/parse-flashscore.ts` and its six regression tests; updated the shared
+`researchSelectionEvidence` execution path, `package.json` test list and README configuration.
+Build and daily scanner both call this shared evidence path. Parse and ESPN research run
+in parallel. A fixture must match sport, exact normalized teams, competition, country
+when supplied and kickoff within 15 minutes. Ambiguous or non-upcoming fixtures are skipped.
+The documented canonical scraper is `e4c11d5d-7c48-4a9d-9141-7abf0692ddcd`, overridable
+with `PARSE_FLASHSCORE_SCRAPER_ID`. Authentication uses server-only `PARSE_API_KEY`.
+
+`get_daily_fixtures` discovers real fixture IDs; `get_match_preview` supplies completed
+score history. Current SportyBet odds/IDs are preserved. Duplicate, missing, conflicting,
+future or explicitly unfinished results are rejected. A single source is chosen for an
+assessment, so overlapping ESPN/FlashScore history is not counted twice. The existing
+exact-line, outlier, sample-size and risk requirements still decide qualification.
+Final scores do not justify halves, quarters, corners or cards. Basketball final scores
+only support markets explicitly including overtime; unsupported scopes retain ESPN coverage.
+
+Calls are limited to 12 new executions per build, cached per server instance (fixtures
+5 minutes, previews 30 minutes), and bounded by a 25-second adapter deadline. Only the
+next seven UTC dates are queried; unmatched names/competitions or timezone differences
+may cause skips. Budget/deadline limits may leave some fixtures unchecked. There is no
+new scoreboard UI or booking-code behavior.
+
+Verification: 160 script tests + 207 backend tests = 367 passing; typecheck,
+development build and diff whitespace check passed. Tests use documented response shapes
+with mocked authentication, fixture mapping, caching, failure and scope cases. Public API
+metadata was inspected, but `PARSE_API_KEY` is absent locally, so authenticated live
+Parse calls and production runtime activation have not been verified.

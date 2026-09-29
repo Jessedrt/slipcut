@@ -15,8 +15,26 @@ Env vars (Vercel → Settings → Environment Variables → Production, then Red
 - `SEEKAI_API_KEY` — SeekAI Claude Opus reasoning
 - `GEMINI_API_KEY` — Google Gemini reasoning
 - `TELEGRAM_BOT_TOKEN` — the bot
+- `PARSE_API_KEY` — optional server-side Parse key for FlashScore fixture/history checks
+- `PARSE_FLASHSCORE_SCRAPER_ID` — optional canonical scraper override (defaults to `e4c11d5d-7c48-4a9d-9141-7abf0692ddcd`)
 
 You can also paste a key in Telegram (`/keys`). Vercel env is the reliable path.
+
+Keep the Parse key in server environment variables; it is not supported by Telegram `/keys`.
+The adapter uses Parse's `get_daily_fixtures` and `get_match_preview` endpoints.
+It matches both teams, competition, country when supplied, and kickoff within 15 minutes;
+ambiguous, live, postponed or unmatched fixtures are skipped. Final-score history is
+evaluated by the existing risk/evidence rules, with ESPN continuing to supply other
+supported scopes. FlashScore final scores never substitute for half/quarter or
+corner/card statistics. Basketball final scores are used only for markets explicitly
+including overtime. SportyBet retains all selection identities and current odds.
+
+Each build permits at most 12 new Parse requests, with 5-minute fixture caching,
+30-minute history caching and a 25-second adapter deadline. Cache reuse is per server
+instance; cold starts and separate instances can make new calls. Budget/time limits
+may leave fixtures unchecked. Without `PARSE_API_KEY`, this optional source is disabled.
+Endpoint contracts: [Parse quickstart](https://docs.parse.bot/quickstart) and
+[FlashScore marketplace API](https://parse.bot/marketplace/463b4a3c-2c2a-4edb-9c14-d8df8d43eabe/flashscore-com-api).
 # SlipCut recommendation track record
 
 The Mini App Build flow still requires an AI review of each selected game. It

@@ -1,4 +1,5 @@
 import { researchEspnEvidence } from "./espn-history";
+import { researchFlashscoreEvidence } from "./parse-flashscore";
 import { canonicalMarket, SELECTION_POLICIES, type SelectionRisk } from "./selection-policy";
 import { normalizeName } from "./bookmakers/normalize";
 import { refreshKeys } from "./keys";
@@ -229,7 +230,22 @@ export async function researchSelectionEvidence(
 ): Promise<Map<string, Evidence>> {
   const deadline = Date.now() + 35_000;
   await refreshKeys();
-  const result = await researchEspnEvidence(picks);
+  const [espn, flashscore] = await Promise.allSettled([
+    researchEspnEvidence(picks), researchFlashscoreEvidence(picks),
+  ]);
+  const result = espn.status === "fulfilled" ? espn.value : new Map<string, Evidence>();
+  if (flashscore.status === "fulfilled") {
+    for (const pick of picks) {
+      const candidate = flashscore.value.get(pick.id);
+      if (!candidate) continue;
+      const existing = result.get(pick.id);
+      // Keep each assessment on a single source rather than double-counting games.
+      const strength = (e: Evidence) => assessEvidence(pick, e, "conservative") ? 2 : assessEvidence(pick, e, "balanced") ? 1 : 0;
+      if (!existing || strength(candidate) > strength(existing) ||
+          (strength(candidate) === strength(existing) && candidate.rows.length > existing.rows.length))
+        result.set(pick.id, candidate);
+    }
+  }
   if (!youKeys().length) return result;
   const groups = new Map<string, TicketPick[]>();
   for (const pick of picks) {
