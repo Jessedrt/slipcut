@@ -7,7 +7,7 @@ import {
   type BuildDependencies,
   type BuildSlipRequest,
 } from "./build-slip.ts";
-import { footballOptionAllowed } from "./sportybet.ts";
+import { basketballOptionAllowed, footballOptionAllowed } from "./sportybet.ts";
 import type { TicketPick } from "./types.ts";
 
 function pick(id: number, odds = 1.5, marketId = "10", eventId = `event-${id}`): TicketPick {
@@ -123,6 +123,41 @@ describe("football SportyBet option policy", () => {
   });
 });
 
+describe("basketball SportyBet option policy", () => {
+  const bb = (
+    id: string,
+    market: string,
+    selection: string,
+    specifier = "",
+  ): TicketPick => ({
+    id: `bb-${id}-${selection}`,
+    sport: "basketball",
+    league: "Euroleague",
+    home: "Home",
+    away: "Away",
+    market,
+    selection,
+    odds: 1.45,
+    kickoff: Date.now() + 3_600_000,
+    sporty: { eventId: `bb-${id}`, marketId: id, outcomeId: "o", specifier },
+  });
+
+  it("allows only basketball Over totals for full game, team, halves and quarters", () => {
+    assert.equal(basketballOptionAllowed(bb("225", "Over/Under (incl. overtime) 164.5", "Over 164.5", "total=164.5")), true);
+    assert.equal(basketballOptionAllowed(bb("227", "Home total 82.5", "Over 82.5", "total=82.5")), true);
+    assert.equal(basketballOptionAllowed(bb("68", "1st Half Over/Under 81.5", "Over 81.5", "total=81.5")), true);
+    assert.equal(basketballOptionAllowed(bb("236", "3rd Quarter Over/Under 40.5", "Over 40.5", "quarternr=3;total=40.5")), true);
+    assert.equal(basketballOptionAllowed(bb("999", "2nd Half Home Team Total 39.5", "Over 39.5", "halfnr=2;total=39.5")), true);
+  });
+
+  it("removes basketball unders, winners, handicaps and other non-total markets", () => {
+    assert.equal(basketballOptionAllowed(bb("225", "Over/Under 164.5", "Under 164.5", "total=164.5")), false);
+    assert.equal(basketballOptionAllowed(bb("219", "Winner (incl. overtime)", "Home")), false);
+    assert.equal(basketballOptionAllowed(bb("223", "Handicap", "Home -4.5", "hcp=-4.5")), false);
+    assert.equal(basketballOptionAllowed(bb("8", "Odd/Even", "Odd")), false);
+  });
+});
+
 describe("buildSlip", () => {
   it("excludes historically below-average families only after comparable sample thresholds", async () => {
     const record = async () => ({ available: true, rows: [
@@ -150,30 +185,40 @@ describe("buildSlip", () => {
   });
 
 
-  it("keeps basketball team totals out of conservative and balanced builds", async () => {
-    const gameTotal: TicketPick = {
-      ...pick(1, 1.5, "225", "bb-main"),
-      sport: "basketball",
-      league: "Euroleague",
-      market: "Over/Under 165.5",
-      selection: "Over",
-      sporty: { eventId: "bb-main", marketId: "225", outcomeId: "over", specifier: "total=165.5" },
-    };
-    const teamTotal: TicketPick = {
-      ...pick(2, 1.47, "227", "bb-team"),
-      sport: "basketball",
-      league: "Euroleague",
-      market: "Home total 61.5",
-      selection: "Over",
-      sporty: { eventId: "bb-team", marketId: "227", outcomeId: "over", specifier: "total=61.5" },
-    };
+  it("allows basketball team and period Overs in every risk mode", async () => {
+    const rows: TicketPick[] = [
+      {
+        ...pick(1, 1.5, "225", "bb-main"),
+        sport: "basketball",
+        league: "Euroleague",
+        market: "Over/Under 165.5",
+        selection: "Over 165.5",
+        sporty: { eventId: "bb-main", marketId: "225", outcomeId: "over", specifier: "total=165.5" },
+      },
+      {
+        ...pick(2, 1.47, "227", "bb-team"),
+        sport: "basketball",
+        league: "Euroleague",
+        market: "Home total 81.5",
+        selection: "Over 81.5",
+        sporty: { eventId: "bb-team", marketId: "227", outcomeId: "over", specifier: "total=81.5" },
+      },
+      {
+        ...pick(3, 1.44, "236", "bb-quarter"),
+        sport: "basketball",
+        league: "Euroleague",
+        market: "3rd Quarter Over/Under 40.5",
+        selection: "Over 40.5",
+        sporty: { eventId: "bb-quarter", marketId: "236", outcomeId: "over", specifier: "quarternr=3;total=40.5" },
+      },
+    ];
 
-    for (const risk of ["conservative", "balanced"] as const) {
+    for (const risk of ["conservative", "balanced", "aggressive"] as const) {
       let reviewedIds: string[] = [];
       const result = await buildSlip(
-        { ...base, sport: "basketball", games: 2, risk },
+        { ...base, sport: "basketball", games: 3, risk },
         {
-          ...deps([gameTotal, teamTotal]),
+          ...deps(rows),
           review: async (picks) => {
             reviewedIds = picks.map((row) => row.id);
             return {
@@ -190,35 +235,12 @@ describe("buildSlip", () => {
           },
         },
       );
-      assert.ok(!reviewedIds.includes(teamTotal.id));
-      assert.ok(reviewedIds.includes(gameTotal.id));
       assert.equal(result.ok, true);
+      assert.ok(reviewedIds.includes(rows[0]!.id));
+      assert.ok(reviewedIds.includes(rows[1]!.id));
+      assert.ok(reviewedIds.includes(rows[2]!.id));
     }
-
-    let aggressiveIds: string[] = [];
-    await buildSlip(
-      { ...base, sport: "basketball", games: 2, risk: "aggressive" },
-      {
-        ...deps([gameTotal, teamTotal]),
-        review: async (picks) => {
-          aggressiveIds = picks.map((row) => row.id);
-          return {
-            reviews: picks.map((row) => ({
-              pickId: row.id,
-              score: 80,
-              summary: "Reviewed.",
-              reasons: [],
-              risks: [],
-            })),
-            attemptedEvents: new Set(picks.map((row) => row.sporty?.eventId)).size,
-            reviewedEvents: new Set(picks.map((row) => row.sporty?.eventId)).size,
-          };
-        },
-      },
-    );
-    assert.ok(aggressiveIds.includes(teamTotal.id));
   });
-
 
   it("never uses straight basketball Winner markets in any risk mode", async () => {
     const winner: TicketPick = {
