@@ -20,7 +20,7 @@ function event(id: string, markets: unknown[], overrides: Record<string, unknown
   };
 }
 
-const dc = { id: "10", desc: "Double Chance", status: 0, outcomes: [{ id: "9", desc: "Home or Draw", odds: "1.50", isActive: 1 }] };
+const dc = { id: "10", desc: "Double Chance", status: 0, outcomes: [{ id: "10", desc: "Home or Away", odds: "1.50", isActive: 1 }] };
 const win = { id: "1", desc: "1X2", status: 0, outcomes: [{ id: "1", desc: "Home", odds: "1.50", isActive: 1 }] };
 
 describe("SportyBet discovery diagnostics", () => {
@@ -92,6 +92,7 @@ describe("SportyBet discovery diagnostics", () => {
       await listUpcomingPicks("football", 5, "today");
       assert.match(requested, /todayGames=true/);
       assert.match(requested, /timeline=48/);
+      assert.doesNotMatch(requested, /marketId=/);
     } finally { globalThis.fetch = original; }
   });
 });

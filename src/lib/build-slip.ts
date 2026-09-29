@@ -3,6 +3,7 @@ import { deskScore } from "./research";
 import { evaluateRecord, loadRecord, type RecordSnapshot, type RecordSummary } from "./track-record";
 import {
   cookablePick,
+  footballOptionAllowed,
   listUpcomingPicks,
   marketFamily,
   type CookWindow,
@@ -98,7 +99,7 @@ export const RISK_POLICIES: Record<BuildRisk, RiskPolicy> = {
     minOdds: 1.2,
     maxOdds: 1.82,
     explanation:
-      "Prioritises eligible prices from 1.20 upward, stronger AI-reviewed rankings and lower-variance market families. It is not a safety guarantee.",
+      "Prioritises eligible prices from 1.20 upward and stronger AI-reviewed rankings across SportyBet's available markets. It is not a safety guarantee.",
   },
   balanced: {
     label: "Balanced",
@@ -189,14 +190,9 @@ function allowedFamily(pick: TicketPick, risk: BuildRisk) {
     return ["ou", "hcp", "teamou", "ou1h"].includes(family);
   }
 
-  // Football never uses straight 1X2 Home/Away winners or Under selections.
-  // Keep this guard here even though discovery also excludes them so future
-  // adapters/providers cannot re-introduce those picks downstream.
-  if (family === "win" || /\bunder\b/i.test(pick.selection ?? "")) return false;
-  if (risk === "aggressive") return family !== "odd";
-  const conservative = new Set(["dc", "dnb", "ou", "ou1h", "teamou", "corners"]);
-  const balanced = new Set([...conservative, "gg"]);
-  return (risk === "conservative" ? conservative : balanced).has(family);
+  // Football market coverage is intentionally broad. The risk mode controls
+  // odds/model thresholds; explicit market exclusions live in one shared rule.
+  return footballOptionAllowed(pick);
 }
 
 function scoreLabel(score: number): BuildSelection["confidenceLabel"] {
@@ -465,23 +461,28 @@ export async function buildSlip(
       const buckets = new Map<string, TicketPick[]>();
       for (const pick of ranked) {
         const family = marketFamily(pick.sporty?.marketId, pick.market);
-        const bucket = buckets.get(family) ?? [];
-        // Three alternatives per family is enough to compare different lines or
-        // outcomes without letting one family crowd out every other market.
+        const bucketKey =
+          request.sport === "football"
+            ? `${family}:${pick.sporty?.marketId ?? pick.market}`
+            : family;
+        const bucket = buckets.get(bucketKey) ?? [];
+        // Keep multiple line/outcome alternatives for a real SportyBet market,
+        // but do not let one market ID crowd out the rest of the event.
         if (bucket.length < 3) {
           bucket.push(pick);
-          buckets.set(family, bucket);
+          buckets.set(bucketKey, bucket);
         }
       }
       const families = [...buckets.entries()]
         .sort((a, b) => deskScore(b[1]![0]!) - deskScore(a[1]![0]!))
         .map(([family]) => family);
       const selected: TicketPick[] = [];
-      for (let round = 0; round < 3 && selected.length < maxOptionsPerEvent; round++) {
+      const perEventCap = request.sport === "football" ? 24 : maxOptionsPerEvent;
+      for (let round = 0; round < 3 && selected.length < perEventCap; round++) {
         for (const family of families) {
           const pick = buckets.get(family)?.[round];
           if (pick) selected.push(pick);
-          if (selected.length >= maxOptionsPerEvent) break;
+          if (selected.length >= perEventCap) break;
         }
       }
       return selected;
