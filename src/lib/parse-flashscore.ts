@@ -82,15 +82,23 @@ export async function researchFlashscoreEvidence(picks: TicketPick[], config: Co
   const result = new Map<string, Evidence>();
   const apiKey = config.apiKey ?? process.env.PARSE_API_KEY;
   const scraperId = config.scraperId ?? process.env.PARSE_FLASHSCORE_SCRAPER_ID ?? CANONICAL;
-  if (!apiKey || !/^[a-zA-Z0-9-]+$/.test(scraperId)) return result;
+  if (!apiKey || !/^[a-zA-Z0-9-]+$/.test(scraperId)) {
+    console.info("[flashscore.parse]", JSON.stringify({ configured: Boolean(apiKey), validScraperId: /^[a-zA-Z0-9-]+$/.test(scraperId), calls: 0 }));
+    return result;
+  }
   const now = config.now ?? Date.now(), deadline = Date.now() + 25_000;
   const fetcher = config.fetcher ?? fetch;
   const budget = Math.max(0, Math.min(30, config.maxCalls ?? 12));
   let calls = 0;
+  let succeeded = 0, cacheHits = 0;
+  const failures: string[] = [];
   async function call(endpoint: string, input: object): Promise<any> {
     const key = JSON.stringify([apiKey, scraperId, endpoint, input]);
     const existing = cache.get(key);
-    if (existing && existing.until > now) return existing.value;
+    if (existing && existing.until > now) {
+      cacheHits++;
+      try { return await existing.value; } catch { return null; }
+    }
     if (calls >= budget || Date.now() >= deadline) return null;
     calls++;
     const value = (async () => {
@@ -98,14 +106,24 @@ export async function researchFlashscoreEvidence(picks: TicketPick[], config: Co
         method: "POST", headers: { "X-API-Key": apiKey!, "Content-Type": "application/json" },
         body: JSON.stringify(input), signal: AbortSignal.timeout(Math.max(1, Math.min(10_000, deadline - Date.now()))),
       });
-      if (!response.ok) throw new Error(`Parse FlashScore ${endpoint}: HTTP ${response.status}`);
+      if (!response.ok) {
+        failures.push(`${endpoint}:HTTP_${response.status}`);
+        throw new Error("Parse request failed");
+      }
       const payload = await response.json();
-      if (payload.status && payload.status !== "success") throw new Error(`Parse FlashScore ${endpoint} failed`);
+      if (payload.status && payload.status !== "success") {
+        failures.push(`${endpoint}:provider_rejected`);
+        throw new Error("Parse response rejected");
+      }
+      succeeded++;
       return payload.data ?? payload;
     })();
     if (cache.size >= 500) cache.delete(cache.keys().next().value!);
     cache.set(key, { until: now + (endpoint === "get_daily_fixtures" ? 5 : 30) * 60_000, value });
-    try { return await value; } catch { cache.delete(key); return null; }
+    try { return await value; } catch {
+      if (!failures.some((f) => f.startsWith(`${endpoint}:`))) failures.push(`${endpoint}:request_failed`);
+      cache.delete(key); return null;
+    }
   }
   const day = (time: number) => Math.floor(time / 86400_000);
   const daily = new Map<string, Fixture[]>(), previews = new Map<string, Preview | null>();
@@ -133,5 +151,7 @@ export async function researchFlashscoreEvidence(picks: TicketPick[], config: Co
       if (evidence.rows.length) result.set(pick.id, evidence);
     }
   }
+  console.info("[flashscore.parse]", JSON.stringify({ configured: true, calls, succeeded,
+    cacheHits, mappedFixtures: previews.size, evidencePicks: result.size, failures }));
   return result;
 }
