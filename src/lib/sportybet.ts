@@ -479,62 +479,61 @@ function openOutcomes(market: EventMarket) {
   return (market.outcomes ?? []).filter((o) => o.isActive === 1 && o.id != null);
 }
 
+export function footballOptionAllowed(pick: TicketPick): boolean {
+  const marketId = pick.sporty?.marketId ?? "";
+  const market = (pick.market ?? "").toLowerCase();
+  const selection = (pick.selection ?? "")
+    .toLowerCase()
+    .replace(/[–—]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // Existing football policy: no standard straight-result picks and no Unders.
+  if (marketId === "1" || marketId === "60") return false;
+  if (/\bunder\b/i.test(selection)) return false;
+
+  // Explicitly remove Draw No Bet (Home DNB + Away DNB).
+  if (marketId === "11" || /draw\s*no\s*bet|\bdnb\b/i.test(market)) return false;
+
+  // From Double Chance, remove only Home-or-Draw and Draw-or-Away. Home-or-Away
+  // remains eligible, as do all other SportyBet market types.
+  const isDoubleChance =
+    marketId === "10" ||
+    marketId === "63" ||
+    /double\s*chance/i.test(market);
+  if (isDoubleChance) {
+    if (
+      /home\s*(?:or|\/)\s*draw/i.test(selection) ||
+      /(?:^|\s)1x(?:\s|$)/i.test(selection)
+    )
+      return false;
+    if (
+      /draw\s*(?:or|\/)\s*away/i.test(selection) ||
+      /(?:^|\s)x2(?:\s|$)/i.test(selection)
+    )
+      return false;
+  }
+
+  return true;
+}
+
 function footballCandidates(ev: EventDetail): TicketPick[] {
-  const markets = (ev.markets ?? []).filter((m) => m.status === 0);
   const picks: TicketPick[] = [];
-  const pull = (pred: (m: EventMarket) => boolean, oversOnly = false) => {
-    for (const market of markets) {
-      if (!pred(market)) continue;
-      if (oversOnly) pushOver(picks, ev, "football", market);
-      else pushMarket(picks, ev, "football", market);
+
+  // SportyBet can expose hundreds of football markets on one fixture. Do not
+  // maintain a hard-coded whitelist here: every active selectable outcome is
+  // admitted into discovery, then the explicit football exclusions above and
+  // the selected risk-mode odds/AI thresholds decide what can reach a slip.
+  for (const market of ev.markets ?? []) {
+    if (market.status !== 0) continue;
+    for (const outcome of openOutcomes(market)) {
+      const pick = toPick(ev, "football", market, outcome);
+      if (!pick?.odds || !Number.isFinite(pick.odds) || pick.odds <= 1) continue;
+      if (!footballOptionAllowed(pick)) continue;
+      picks.push(pick);
     }
-  };
-  const totalBetween = (m: EventMarket, min: number, max: number) => {
-    const total = specTotal(m);
-    return total != null && total >= min && total <= max;
-  };
+  }
 
-  // Straight 1X2 Home/Away winners are intentionally excluded.
-  pull((m) => m.id === "10");
-  pull((m) => m.id === "11");
-  pull((m) => m.id === "63" || /1st half.*double chance/i.test(m.desc ?? ""));
-
-  // Balanced/aggressive builds may consider BTTS while conservative still
-  // filters it out later.
-  pull((m) => m.id === "29" || /gg\/ng|both teams to score/i.test(m.desc ?? ""));
-  pull((m) => m.id === "64" || /1st half.*(?:gg|both teams to score)/i.test(m.desc ?? ""));
-
-  // Do not collapse totals to one hard-coded line. Give the reviewer several
-  // full-time, half-time and team-total Over lines only; Unders are excluded.
-  pull((m) => m.id === "18" && totalBetween(m, 1.5, 4.5), true);
-  pull((m) => m.id === "68" && totalBetween(m, 1, 2.5), true);
-  pull(
-    (m) =>
-      (m.id === "62" || /2nd half.*over\/under/i.test(m.desc ?? "")) &&
-      totalBetween(m, 1, 2.5),
-    true,
-  );
-  pull(
-    (m) =>
-      (m.id === "23" || m.id === "24" || m.id === "227" || m.id === "228") &&
-      totalBetween(m, 0.5, 2.5),
-    true,
-  );
-  pull(
-    (m) =>
-      (m.id === "69" || m.id === "70") &&
-      totalBetween(m, 0.5, 2),
-    true,
-  );
-
-  // Compare a wider set of corner lines instead of only four preset overs.
-  pull(
-    (m) =>
-      /corner/i.test(m.desc ?? "") &&
-      /over\/under|total/i.test(m.desc ?? "") &&
-      totalBetween(m, 6.5, 13.5),
-    true,
-  );
   return picks;
 }
 
@@ -733,17 +732,7 @@ export function cookablePick(p: TicketPick) {
   if (p.kickoff && p.kickoff < Date.now() + 15 * 60_000) return false;
   const league = p.league ?? "";
   if (league && !isStrongLeague(p.sport as BookSport, league)) return false;
-  const fam = marketFamily(p.sporty.marketId, p.market);
-  const label = `${p.market ?? ""} ${p.selection ?? ""}`.toLowerCase();
-  const line = Number((p.sporty.specifier ?? p.market).match(/([\d.]+)/)?.[1]);
-  const over = /over/i.test(p.selection ?? "");
-  if (p.sport === "football") {
-    if (fam === "win" || fam === "hcp" || fam === "odd") return false;
-    if (/\bunder\b/i.test(p.selection ?? "")) return false;
-    if (over && fam === "ou1h" && (line === 0.5 || line === 1)) return false;
-    if (over && (fam === "teamou" || p.sporty.marketId === "69" || p.sporty.marketId === "70") && (line === 0.5 || line === 1)) return false;
-    if (over && /2nd half|2h |second half/.test(label) && (line === 0.5 || line === 1)) return false;
-  }
+  if (p.sport === "football" && !footballOptionAllowed(p)) return false;
   if (p.sport === "basketball" && /\bnba\b/i.test(league)) return false;
   return true;
 }
@@ -887,11 +876,13 @@ function candidatesFor(sport: BookSport, ev: EventDetail) {
   return footballCandidates(ev);
 }
 
-function requestedMarketIds(sport: BookSport) {
+function requestedMarketIds(sport: BookSport): string | null {
   if (sport === "basketball") return "223,14,225,18,227,228,68,69,70,236";
   if (sport === "tennis") return "186,187,188,189,202,204";
   if (sport === "handball") return "1,10,11,18,68";
-  return "1,10,11,18,23,24,29,62,63,64,68,69,70,90,166,227,228";
+  // Football intentionally omits marketId so SportyBet returns the complete
+  // prematch market catalogue instead of SlipCut's old hard-coded subset.
+  return null;
 }
 
 type UpcomingTournament = {
@@ -943,28 +934,41 @@ export async function listUpcomingPicks(
     finalCandidates: 0,
   };
 
-  let tours: UpcomingTournament[];
+  let tours: UpcomingTournament[] = [];
   try {
-    const query = new URLSearchParams({
-      sportId: sportIdOf(sport),
-      marketId: requestedMarketIds(sport),
-      pageSize: "100",
-      pageNum: "1",
-      todayGames: window === "today" ? "true" : "false",
-      timeline:
-        window === "soon" || window === "today"
-          ? "48"
-          : window === "tomorrow"
-            ? "72"
-            : window === "week" || window === "weekend"
-              ? "504"
-              : "720",
-    });
-    const payload = (await sportyGet(
-      `/factsCenter/pcUpcomingEvents?${query.toString()}`,
-      { timeoutMs: 12_000, cacheMs: 45_000 },
-    )) as UpcomingPayload;
-    tours = Array.isArray(payload.data?.tournaments) ? payload.data.tournaments : [];
+    const timeline =
+      window === "soon" || window === "today"
+        ? "48"
+        : window === "tomorrow"
+          ? "72"
+          : window === "week" || window === "weekend"
+            ? "504"
+            : "720";
+    const marketIds = requestedMarketIds(sport);
+    const pageSize = sport === "football" ? 20 : 100;
+    const pages = sport === "football" ? 2 : 1;
+
+    for (let pageNum = 1; pageNum <= pages; pageNum += 1) {
+      const query = new URLSearchParams({
+        sportId: sportIdOf(sport),
+        pageSize: String(pageSize),
+        pageNum: String(pageNum),
+        todayGames: window === "today" ? "true" : "false",
+        timeline,
+      });
+      if (marketIds) query.set("marketId", marketIds);
+
+      const payload = (await sportyGet(
+        `/factsCenter/pcUpcomingEvents?${query.toString()}`,
+        { timeoutMs: sport === "football" ? 18_000 : 12_000, cacheMs: 45_000 },
+      )) as UpcomingPayload;
+      const pageTours = Array.isArray(payload.data?.tournaments)
+        ? payload.data.tournaments
+        : [];
+      tours.push(...pageTours);
+      const pageEvents = pageTours.reduce((sum, tournament) => sum + (tournament.events?.length ?? 0), 0);
+      if (pageEvents < pageSize) break;
+    }
   } catch (error) {
     const failure =
       error instanceof SportyProviderError
@@ -1071,7 +1075,6 @@ export async function listUpcomingPicks(
         diagnostics.rejected.noEligibleMarkets += 1;
         continue;
       }
-      // Keep 1X2 in the event group so deterministic scoring can inspect the favourite.
       picks.push(...open);
       events += 1;
     }
