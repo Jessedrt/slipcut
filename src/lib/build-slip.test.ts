@@ -184,7 +184,7 @@ describe("buildSlip", () => {
     const weakA = pick(1, 1.5, "18");
     const weakB = pick(2, 1.5, "18");
     const strong: TicketPick = {
-      ...pick(3, 1.3, "18"),
+      ...pick(3, 1.4, "18"),
       market: "Over/Under 1.5",
       selection: "Over 1.5",
       sporty: { eventId: "event-3", marketId: "18", outcomeId: "over", specifier: "total=1.5" },
