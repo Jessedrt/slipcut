@@ -689,10 +689,45 @@ function pushMarket(
   }
 }
 
+export type BasketballOverKind =
+  | "full_game"
+  | "team_full_game"
+  | "half"
+  | "team_half"
+  | "quarter"
+  | "team_quarter";
+
+export function basketballOverKind(pick: TicketPick): BasketballOverKind | null {
+  if (!scoreTotalOverAllowed(pick, true)) return null;
+
+  const marketId = pick.sporty?.marketId ?? "";
+  const market = (pick.market ?? "").toLowerCase();
+  const specifier = (pick.sporty?.specifier ?? "").toLowerCase();
+
+  const team =
+    ["227", "228", "69", "70"].includes(marketId) ||
+    /home (?:team )?total|away (?:team )?total|team total|individual total/i.test(market) ||
+    /(?:home|away).*(?:points?|total)/i.test(market);
+
+  const quarter =
+    marketId === "236" ||
+    /(?:1st|2nd|3rd|4th|first|second|third|fourth)\s*quarter|\bq[1-4]\b/i.test(market) ||
+    /quarternr=[1-4]/i.test(specifier);
+
+  const half =
+    ["68", "69", "70"].includes(marketId) ||
+    /(?:1st|2nd|first|second)\s*half|\b[12]h\b|half[- ]?time/i.test(market) ||
+    /half(?:nr|number)=?[12]/i.test(specifier);
+
+  if (quarter) return team ? "team_quarter" : "quarter";
+  if (half) return team ? "team_half" : "half";
+  return team ? "team_full_game" : "full_game";
+}
+
 export function basketballOptionAllowed(pick: TicketPick): boolean {
   // Basketball: full-game score Overs, team/individual-team Overs, half Overs
   // and quarter Overs. Everything else is excluded.
-  return scoreTotalOverAllowed(pick, true);
+  return basketballOverKind(pick) !== null;
 }
 
 function basketballCandidates(ev: EventDetail): TicketPick[] {
