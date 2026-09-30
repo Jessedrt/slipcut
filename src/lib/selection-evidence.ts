@@ -81,6 +81,28 @@ function metricFor(pick: TicketPick): HistoryRow["metric"] {
 function same(a: string, b: string) {
   return normalizeName(a) === normalizeName(b);
 }
+function normalCdf(z: number) {
+  // Abramowitz-Stegun approximation; sufficient for ranking betting lines.
+  const sign = z < 0 ? -1 : 1;
+  const x = Math.abs(z) / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * x);
+  const erf =
+    1 -
+    (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) *
+      t *
+      Math.exp(-x * x);
+  return 0.5 * (1 + sign * erf);
+}
+function projectedOverProbability(series: SeriesSummary[], line: number) {
+  const centers = series.map((s) => 0.55 * s.trimmedMean + 0.45 * s.median);
+  const projection = centers.reduce((a, b) => a + b, 0) / centers.length;
+  const pooledDeviation = Math.sqrt(
+    series.reduce((sum, s) => sum + s.deviation ** 2, 0) / series.length,
+  );
+  const sigma = Math.max(1.5, pooledDeviation);
+  const probability = Math.max(0.01, Math.min(0.99, 1 - normalCdf((line - projection) / sigma)));
+  return { projection, probability, edge: projection - line };
+}
 /** Evaluates exact scope from score rows; no full-game substitution for halves/quarters. */
 export function assessEvidence(
   pick: TicketPick,
@@ -223,13 +245,27 @@ export function assessEvidence(
   )
     return null;
   const smallestSample = Math.min(...stats.map((s) => s.sample));
-  // Do not let tiny perfect samples masquerade as high-confidence picks.
-  // Keep 45/40 as the policy floors, but shrink the displayed/selection score
-  // toward neutral when evidence is sparse. At 5+ relevant rows no sample
-  // penalty is applied.
   const rawHitScore = 100 * Math.min(...stats.map((s) => s.hitRate));
   const sampleConfidence = Math.min(1, smallestSample / 5);
-  const score = Math.round(50 + (rawHitScore - 50) * sampleConfidence);
+  const hitScore = 50 + (rawHitScore - 50) * sampleConfidence;
+  let score = Math.round(hitScore);
+  let mathNote = "";
+  if (numerical && c.outcome === "over") {
+    const math = projectedOverProbability(stats, line);
+    const implied = pick.odds && pick.odds > 1 ? 1 / pick.odds : 1;
+    const probabilityEdge = math.probability - implied;
+    // Require a real mathematical cushion over the line. Price value is used
+    // as a ranking input, but low bookmaker odds alone can never qualify a pick.
+    const minPointEdge =
+      pick.sport === "basketball"
+        ? c.family === "team_total" ? 2 : c.period === "match" ? 3 : 1.5
+        : 0.15;
+    if (math.edge < minPointEdge) return null;
+    const projectionScore = Math.max(0, Math.min(100, 50 + 10 * (math.edge / Math.max(1, stats[0]!.deviation))));
+    const valueScore = Math.max(0, Math.min(100, 50 + 250 * probabilityEdge));
+    score = Math.round(0.45 * hitScore + 0.4 * projectionScore + 0.15 * valueScore);
+    mathNote = ` Mathematical projection ${math.projection.toFixed(1)} vs line ${line.toFixed(1)} (edge +${math.edge.toFixed(1)}); estimated Over probability ${(100 * math.probability).toFixed(0)}% vs odds-implied ${(100 * implied).toFixed(0)}%.`;
+  }
   if (score < p.minModelScore) return null;
   return {
     score,
@@ -240,7 +276,7 @@ export function assessEvidence(
         (s, i) =>
           `${i === 0 ? "Recent scoring" : c.family === "team_total" ? "Opponent allowed" : "Opponent games"}: ${s.hits} of ${s.sample} ${c.period} results exceeded ${line}; median ${s.median.toFixed(1)}, trimmed mean ${s.trimmedMean.toFixed(1)}.`,
       )
-      .join(" "),
+      .join(" ") + mathNote,
     warnings: [
       ...(evidence.warnings ?? []),
       ...(smallestSample < 5
