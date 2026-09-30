@@ -308,6 +308,8 @@ export async function researchSelectionEvidence(
 ): Promise<Map<string, Evidence>> {
   const deadline = Date.now() + 35_000;
   await refreshKeys();
+  // Parse is enrichment, never a gate. ESPN runs independently and any
+  // Parse failure/429 falls through to the legacy web path below.
   const [espn, flashscore] = await Promise.allSettled([
     researchEspnEvidence(picks), researchFlashscoreEvidence(picks),
   ]);
@@ -374,9 +376,11 @@ export async function researchSelectionEvidence(
     const key = `${pick.sporty?.eventId}:${c.period}:${metricFor(pick)}`;
     groups.set(key, [...(groups.get(key) ?? []), pick]);
   }
+  const parseUnavailable =
+    flashscore.status !== "fulfilled" ||
+    parseFailures.some((failure) => /429|402|quota|credit|rate|timed out|failed/i.test(failure));
   const fastWebFallback =
-    parseFailures.length > 0 &&
-    (flashscore.status !== "fulfilled" || flashscore.value.size === 0);
+    parseUnavailable || (flashscore.status === "fulfilled" && flashscore.value.size === 0);
   const jobs = [...groups.values()].sort((a, b) => {
     const priority = (group: TicketPick[]) => {
       const first = group[0]!;
