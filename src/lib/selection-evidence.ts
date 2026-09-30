@@ -2,6 +2,7 @@ import { researchEspnEvidence } from "./espn-history";
 import { researchFlashscoreEvidence, type HistoryEvidenceMap } from "./parse-flashscore";
 import { canonicalMarket, SELECTION_POLICIES, type SelectionRisk } from "./selection-policy";
 import { normalizeName } from "./bookmakers/normalize";
+import { providerTeamName } from "./provider-names";
 import { refreshKeys } from "./keys";
 import { youAnswer, youContents, youKeys } from "./you";
 import type { TicketPick } from "./types";
@@ -324,11 +325,21 @@ export async function researchSelectionEvidence(
     const key = `${pick.sporty?.eventId}:${c.period}:${metricFor(pick)}`;
     groups.set(key, [...(groups.get(key) ?? []), pick]);
   }
-  const jobs = [...groups.values()];
+  const fastWebFallback =
+    parseFailures.length > 0 &&
+    (flashscore.status !== "fulfilled" || flashscore.value.size === 0);
+  const jobs = [...groups.values()].sort((a, b) => {
+    const priority = (group: TicketPick[]) => {
+      const first = group[0]!;
+      const market = canonicalMarket(first);
+      return market.period === "match" && metricFor(first) === "score" ? 0 : 1;
+    };
+    return priority(a) - priority(b);
+  });
   let cursor = 0;
   const sources = new Map<string, Promise<string>>();
   await beforeResearchDeadline(() => Promise.all(
-    Array.from({ length: Math.min(4, jobs.length) }, async () => {
+    Array.from({ length: Math.min(fastWebFallback ? 8 : 4, jobs.length) }, async () => {
       while (cursor < jobs.length && Date.now() < deadline) {
         const group = jobs[cursor++]!;
         const pick = group[0]!;
@@ -337,7 +348,10 @@ export async function researchSelectionEvidence(
           const query = `Last 10 games each ${pick.home} / ${pick.away} (${pick.sport}), ONLY ${c.period} ${metricFor(pick)}. JSON {"rows":[{"date":"YYYY-MM-DD","home":"team","away":"team","homeValue":0,"awayValue":0,"source":"https://result-page"}]}. Exact sourced results, no estimates; omit missing scope. ESPN/official league/FIBA/FBref.`;
           // A truncated query must never lose its scope/schema.
           if (query.length > 400) continue;
-          const answer = await youAnswer(query, Math.max(1, Math.min(10_000, deadline - Date.now())));
+          const answer = await youAnswer(
+            query,
+            Math.max(1, Math.min(fastWebFallback ? 6_000 : 10_000, deadline - Date.now())),
+          );
           const json = answer.match(/\{[\s\S]*\}/)?.[0];
           const parsed = json ? JSON.parse(json) : null;
           if (!Array.isArray(parsed?.rows)) continue;
@@ -362,76 +376,107 @@ export async function researchSelectionEvidence(
               url.password
             )
               continue;
-            if (!sources.has(raw.source))
-              sources.set(
-                raw.source,
-                youContents(raw.source).catch(() => ""),
-              );
-            const source = (await sources.get(raw.source))!.toLowerCase().replace(/\s+/g, " ");
-            // Legacy web fallback: corroborate each claimed result against the trusted
-            // source page. Full-game rows do not require the literal word "final" next
-            // to the score because many score pages omit it; period markets still do.
-            const scorePattern = new RegExp(
-              `\\b${raw.homeValue}\\s*[-:–]\\s*${raw.awayValue}\\b`,
-            );
-            const scoreMatch = scorePattern.exec(source);
-            if (!scoreMatch) continue;
-            const window = source.slice(
-              Math.max(0, scoreMatch.index - 900),
-              Math.min(source.length, scoreMatch.index + scoreMatch[0].length + 900),
-            );
-            const teamVisible = (name: string) => {
-              const exact = name.toLowerCase();
-              if (window.includes(exact)) return true;
-              const words = normalizeName(name)
-                .split(" ")
-                .filter((word) => word.length >= 4);
-              if (!words.length) return false;
-              const hits = words.filter((word) => window.includes(word)).length;
-              return hits >= Math.min(2, words.length);
+            const native = (name: string) => {
+              const normalized = providerTeamName(name, pick.sport);
+              if (normalized === providerTeamName(pick.home, pick.sport)) return pick.home;
+              if (normalized === providerTeamName(pick.away, pick.sport)) return pick.away;
+              return name;
             };
-            const parsedDate = new Date(raw.date);
-            const dateNeedles = Number.isFinite(parsedDate.getTime())
-              ? [
-                  raw.date.toLowerCase(),
-                  parsedDate.toISOString().slice(0, 10),
-                  parsedDate.toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
-                    timeZone: "UTC",
-                  }).toLowerCase(),
-                  parsedDate.toLocaleDateString("en-GB", {
-                    day: "numeric",
-                    month: "short",
-                    year: "numeric",
-                    timeZone: "UTC",
-                  }).toLowerCase(),
-                ]
-              : [raw.date.toLowerCase()];
-            const dateVisible = dateNeedles.some((needle) => source.includes(needle));
-            const periodVisible =
-              c.period === "match"
-                ? true
-                : c.period === "first_half"
-                  ? /first half|1st half|half.time/.test(window)
-                  : c.period === "second_half"
-                    ? /second half|2nd half/.test(window)
-                    : new RegExp(
-                        `${c.period}|${c.period.slice(1)}(?:st|nd|rd|th) quarter`,
-                      ).test(window);
-            const metricVisible =
-              metricFor(pick) === "score" || window.includes(metricFor(pick));
-            const matched =
-              teamVisible(raw.home) &&
-              teamVisible(raw.away) &&
-              dateVisible &&
-              periodVisible &&
-              metricVisible;
-            if (!matched) continue;
+            const rowHome = native(raw.home);
+            const rowAway = native(raw.away);
+            const rowDate = Date.parse(raw.date);
+            const belongsToFixtureTeam =
+              [rowHome, rowAway].some(
+                (name) => normalizeName(name) === normalizeName(pick.home),
+              ) ||
+              [rowHome, rowAway].some(
+                (name) => normalizeName(name) === normalizeName(pick.away),
+              );
+            if (
+              !belongsToFixtureTeam ||
+              !Number.isFinite(rowDate) ||
+              rowDate >= Math.min(Date.now(), pick.kickoff ?? Date.now())
+            )
+              continue;
+
+            const canUseFastGroundedRow =
+              fastWebFallback && c.period === "match" && metricFor(pick) === "score";
+            if (!canUseFastGroundedRow) {
+              if (!sources.has(raw.source))
+                sources.set(
+                  raw.source,
+                  youContents(raw.source).catch(() => ""),
+                );
+              const source = (await sources.get(raw.source))!
+                .toLowerCase()
+                .replace(/\s+/g, " ");
+              // Legacy web fallback: corroborate each claimed result against the trusted
+              // source page. Full-game rows do not require the literal word "final" next
+              // to the score because many score pages omit it; period markets still do.
+              const scorePattern = new RegExp(
+                `\\b${raw.homeValue}\\s*[-:–]\\s*${raw.awayValue}\\b`,
+              );
+              const scoreMatch = scorePattern.exec(source);
+              if (!scoreMatch) continue;
+              const window = source.slice(
+                Math.max(0, scoreMatch.index - 900),
+                Math.min(source.length, scoreMatch.index + scoreMatch[0].length + 900),
+              );
+              const teamVisible = (name: string) => {
+                const exact = name.toLowerCase();
+                if (window.includes(exact)) return true;
+                const words = normalizeName(name)
+                  .split(" ")
+                  .filter((word) => word.length >= 4);
+                if (!words.length) return false;
+                const hits = words.filter((word) => window.includes(word)).length;
+                return hits >= Math.min(2, words.length);
+              };
+              const parsedDate = new Date(raw.date);
+              const dateNeedles = Number.isFinite(parsedDate.getTime())
+                ? [
+                    raw.date.toLowerCase(),
+                    parsedDate.toISOString().slice(0, 10),
+                    parsedDate.toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                      timeZone: "UTC",
+                    }).toLowerCase(),
+                    parsedDate.toLocaleDateString("en-GB", {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                      timeZone: "UTC",
+                    }).toLowerCase(),
+                  ]
+                : [raw.date.toLowerCase()];
+              const dateVisible = dateNeedles.some((needle) => source.includes(needle));
+              const periodVisible =
+                c.period === "match"
+                  ? true
+                  : c.period === "first_half"
+                    ? /first half|1st half|half.time/.test(window)
+                    : c.period === "second_half"
+                      ? /second half|2nd half/.test(window)
+                      : new RegExp(
+                          `${c.period}|${c.period.slice(1)}(?:st|nd|rd|th) quarter`,
+                        ).test(window);
+              const metricVisible =
+                metricFor(pick) === "score" || window.includes(metricFor(pick));
+              const matched =
+                teamVisible(raw.home) &&
+                teamVisible(raw.away) &&
+                dateVisible &&
+                periodVisible &&
+                metricVisible;
+              if (!matched) continue;
+            }
             rows.push({
               ...raw,
-              id: `${raw.date}:${raw.home}:${raw.away}`,
+              home: rowHome,
+              away: rowAway,
+              id: `${raw.date}:${rowHome}:${rowAway}`,
               period: c.period,
               metric: metricFor(pick),
               corroborated: true,
@@ -441,7 +486,9 @@ export async function researchSelectionEvidence(
             rows,
             checkedAt: Date.now(),
             warnings: [
-              "Injuries, pace, season ratings, rest and travel were not independently verified.",
+              fastWebFallback
+                ? "Parse history was unavailable; SlipCut used the legacy You.com web-history route with trusted source URLs."
+                : "Injuries, pace, season ratings, rest and travel were not independently verified.",
             ],
           };
           if (Date.now() >= deadline) break;
