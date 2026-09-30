@@ -487,7 +487,7 @@ function footballCandidates(ev: EventDetail): TicketPick[] {
   const picks: TicketPick[] = [];
 
   // Hydrated SportyBet fixtures can expose hundreds of lines. Scan the whole
-  // event catalogue, then keep only score-Over markets allowed above.
+  // event catalogue, then apply the canonical single-market eligibility rules.
   for (const market of ev.markets ?? []) {
     if (market.status !== 0) continue;
     for (const outcome of openOutcomes(market)) {
@@ -1017,7 +1017,10 @@ export async function listUpcomingPicks(
           marketId: marketIds,
           pageSize: "100",
           pageNum: "1",
-          todayGames: window === "today" ? "true" : "false",
+          // SportyBet's day shortcut can return data:null around Lagos midnight
+          // while the timeline feed contains today's real fixtures. Calendar
+          // windows are enforced locally by inCookWindow using Africa/Lagos.
+          todayGames: "false",
           timeline,
         });
         return (await sportyGet(`/factsCenter/pcUpcomingEvents?${query.toString()}`, {
@@ -1192,7 +1195,8 @@ export async function listDailyBasketballOverMarkets(): Promise<TicketPick[] | S
         marketId: marketIds,
         pageSize: "100",
         pageNum: String(pageNum),
-        todayGames: "true",
+        // Use the same timeline feed/local Lagos day rule as builder discovery.
+        todayGames: "false",
         timeline: "48",
       });
       const payload = (await sportyGet(`/factsCenter/pcUpcomingEvents?${query.toString()}`, {

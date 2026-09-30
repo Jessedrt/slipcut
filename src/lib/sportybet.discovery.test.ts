@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { clearSportyCacheForTests, listUpcomingPicks } from "./sportybet.ts";
+import { clearSportyCacheForTests, listUpcomingPicks, listDailyBasketballOverMarkets } from "./sportybet.ts";
 
 function response(events: unknown[]) {
   return new Response(JSON.stringify({ bizCode: 10000, message: "0#0", data: { totalNum: events.length, tournaments: events.length ? [{ name: "England Premier League", events }] : [] } }), { status: 200, headers: { "content-type": "application/json" } });
@@ -162,7 +162,7 @@ describe("SportyBet discovery diagnostics", () => {
     }
   });
 
-  it("requests the provider's dedicated today feed for a today build", async () => {
+  it("requests a timeline feed for Today instead of the provider day shortcut", async () => {
     const original = globalThis.fetch;
     let requested = "";
     try {
@@ -172,9 +172,67 @@ describe("SportyBet discovery diagnostics", () => {
         return response([]);
       };
       await listUpcomingPicks("football", 5, "today");
-      assert.match(requested, /todayGames=true/);
+      assert.match(requested, /todayGames=false/);
       assert.match(requested, /timeline=48/);
       assert.match(requested, /marketId=/);
     } finally { globalThis.fetch = original; }
+  });
+
+  for (const window of ["today", "tomorrow", "upcoming"] as const) {
+    it(`discovers basketball ${window} independently across Lagos/UTC midnight`, async (t) => {
+      const original = globalThis.fetch;
+      t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-09-29T23:01:00Z") });
+      const total = { ...over, id: "225", specifier: "total=162.5", outcomes: [{ id: "over", desc: "Over 162.5", odds: "1.60", isActive: 1 }] };
+      const rows = [
+        ["today", "2026-09-29T23:30:00Z"],
+        ["tomorrow", "2026-09-30T23:30:00Z"],
+        ["later", "2026-10-06T23:30:00Z"],
+      ].map(([id, date]) => event(id!, [total], { estimateStartTime: Date.parse(date!),
+        sport: { id: "sr:sport:2", name: "Basketball", category: { name: "USA", tournament: { name: "NBA" } } } }));
+      const queries: URL[] = [];
+      try {
+        clearSportyCacheForTests();
+        globalThis.fetch = async (input) => {
+          const url = new URL(String(input));
+          if (url.pathname.endsWith("/event")) {
+            const row = rows.find((r) => r.eventId === url.searchParams.get("eventId"));
+            return Response.json({ bizCode: 10000, data: row });
+          }
+          queries.push(url);
+          // Reproduces the live provider failure: successful empty Today shortcut.
+          return Response.json({ bizCode: 10000, data: url.searchParams.get("todayGames") === "true"
+            ? null : { totalNum: rows.length, tournaments: [{ name: "NBA", events: rows }] } });
+        };
+        const result = await listUpcomingPicks("basketball", 5, window);
+        assert.ok(Array.isArray(result));
+        assert.deepEqual([...new Set(result.map((p) => p.sporty?.eventId))].sort(),
+          window === "today" ? ["today"] : window === "tomorrow" ? ["tomorrow"] : ["later", "today", "tomorrow"]);
+        assert.equal(queries[0]!.searchParams.get("sportId"), "sr:sport:2");
+        assert.equal(queries[0]!.searchParams.get("todayGames"), "false");
+        assert.equal(queries[0]!.searchParams.get("timeline"), window === "today" ? "48" : window === "tomorrow" ? "72" : "720");
+        assert.ok(result.every((p) => p.sport === "basketball" && p.selection.startsWith("Over")));
+      } finally { globalThis.fetch = original; t.mock.timers.reset(); }
+    });
+  }
+
+  it("daily basketball scanning also avoids the provider Today shortcut", async (t) => {
+    const original = globalThis.fetch;
+    t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-09-29T23:01:00Z") });
+    try {
+      clearSportyCacheForTests();
+      globalThis.fetch = async (input) => {
+        const url = new URL(String(input));
+        assert.equal(url.searchParams.get("todayGames"), "false");
+        assert.equal(url.searchParams.get("sportId"), "sr:sport:2");
+        const row = event("daily", [{ ...over, id: "225" }], {
+          estimateStartTime: Date.parse("2026-09-29T23:30:00Z"),
+          sport: { id: "sr:sport:2", name: "Basketball", category: { name: "USA", tournament: { name: "NBA" } } },
+        });
+        return Response.json({ bizCode: 10000, data: { totalNum: 1, tournaments: [{ name: "NBA", events: [row] }] } });
+      };
+      const result = await listDailyBasketballOverMarkets();
+      assert.ok(Array.isArray(result));
+      assert.equal(result[0]?.sporty?.eventId, "daily");
+    } finally { globalThis.fetch = original; t.mock.timers.reset(); }
   });
 });

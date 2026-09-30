@@ -115,3 +115,52 @@ development build and diff whitespace check passed. Tests use documented respons
 with mocked authentication, fixture mapping, caching, failure and scope cases. Public API
 metadata was inspected, but `PARSE_API_KEY` is absent locally, so authenticated live
 Parse calls and production runtime activation have not been verified.
+
+## Basketball Today discovery repair — September 30, 2026
+
+Root cause identified before editing: `listUpcomingPicks` sent
+`todayGames=true` to `/api/ng/factsCenter/pcUpcomingEvents` for Today. At
+2026-09-29 23:58 UTC (September 30 00:58 Africa/Lagos), SportyBet returned HTTP
+200 / bizCode 10000 with no data. An otherwise identical basketball request
+(`sportId=sr:sport:2`, `marketId=219,225`, timeline 48) with `todayGames=false`
+returned 71 real fixtures, 54 on September 30 in Lagos. The sport ID and
+`data.tournaments[].events[]` parser were correct. Zero occurred upstream of
+league, market, statistics and Conservative/Balanced filtering. The provider's
+internal reason for its empty Today shortcut is undocumented; the mismatch
+with the application's Lagos day was demonstrated directly.
+
+Changed only the provider day shortcut in builder discovery and the daily
+basketball scanner to `false`. Existing local Lagos date filtering now decides
+Today/Tomorrow, using 48/72-hour provider timelines respectively. Upcoming uses
+its existing timeline. Corrected one stale football comment; no score-Over-only
+restriction was restored. No UI or booking code changes, odds widening, new
+league restrictions or statistical thresholds were introduced.
+
+Live patched `listUpcomingPicks('basketball', 6, window)` checks on September 30
+01:02 Lagos time, using real HTTP requests and event-detail hydration:
+
+| Window | Parsed upstream fixtures | Fixtures in local window | Returned events in six-event check | Over market candidates |
+| --- | ---: | ---: | ---: | ---: |
+| Today | 71 | 54 | 6 | 566 |
+| Tomorrow | 81 | 16 | 6 | 298 |
+| Upcoming | 100 | 86 | 6 | 295 |
+
+Each request returned HTTP 200/bizCode 10000. Today returned only September 30
+Lagos kickoffs; Tomorrow returned only October 1 Lagos kickoffs. Every returned
+candidate was basketball and passed the existing canonical Over-focused market
+filter. Candidate counts precede risk/statistical qualification and do not imply
+approved accumulator legs. Upcoming's existing single-page discovery parsed
+100 of provider totalNum 129; pagination was outside this repair.
+
+Added independent Today/Tomorrow/Upcoming regressions across Lagos/UTC midnight
+and a daily-scanner regression. Replaced the old test requiring the broken
+Today shortcut. Added a duplicate-preset invariant: current `[2,3,5,10,20]`
+labels are unique and the target group is rendered once. No duplicate exists
+in the current source; UI design was preserved.
+
+Verification: 161 script tests + 211 backend tests = 372 passing. Typecheck,
+development build and `git diff --check` passed. Changes: `src/lib/sportybet.ts`,
+`src/lib/sportybet.discovery.test.ts`, `scripts/target-presets.test.mjs`, and
+this report. Conservative remains 1.20–1.40 inclusive; Balanced remains
+1.40–1.80 inclusive. Football canonical blacklist and basketball exact-scope
+evidence requirements remain enforced by their existing backend tests.
