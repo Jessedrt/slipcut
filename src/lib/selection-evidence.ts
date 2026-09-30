@@ -238,7 +238,7 @@ export function assessEvidence(
 }
 
 const TRUSTED =
-  /(^|\.)(espn\.com|nba\.com|wnba\.com|fiba\.basketball|euroleaguebasketball\.net|basketball-reference\.com|fbref\.com|worldfootball\.net|soccerway\.com|flashscore\.com)$/;
+  /(^|\.)(espn\.com|nba\.com|wnba\.com|fiba\.basketball|euroleaguebasketball\.net|basketball-reference\.com|basketball\.com\.au|realgm\.com|eurobasket\.com|proballers\.com|sofascore\.com|scores24\.live|sportytrader\.com|fbref\.com|worldfootball\.net|soccerway\.com|flashscore\.com)$/;
 /** Optional enrichment cannot discard evidence already returned by source adapters. */
 export async function beforeResearchDeadline<T>(work: () => Promise<T>, deadline: number): Promise<T | undefined> {
   const remaining = deadline - Date.now();
@@ -346,7 +346,7 @@ export async function researchSelectionEvidence(
         const pick = group[0]!;
         const c = canonicalMarket(pick);
         try {
-          const query = `Last 10 games each ${pick.home} / ${pick.away} (${pick.sport}), ONLY ${c.period} ${metricFor(pick)}. JSON {"rows":[{"date":"YYYY-MM-DD","home":"team","away":"team","homeValue":0,"awayValue":0,"source":"https://result-page"}]}. Exact sourced results, no estimates; omit missing scope. ESPN/official league/FIBA/FBref.`;
+          const query = `Find the 10 most recent completed games for EACH team: "${pick.home}" and "${pick.away}" (${pick.sport}), before ${new Date(Math.min(Date.now(), pick.kickoff ?? Date.now())).toISOString().slice(0, 10)}. ONLY ${c.period} ${metricFor(pick)}. Return up to 20 exact score rows, ideally 10 involving each team. Results/scores only, no predictions. JSON {"rows":[{"date":"YYYY-MM-DD","home":"team","away":"team","homeValue":0,"awayValue":0,"source":"https://result-page"}]}.`;
           // A truncated query must never lose its scope/schema.
           if (query.length > 400) continue;
           let answer = await youAnswer(
@@ -355,12 +355,28 @@ export async function researchSelectionEvidence(
             fastWebFallback ? null : "week",
           );
           let json = answer.match(/\{[\s\S]*\}/)?.[0];
-          if (!json && fastWebFallback && Date.now() < deadline - 2_000) {
-            answer = await youResearch(
-              `${query} Return ONLY the requested JSON object. Do not explain missing context; search the web for exact completed results and omit any row you cannot source.`,
+          let parsed = json ? JSON.parse(json) : null;
+          if (
+            fastWebFallback &&
+            (!Array.isArray(parsed?.rows) || parsed.rows.length < 16) &&
+            Date.now() < deadline - 2_000
+          ) {
+            const researched = await youResearch(
+              `${query} Return ONLY the requested JSON object. Search the web for exact completed results. Aim for 20 rows: 10 involving each named team. Every row needs a real result-page source URL; omit anything uncertain.`,
               Math.max(1, Math.min(8_000, deadline - Date.now())),
             );
-            json = answer.match(/\{[\s\S]*\}/)?.[0];
+            const researchedJson = researched.match(/\{[\s\S]*\}/)?.[0];
+            if (researchedJson) {
+              const researchedParsed = JSON.parse(researchedJson);
+              if (
+                Array.isArray(researchedParsed?.rows) &&
+                (!Array.isArray(parsed?.rows) || researchedParsed.rows.length > parsed.rows.length)
+              ) {
+                answer = researched;
+                json = researchedJson;
+                parsed = researchedParsed;
+              }
+            }
           }
           if (fastWebFallback && fallbackSamples < 2) {
             fallbackSamples++;
@@ -374,7 +390,6 @@ export async function researchSelectionEvidence(
               }),
             );
           }
-          const parsed = json ? JSON.parse(json) : null;
           if (!Array.isArray(parsed?.rows)) continue;
           const rows: HistoryRow[] = [];
           for (const raw of parsed.rows.slice(0, 24)) {
