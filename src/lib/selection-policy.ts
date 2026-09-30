@@ -6,23 +6,23 @@ export const SELECTION_POLICIES = {
     label: "Conservative",
     minOdds: 1.2,
     maxOdds: 1.4,
-    minModelScore: 50,
+    minModelScore: 45,
     minSample: 1,
     minHitRate: 0.5,
     maxVariation: 0.25,
     explanation:
-      "1.20–1.40 per selection; minimum analysis score 50 and low variance. History sample size contributes to the score instead of acting as a hard gate.",
+      "1.20–1.40 per selection; minimum analysis score 45 and low variance. History sample size contributes to the score instead of acting as a hard gate.",
   },
   balanced: {
     label: "Balanced",
     minOdds: 1.4,
     maxOdds: 1.8,
-    minModelScore: 45,
+    minModelScore: 40,
     minSample: 1,
     minHitRate: 0.45,
     maxVariation: 0.45,
     explanation:
-      "1.40–1.80 per selection; minimum analysis score 45, allowing moderate variance. History sample size contributes to the score instead of acting as a hard gate.",
+      "1.40–1.80 per selection; minimum analysis score 40, allowing moderate variance. History sample size contributes to the score instead of acting as a hard gate.",
   },
   aggressive: {
     label: "Aggressive",
