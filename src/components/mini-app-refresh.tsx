@@ -906,9 +906,9 @@ export function MiniAppRefresh() {
                   />
                   <p className="mt-2 text-[11px] leading-4 text-[#7f6b5b]">
                     {risk === "conservative"
-                      ? "Conservative: 1.20–1.40 per selection · minimum analysis score 50 · no fixed history-count gate."
+                      ? "Conservative: 1.20–1.40 per selection · minimum analysis score 45 · no fixed history-count gate."
                       : risk === "balanced"
-                        ? "Balanced: 1.40–1.80 per selection · minimum analysis score 45 · no fixed history-count gate."
+                        ? "Balanced: 1.40–1.80 per selection · minimum analysis score 40 · no fixed history-count gate."
                         : "Aggressive: 1.16–2.75 odds · model score 45+ · wider qualifying price range and higher variance."}
                     {" "}It is not a safety guarantee.
                   </p>
