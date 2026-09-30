@@ -26,6 +26,7 @@ async function youPost(
   path: string,
   body: Record<string, unknown>,
   timeoutMs: number,
+  baseUrl = "https://api.you.com",
 ): Promise<unknown> {
   const keys = youKeys();
   if (!keys.length) throw new Error("AI is not available in this environment");
@@ -36,7 +37,7 @@ async function youPost(
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetch(`https://api.you.com${path}`, {
+      const res = await fetch(`${baseUrl}${path}`, {
         method: "POST",
         signal: controller.signal,
         headers: {
@@ -66,13 +67,24 @@ async function youPost(
   throw new Error(lastError);
 }
 
-export async function youAnswer(query: string, timeoutMs = 8_000): Promise<string> {
-  const body = (await youPost(
-    "/v1/answer",
-    { query: compactYouAnswerQuery(query), freshness: "week" },
-    timeoutMs,
-  )) as { answer?: string };
+export async function youAnswer(
+  query: string,
+  timeoutMs = 8_000,
+  freshness: "day" | "week" | "month" | null = "week",
+): Promise<string> {
+  const request: Record<string, unknown> = { query: compactYouAnswerQuery(query) };
+  if (freshness) request.freshness = freshness;
+  const body = (await youPost("/v1/answer", request, timeoutMs)) as { answer?: string };
   return body.answer ?? "";
+}
+
+export async function youResearch(query: string, timeoutMs = 10_000): Promise<string> {
+  const body = (await youPost(
+    "/v1/research",
+    { input: query, research_effort: "lite" },
+    timeoutMs,
+  )) as { output?: { content?: string } };
+  return typeof body.output?.content === "string" ? body.output.content : "";
 }
 
 export async function youContents(url: string): Promise<string> {
@@ -80,6 +92,7 @@ export async function youContents(url: string): Promise<string> {
     "/v1/contents",
     { urls: [url], formats: ["markdown"] },
     12_000,
+    "https://ydc-index.io",
   )) as
     | Array<{ markdown?: string | null }>
     | { data?: Array<{ markdown?: string | null }> };
