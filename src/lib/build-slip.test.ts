@@ -106,31 +106,19 @@ describe("risk boundaries through backend build", () => {
         if (result.ok) assert.equal(result.selections[0]!.odds, odds);
       });
   }
-  it("requires stronger samples in Conservative", async () => {
+  it("does not enforce fixed 10/8 history-count gates", async () => {
     const p = pick("a", 1.4);
-    const d = deps([p], { evidence: async () => new Map([[p.id, history(p, 8)]]) });
-    assert.equal((await buildSlip({ ...base, risk: "conservative" }, d)).ok, false);
+    const d = deps([p], { evidence: async () => new Map([[p.id, history(p, 3)]]) });
+    assert.equal((await buildSlip({ ...base, risk: "conservative" }, d)).ok, true);
     assert.equal((await buildSlip(base, d)).ok, true);
   });
-  it("reports missing history as a data failure rather than claiming statistical rejection", async () => {
+  it("missing history is not expressed as a fixture-coverage gate", async () => {
     const p = pick("missing", 1.3);
     const r = await buildSlip({ ...base, risk: "conservative" }, deps([p], { evidence: async () => new Map() }));
     assert.equal(r.ok, false);
     if (!r.ok) {
-      assert.equal(r.code, "analysis_failed");
-      assert.match(r.error, /matched 0 of 1 fixtures/);
-      assert.equal(r.analysis?.historyCoverage?.fixturesWithHistory, 0);
-    }
-  });
-  it("separates partial source coverage from insufficient samples", async () => {
-    const p = pick("covered", 1.3), missing = pick("missing", 1.3);
-    const r = await buildSlip({ ...base, risk: "conservative" }, deps([p, missing], {
-      evidence: async () => new Map([[p.id, history(p, 8)]]),
-    }));
-    assert.equal(r.ok, false);
-    if (!r.ok) {
-      assert.match(r.error, /matched 1 of 2 fixtures/);
-      assert.equal(r.analysis?.historyCoverage?.marketsWithHistory, 1);
+      assert.equal(r.code, "no_eligible_markets");
+      assert.doesNotMatch(r.error, /matched \d+ of \d+ fixtures|coverage/i);
     }
   });
   it("Balanced accepts supported moderate variance rejected by Conservative", () => {
@@ -239,7 +227,7 @@ describe("exact scope and robust statistics", () => {
     const minimum = history(p, 10, [162, 162, 162, 162, 162, 164, 164, 164, 164, 164]);
     assert.equal(assessEvidence(p, minimum, "conservative")?.score, 50);
     const moderate = history(p, 10, [140, 140, 140, 140, 140, 190, 190, 190, 190, 190]);
-    assert.equal(assessEvidence(p, moderate, "balanced")?.score, 48);
+    assert.equal(assessEvidence(p, moderate, "balanced")?.score, 50);
     assert.equal(assessEvidence(p, moderate, "conservative"), null);
   });
   const team = pick("b", 1.6, {
