@@ -106,6 +106,17 @@ describe("risk boundaries through backend build", () => {
         if (result.ok) assert.equal(result.selections[0]!.odds, odds);
       });
   }
+  it("rejects basketball team totals without both offense and opponent-defense samples", async () => {
+    const p = { ...pick("team-total", 1.4), market: "Home Team Total Over 70.5", line: 70.5 };
+    const oneSided = history(p, 3);
+    oneSided.rows = oneSided.rows.filter((row) => row.home === p.home || row.away === p.home);
+    const r = await buildSlip(
+      { ...base, risk: "conservative" },
+      deps([p], { evidence: async () => new Map([[p.id, oneSided]]) }),
+    );
+    assert.equal(r.ok, false);
+  });
+
   it("does not enforce fixed 10/8 history-count gates", async () => {
     const p = pick("a", 1.4);
     const d = deps([p], { evidence: async () => new Map([[p.id, history(p, 3)]]) });
