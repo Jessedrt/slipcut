@@ -147,6 +147,9 @@ export async function researchFlashscoreEvidence(picks: TicketPick[], config: Co
       };
       if (saved && saved.freshUntil > now) return reuse();
       if (cooldown && cooldown.until > Date.now()) {
+        // A persisted 429 must never block the current build. Reuse cached Parse
+        // data when available; otherwise return immediately so the caller can
+        // switch to ESPN/legacy web evidence in the same request.
         if (!failures.includes(cooldown.reason)) failures.push(cooldown.reason);
         return reuse();
       }
@@ -165,8 +168,11 @@ export async function researchFlashscoreEvidence(picks: TicketPick[], config: Co
           failures.push(reason);
           if (response.status === 429 || response.status === 402) {
             const retry = response.headers.get("retry-after");
-            const delay = retry && /^\d+$/.test(retry) ? Number(retry) * 1000 : retry ? Date.parse(retry) - Date.now() : 60_000;
-            cooldown = { until: Date.now() + (Number.isFinite(delay) && delay > 0 ? delay : 60_000), reason };
+            const requestedDelay = retry && /^\d+$/.test(retry) ? Number(retry) * 1000 : retry ? Date.parse(retry) - Date.now() : 15_000;
+            // Keep the circuit breaker short. Parse is enrichment; a long stale
+            // cooldown should not suppress later attempts after credits/rate limits reset.
+            const delay = Math.min(30_000, Math.max(5_000, Number.isFinite(requestedDelay) && requestedDelay > 0 ? requestedDelay : 15_000));
+            cooldown = { until: Date.now() + delay, reason };
             cooldowns.set(namespace, cooldown);
             try { await storage?.set(cooldownKey, JSON.stringify(cooldown)); } catch { /* Local cooldown still applies. */ }
           }
