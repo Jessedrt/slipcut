@@ -23,6 +23,7 @@ import {
 } from "./selection-evidence";
 import { buildToOdds, combinedOdds, uniqueEvents } from "./workbench";
 import type { BookSport, TicketPick } from "./types";
+import { normalizeName } from "./bookmakers/normalize";
 export type BuildSport = Extract<BookSport, "football" | "basketball">;
 export type BuildMode = "games" | "odds";
 export type BuildRisk = "conservative" | "balanced" | "aggressive";
@@ -287,8 +288,21 @@ export async function buildSlip(
     marketsWithHistory: historyPicks.length,
   };
   const assessments = new Map<string, EvidenceAssessment>();
+  const inspected = new Set<string>();
   for (const pick of historical) {
     const assessment = assessEvidence(pick, evidence.get(pick.id), request.risk);
+    const c = canonicalMarket(pick), ev = evidence.get(pick.id);
+    const event = pick.sporty!.eventId;
+    if (ev?.rows.length && c.period === "match" && c.family === "total" && !inspected.has(event)) {
+      inspected.add(event);
+      const recent = [...ev.rows].filter((r) => r.period === "match" && r.metric === "score")
+        .sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+      const totals = (team: string) => recent.filter((r) => [r.home, r.away].some((n) => normalizeName(n) === normalizeName(team)))
+        .slice(0, 10).map((r) => r.homeValue + r.awayValue);
+      console.info("[slipcut.evidence]", JSON.stringify({ home: pick.home, away: pick.away,
+        market: pick.market, line: c.line, odds: pick.odds, homeTotals: totals(pick.home),
+        awayTotals: totals(pick.away), qualified: Boolean(assessment) }));
+    }
     if (assessment) assessments.set(pick.id, assessment);
     else analysis.rejected.insufficientEvidence++;
   }

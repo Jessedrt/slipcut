@@ -13,6 +13,13 @@ const BASKETBALL_ALIASES: Record<string, string> = {
   "kk cedevita olimpija ljubljana": "cedevita olimpija",
   "panathinaikos bc": "panathinaikos",
   "asvel lyon villeurbanne": "lyon villeurbanne",
+  "napoli basket": "basket napoli",
+  "jl bourg basket": "jl bourg",
+  "cb 1939 canarias": "tenerife",
+  "universitatea cluj": "cluj napoca",
+  "besiktas jk": "besiktas",
+  "cs dinamo bucuresti": "dinamo bucharest",
+  "kb peja": "peja",
 };
 export function providerTeamName(value: string, sport: string): string {
   const name = normalizeName(value);
