@@ -330,7 +330,7 @@ async function cookRequest(chatId: number, request: BuildSlipRequest) {
     await mintAndReply(
       chatId,
       result.selections,
-      `${result.policy.label} · ${result.actualGames} ${request.sport}${target}`,
+      `${result.policy.label} · ${result.actualGames} ${request.sport}${target} · Mathematics${result.notice ? `\n${result.notice}` : ""}`,
     );
   } catch (err) {
     console.error("cookRequest:", err instanceof Error ? err.message : err);

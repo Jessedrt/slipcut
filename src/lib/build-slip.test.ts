@@ -7,7 +7,7 @@ import {
   type BuildSlipRequest,
 } from "./build-slip";
 import { canonicalMarket, automaticMarketAllowed, riskOddsAllowed, SELECTION_POLICIES } from "./selection-policy";
-import { assessEvidence, beforeResearchDeadline, summarize, type Evidence, type HistoryRow } from "./selection-evidence";
+import { assessEvidence, beforeResearchDeadline, researchSelectionEvidence, summarize, type Evidence, type HistoryRow } from "./selection-evidence";
 import { mintReviewedSlip } from "./book-slip";
 import { clearSportyCacheForTests, listUpcomingPicks } from "./sportybet";
 import type { TicketPick } from "./types";
@@ -372,22 +372,12 @@ describe("complete build to booking behavior", () => {
         if (target > 4) assert.match(r.notice!, /No odds range/);
       }
     });
-  it("does not approve odds/AI-score only evidence", async () => {
+  it("does not invent a mathematical score from odds alone", async () => {
     const r = await buildSlip(
       base,
       deps([pick("a")], {
         evidence: async () => new Map(),
-        review: async (ps) => ({
-          reviews: ps.map((p) => ({
-            pickId: p.id,
-            score: 99,
-            summary: "Confident",
-            reasons: [],
-            risks: [],
-          })),
-          attemptedEvents: 1,
-          reviewedEvents: 1,
-        }),
+
       }),
     );
     assert.ok(r.ok);
@@ -769,4 +759,35 @@ it("missing-history fallback never reinstates an evidence-rejected selection", a
   const r = await buildSlip(base, deps([bad, unknown], { evidence: async () => new Map([[bad.id, history(bad, 10, Array(10).fill(0))]]) }));
   assert.ok(r.ok);
   if (r.ok) assert.deepEqual(r.selections.map(p => p.id), [unknown.id]);
+});
+
+it("mathematical picking requests only structured ESPN data, never Parse or AI", async (t) => {
+  const p = pick("math-provider", 1.6);
+  const requested: string[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
+    const url = String(input);
+    requested.push(url);
+    assert.equal(new URL(url).hostname, "site.api.espn.com");
+    if (url.includes("/teams?")) return Response.json({ sports: [{ leagues: [{ teams: [
+      { team: { id: "math-home", displayName: p.home } },
+      { team: { id: "math-away", displayName: p.away } },
+    ] }] }] });
+    assert.match(url, /\/schedule\?season=/);
+    const home = url.includes("math-home");
+    return Response.json({ events: Array.from({ length: 6 }, (_, i) => ({
+      id: `${home ? "home" : "away"}-${i}`,
+      date: new Date(Date.now() - (i + 1) * 86400_000).toISOString(),
+      competitions: [{ status: { type: { completed: true } }, competitors: [
+        { homeAway: "home", team: { displayName: home ? p.home : `Opponent ${i}` }, score: "3" },
+        { homeAway: "away", team: { displayName: home ? `Opponent ${i}` : p.away }, score: "2" },
+      ] }],
+    })) });
+  });
+  const evidence = await researchSelectionEvidence([p]);
+  assert.ok(requested.length >= 3);
+  assert.equal(evidence.get(p.id)?.rows.length, 12);
+  const first = assessEvidence(p, evidence.get(p.id), "balanced");
+  assert.ok(first);
+  assert.deepEqual(first, assessEvidence(p, evidence.get(p.id), "balanced"));
+  assert.match(first.summary, /Mathematical projection/);
 });

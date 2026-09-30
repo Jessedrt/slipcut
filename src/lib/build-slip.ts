@@ -1,6 +1,4 @@
-import type { HistoryEvidenceMap } from "./parse-flashscore";
 import { rankDistinctSelections } from "./rank-selections";
-import type { reviewBuildMarkets } from "./build-ai";
 import {
   evaluateRecord,
   loadRecord,
@@ -22,6 +20,7 @@ import {
   researchSelectionEvidence,
   type Evidence,
   type EvidenceAssessment,
+  type HistoryEvidenceMap,
 } from "./selection-evidence";
 import { buildToOdds, combinedOdds } from "./workbench";
 import type { BookSport, TicketPick } from "./types";
@@ -112,7 +111,6 @@ export type BuildRequestValidation = { ok: true; value: BuildSlipRequest } | Bui
 export const RISK_POLICIES = SELECTION_POLICIES;
 export type BuildDependencies = {
   discover: typeof listUpcomingPicks;
-  review?: typeof reviewBuildMarkets;
   evidence?: typeof researchSelectionEvidence;
   refresh?: typeof refreshSelections;
   record?: () => Promise<RecordSnapshot>;
@@ -304,34 +302,7 @@ export async function buildSlip(
   analysis.researched = new Set(
     historical.filter((p) => assessments.has(p.id)).map((p) => p.sporty?.eventId),
   ).size;
-  let reviewed = historical.filter((p) => assessments.has(p.id));
-  // Optional external review can reject evidence-qualified options, never admit unsupported ones.
-  if (dependencies.review && reviewed.length) {
-    try {
-      const review = await within(
-        dependencies.review(reviewed, {
-          sport: request.sport,
-          risk: request.risk,
-          minModelScore: policy.minModelScore,
-          minOdds: policy.minOdds,
-          maxOdds: policy.maxOdds,
-        }),
-        dependencies.analysisTimeoutMs ?? 38_000,
-      );
-      if (!review || review.fallbackUsed)
-        return fail(
-          "Market review unavailable. No heuristic fallback was accepted.",
-          "analysis_failed",
-        );
-      const allowed = new Set(
-        review.reviews.filter((r) => r.score >= policy.minModelScore).map((r) => r.pickId),
-      );
-      analysis.rejected.notReviewedByAI = reviewed.filter((p) => !allowed.has(p.id)).length;
-      reviewed = reviewed.filter((p) => allowed.has(p.id));
-    } catch {
-      return fail("Market review failed. No slip was built.", "analysis_failed");
-    }
-  }
+  const reviewed = historical.filter((p) => assessments.has(p.id));
   const scored: BuildSelection[] = reviewed
     .map((pick): BuildSelection => {
       const a = assessments.get(pick.id)!;

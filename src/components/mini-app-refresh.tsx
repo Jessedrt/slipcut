@@ -262,7 +262,7 @@ function SelectionCard({
               <p className="mt-2 text-[11px] font-bold text-[#765039]">
                 {pick.analysisBasis === "market_only"
                   ? "Live market · historical statistics unavailable"
-                  : `Statistical analysis · ${pick.confidenceLabel}`}
+                  : `Mathematical analysis · ${pick.confidenceLabel}`}
               </p>
               <p className="mt-1 text-[11px] font-medium text-[#7a6758]">
                 {pick.trackRecord.status === "qualified"
@@ -820,7 +820,7 @@ export function MiniAppRefresh() {
                   <p className="text-[10px] font-bold uppercase tracking-widest text-[#8f694e]">
                     New slip
                   </p>
-                  <h2 className="mt-1 text-lg font-extrabold">Build from live markets</h2>
+                  <h2 className="mt-1 text-lg font-extrabold">Build with mathematics</h2>
                 </div>
                 <Sparkles className="h-5 w-5 text-[#7a4f33]" />
               </div>
@@ -921,9 +921,9 @@ export function MiniAppRefresh() {
                   />
                   <p className="mt-2 text-[11px] leading-4 text-[#7f6b5b]">
                     {risk === "conservative"
-                      ? "Conservative: 1.20–1.40 per selection · statistics used when available · limited-analysis picks otherwise."
+                      ? "Conservative: 1.20–1.40 per selection · mathematical scoring from available results · no Parse or AI."
                       : risk === "balanced"
-                        ? "Balanced: 1.40–1.80 per selection · statistics used when available · limited-analysis picks otherwise."
+                        ? "Balanced: 1.40–1.80 per selection · mathematical scoring from available results · no Parse or AI."
                         : "Aggressive: 1.16–2.75 odds · model score 45+ · wider qualifying price range and higher variance."}
                     {" "}It is not a safety guarantee.
                   </p>
