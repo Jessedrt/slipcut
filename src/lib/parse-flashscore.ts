@@ -40,7 +40,13 @@ export function matchFlashscoreFixture(pick: TicketPick, fixtures: Fixture[]): F
       /^(euroleague|eurocup|fiba europe cup)$/.test(expected) &&
       providerCountryName(pick.country ?? "") === "international" &&
       providerCountryName(f.competition?.country ?? "") === "europe";
-    return !pick.country || internationalEurope || providerCountryName(pick.country) === providerCountryName(f.competition?.country ?? "");
+    const continentalFootball = pick.sport === "football" &&
+      ((providerCountryName(pick.country ?? "") === "international clubs" &&
+        providerCountryName(f.competition?.country ?? "") === "europe" && /^uefa /.test(expected)) ||
+       (providerCountryName(pick.country ?? "") === "international" &&
+        providerCountryName(f.competition?.country ?? "") === "africa" &&
+        expected === "africa cup of nations qualification"));
+    return !pick.country || internationalEurope || continentalFootball || providerCountryName(pick.country) === providerCountryName(f.competition?.country ?? "");
   });
   return matches.length === 1 ? matches[0] : undefined;
 }

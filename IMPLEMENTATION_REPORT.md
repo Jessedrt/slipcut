@@ -231,3 +231,38 @@ Regressions cover a blocked history request not blocking another fixture, shared
 daily requests, the requested 50/45 score floors, stricter Conservative scoring,
 and whole-number pushes staying non-hits. Verification and production qualification
 are rechecked for this policy update before completion.
+
+
+## Football coverage and repeated ticket options — September 30
+
+Production Mini App logs showed 50 Today fixtures and 11,686 market options, but
+only 2 of 39 price-eligible fixtures had history. This was upstream provider
+identity coverage, not absence of SportyBet games. Exact team aliases observed in
+those responses now match Peru, English domestic and Israeli/Spanish fixtures.
+England Amateur maps to England; International Clubs maps to Europe only for
+UEFA competitions, and International/Africa only for the named African national
+qualification competition. Both teams, competition, prematch status, kickoff and
+unambiguous match identity are still required. Gender/youth variants stay separate.
+
+The basketball raw coefficient-of-variation limit was also incorrectly applied to
+small integer goal counts. Football score consistency now uses relative standard
+error (CV / sqrt(sample)); basketball and corners/cards keep their existing raw
+variation check. Exact-line hits, score floors, samples, robust median/trimmed mean,
+outlier and venue-split checks remain. Conservative remains stricter than Balanced;
+their inclusive 1.20–1.40 and 1.40–1.80 price bands are unchanged.
+
+The builder previously broke score ties by cheapest odds and first provider option.
+Engine cards repeatedly sliced the same prefix. Central ranking now compares all
+qualified alternatives and breaks equal scores by less-used canonical market/line;
+it selects one option per fixture. Engine cards additionally prefer equally scored
+options unused on earlier cards. It never demotes a stronger score for variety,
+uses no randomness or family quotas, and allows genuine strongest markets to repeat.
+The obsolete football score-Over-only engine classifier was removed. Engine cache
+version changed so prior tickets are not served under the updated ranking policy.
+Booking-code generation and UI design were not changed.
+
+Added regressions for live-observed football aliases, retained identity checks,
+ordinary goal-count dispersion versus outlier-driven history, complete builder
+option comparison, same-fixture deduplication, equal-score market/card diversification
+and broader football engine classification. Complete tests, typecheck and build pass;
+live production verification follows deployment.

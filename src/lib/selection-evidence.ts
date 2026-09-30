@@ -192,11 +192,17 @@ export function assessEvidence(
   }
   const stats = series.map((v) => summarize(v, line));
   const numerical = !["btts", "winner", "double_chance"].includes(c.family);
+  // Low discrete goal counts naturally have a much larger coefficient of
+  // variation than basketball points. Use relative standard error for football
+  // score evidence; keep raw point/count dispersion for other sports/metrics.
+  const consistency = (s: SeriesSummary) =>
+    pick.sport === "football" && metricFor(pick) === "score"
+      ? s.variation / Math.sqrt(s.sample) : s.variation;
   if (
     stats.some(
       (s) =>
         s.hitRate < p.minHitRate ||
-        (numerical && (s.median <= line || s.trimmedMean <= line || s.variation > p.maxVariation)),
+        (numerical && (s.median <= line || s.trimmedMean <= line || consistency(s) > p.maxVariation)),
     )
   )
     return null;
@@ -213,7 +219,7 @@ export function assessEvidence(
     return null;
   const score = Math.round(
     100 * Math.min(...stats.map((s) => s.hitRate)) -
-      (numerical ? 10 * Math.max(...stats.map((s) => s.variation)) : 0),
+      (numerical ? 10 * Math.max(...stats.map(consistency)) : 0),
   );
   if (score < p.minModelScore) return null;
   return {

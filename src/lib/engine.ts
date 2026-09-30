@@ -1,18 +1,18 @@
+import { rankDistinctSelections } from "./rank-selections";
 import { buildSlip } from "./build-slip";
 import { mintReviewedSlip } from "./book-slip";
-import { automaticMarketAllowed, riskOddsAllowed } from "./selection-policy";
+import { automaticMarketAllowed, canonicalMarket, riskOddsAllowed } from "./selection-policy";
 import { accuracyFilter, loadAccuracy } from "./accuracy";
-import { marketFamily, listUpcomingPicks, sportyOf, type CookWindow } from "./sportybet";
+import { listUpcomingPicks, sportyOf, type CookWindow } from "./sportybet";
 import { getSetting, listChats, recordSlip, setSetting, studyCode } from "./study";
 import { combinedOdds, formatOdds, uniqueEvents } from "./workbench";
 import type { BookSport, TicketPick } from "./types";
 
 /** Five cards, short to long. A longer card is a longer shot. */
 export const ENGINE_LADDER = [2, 3, 5, 8, 12] as const;
-const ENGINE_POLICY_VERSION = "evidence-conservative-v4";
+const ENGINE_POLICY_VERSION = "evidence-football-diversity-v5";
 
-export type EngineMarketKind = "first_half_over" | "team_over" | "full_time_over";
-const ENGINE_MARKET_ORDER: EngineMarketKind[] = ["first_half_over", "team_over", "full_time_over"];
+export type EngineMarketKind = "first_half_over" | "second_half_over" | "quarter_over" | "team_over" | "full_time_over" | "btts" | "draw" | "home_or_away" | "corners" | "cards" | "supported_single";
 
 export type EngineLeg = {
   home: string;
@@ -108,30 +108,28 @@ export async function gradeEngineDay(
 }
 
 export function engineMarketKind(pick: TicketPick): EngineMarketKind | null {
-  if (!/\bover\b/i.test(pick.selection ?? "")) return null;
-
-  const id = pick.sporty?.marketId ?? "";
-  const family = marketFamily(id, pick.market);
-
-  if (family === "ou1h") return "first_half_over";
-  if (family === "teamou") return "team_over";
-
-  // Only the main full-game totals are allowed here. This deliberately keeps
-  // 2nd-half totals, handicaps, winners, BTTS and other derivative markets out.
-  if (family === "ou" && (id === "18" || id === "225")) {
+  if (!automaticMarketAllowed(pick)) return null;
+  const c = canonicalMarket(pick);
+  if (c.family === "team_total") return "team_over";
+  if (c.family === "total") {
+    if (c.period === "first_half") return "first_half_over";
+    if (c.period === "second_half") return "second_half_over";
+    if (c.period.startsWith("q")) return "quarter_over";
     return "full_time_over";
   }
-
-  return null;
+  if (c.family === "btts" || c.family === "corners" || c.family === "cards") return c.family;
+  if (c.family === "winner" && c.outcome === "draw") return "draw";
+  if (c.family === "double_chance" && c.outcome === "12") return "home_or_away";
+  return "supported_single";
 }
 
 export function enginePriceAllowed(pick: TicketPick): boolean {
   return automaticMarketAllowed(pick) && riskOddsAllowed(pick.odds, "conservative");
 }
 
-export function selectDiversifiedEngineCard(ranked: TicketPick[], n: number): TicketPick[] {
+export function selectDiversifiedEngineCard(ranked: TicketPick[], n: number, priorUses: ReadonlyMap<string, number> = new Map()): TicketPick[] {
   // Input has already been evidence-ranked: preserve merit, not artificial variety.
-  return uniqueEvents(ranked.filter((p) => automaticMarketAllowed(p))).picks.slice(
+  return rankDistinctSelections(ranked.filter((p) => automaticMarketAllowed(p)), priorUses).slice(
     0,
     Math.max(0, n),
   );
@@ -195,17 +193,19 @@ export async function buildEngineCards(
   const ranked = await poolForEngine(sport);
   if ("error" in ranked) return ranked;
   const cards: EngineCard[] = [];
+  const priorUses = new Map<string, number>();
   for (const n of ENGINE_LADDER) {
     // Cards are separate products, so a strong event may appear on more than
     // one ladder card. Requiring disjoint cards needed 30 unique events and was
     // the main reason the daily engine often issued nothing.
-    const take = selectDiversifiedEngineCard(ranked, n);
+    const take = selectDiversifiedEngineCard(ranked, n, priorUses);
     if (take.length < n) continue;
     const selections = sportyOf(take);
     if (selections.length !== take.length) continue;
     const minted = await mintReviewedSlip(take, "ng", undefined, { acceptOddsChanges: false });
     if (!minted.ok) continue;
     await recordSlip(minted.shareCode, take);
+    for (const pick of take) priorUses.set(pick.id, (priorUses.get(pick.id) ?? 0) + 1);
     await rememberEngineEventIds(
       sport,
       take.map((p) => p.sporty?.eventId).filter((id): id is string => Boolean(id)),
@@ -229,7 +229,7 @@ export async function buildEngineCards(
   if (!cards.length) {
     return {
       error:
-        "Engine found picks, but not enough market-family diversity to issue a non-repetitive card.",
+        "Qualified engine selections could not be booked at their analysed prices.",
     };
   }
   return cards;

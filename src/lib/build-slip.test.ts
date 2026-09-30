@@ -134,7 +134,7 @@ describe("risk boundaries through backend build", () => {
     }
   });
   it("Balanced accepts supported moderate variance rejected by Conservative", () => {
-    const p = pick("a", 1.4);
+    const p = pick("a", 1.4, { sport: "basketball" });
     const e = history(p, 10, [6, 6, 6, 6, 6, 6, 6, 6, 12, 12]);
     assert.equal(assessEvidence(p, e, "conservative"), null);
     assert.ok(assessEvidence(p, e, "balanced"));
@@ -642,4 +642,30 @@ describe("structured score-source contracts", () => {
     assert.equal(r.ok, false);
     assert.equal(mint, false);
   });
+});
+
+describe("football count consistency", () => {
+  it("accepts ordinary low-count goal dispersion without applying a basketball point-CV threshold", () => {
+    const p = pick("goals", 1.3, { market: "Total Goals", selection: "Over 1.5",
+      sporty: { eventId: "goals", marketId: "18", outcomeId: "over", specifier: "total=1.5" } });
+    const e = history(p, 10, [3, 2, 2, 0, 3, 4, 3, 5, 0, 4]);
+    assert.ok(summarize([3, 2, 2, 0, 3, 4, 3, 5, 0, 4], 1.5).variation > 0.25);
+    assert.ok(assessEvidence(p, e, "conservative"));
+    assert.equal(assessEvidence(p, history(p, 8), "conservative"), null);
+    assert.equal(assessEvidence(p, history(p, 10, [0, 0, 0, 0, 0, 0, 0, 0, 8, 9]), "balanced"), null);
+  });
+});
+
+it("actual builder compares every qualified fixture option and diversifies only equal scores", async () => {
+  const a = pick("equal-a", 1.3), b = pick("equal-b", 1.3);
+  const alternate = { ...b, id: "b-btts", market: "Both Teams To Score", selection: "Yes",
+    sporty: { eventId: "equal-b", marketId: "29", outcomeId: "yes", specifier: "" } };
+  const r = await buildSlip({ ...base, risk: "conservative" }, deps([a, b, alternate]));
+  assert.ok(r.ok);
+  if (r.ok) {
+    assert.equal(r.actualGames, 2);
+    assert.deepEqual(r.selections.map(p => canonicalMarket(p).family).sort(), ["btts", "total"]);
+    assert.equal(new Set(r.selections.map(p => p.sporty?.eventId)).size, 2);
+    assert.equal(r.analysis.marketOptionsReviewed, 3);
+  }
 });

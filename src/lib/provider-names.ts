@@ -36,11 +36,23 @@ const BASKETBALL_ALIASES: Record<string, string> = {
   "bc roma spqr": "bc roma",
   "sydney kings": "sydney",
 };
+// Exact pairs observed in live SportyBet/FlashScore fixture responses.
+const FOOTBALL_ALIASES: Record<string, string> = {
+  "los chankas cyc": "los chankas",
+  "frome town": "frome",
+  "taunton town": "taunton",
+  "eastleigh": "eastleigh",
+  "hapoel nof hagalil": "nof hagalil",
+  "zeirey tamra": "tzeirey tamra",
+  "sestao river": "sestao",
+  "hapoel ironi arraba": "araba",
+  "hapoel migdal haemeq": "h migdal haemek",
+};
 export function providerTeamName(value: string, sport: string): string {
   const name = normalizeName(value);
-  return sport === "basketball" ? BASKETBALL_ALIASES[name] ?? name : name;
+  return (sport === "basketball" ? BASKETBALL_ALIASES : sport === "football" ? FOOTBALL_ALIASES : {})[name] ?? name;
 }
 export function providerCountryName(value: string): string {
   const name = normalizeName(value);
-  return name === "czech republic" ? "czechia" : name;
+  return name === "czech republic" ? "czechia" : name === "england amateur" ? "england" : name;
 }

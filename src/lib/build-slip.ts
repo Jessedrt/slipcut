@@ -1,3 +1,4 @@
+import { rankDistinctSelections } from "./rank-selections";
 import type { reviewBuildMarkets } from "./build-ai";
 import {
   evaluateRecord,
@@ -21,7 +22,7 @@ import {
   type Evidence,
   type EvidenceAssessment,
 } from "./selection-evidence";
-import { buildToOdds, combinedOdds, uniqueEvents } from "./workbench";
+import { buildToOdds, combinedOdds } from "./workbench";
 import type { BookSport, TicketPick } from "./types";
 import { normalizeName } from "./bookmakers/normalize";
 export type BuildSport = Extract<BookSport, "football" | "basketball">;
@@ -361,7 +362,7 @@ export async function buildSlip(
       };
     })
     .sort((a, b) => b.modelScore - a.modelScore || a.odds! - b.odds!);
-  const distinct = uniqueEvents(scored).picks;
+  const distinct = rankDistinctSelections(scored);
   analysis.rejected.duplicateEvents = scored.length - distinct.length;
   analysis.qualifiedGames = distinct.length;
   if (!distinct.length) {
