@@ -127,6 +127,7 @@ export async function researchFlashscoreEvidence(picks: TicketPick[], config: Co
   }
   const day = (time: number) => Math.floor(time / 86400_000);
   const daily = new Map<string, Fixture[]>(), previews = new Map<string, Preview | null>();
+  const unmatched = new Map<string, unknown>();
   for (const pick of picks) {
     if (!pick.kickoff || !["football", "basketball"].includes(pick.sport)) continue;
     // Only documented final-score scopes consume Parse credits; ESPN handles periods.
@@ -140,7 +141,20 @@ export async function researchFlashscoreEvidence(picks: TicketPick[], config: Co
       daily.set(key, data?.sport === pick.sport && Array.isArray(data.matches) ? data.matches : []);
     }
     const fixture = matchFlashscoreFixture(pick, daily.get(key)!);
-    if (!fixture?.match_id) continue;
+    if (!fixture?.match_id) {
+      const event = pick.sporty?.eventId ?? `${pick.home}:${pick.away}`;
+      if (unmatched.size < 5 && !unmatched.has(event)) {
+        const candidates = daily.get(key)!.filter((f) =>
+          Math.abs(Date.parse(f.start_time ?? "") - pick.kickoff!) <= 15 * 60_000 ||
+          [f.home_team?.name, f.away_team?.name].some((name) =>
+            name && [pick.home, pick.away].some((team) => normalizeName(name) === normalizeName(team))),
+        ).slice(0, 4).map((f) => ({ home: f.home_team?.name, away: f.away_team?.name,
+          league: f.competition?.name, country: f.competition?.country, kickoff: f.start_time, status: f.status }));
+        unmatched.set(event, { expected: { home: pick.home, away: pick.away, league: pick.league,
+          country: pick.country, kickoff: new Date(pick.kickoff).toISOString() }, candidates });
+      }
+      continue;
+    }
     if (!previews.has(fixture.match_id)) {
       const preview = await call("get_match_preview", { match_id: fixture.match_id });
       previews.set(fixture.match_id, preview?.match_id === fixture.match_id ? preview : null);
@@ -152,6 +166,8 @@ export async function researchFlashscoreEvidence(picks: TicketPick[], config: Co
     }
   }
   console.info("[flashscore.parse]", JSON.stringify({ configured: true, calls, succeeded,
-    cacheHits, mappedFixtures: previews.size, evidencePicks: result.size, failures }));
+    cacheHits, mappedFixtures: previews.size, evidencePicks: result.size, failures,
+    fixtureCounts: Object.fromEntries([...daily].map(([key, fixtures]) => [key, fixtures.length])),
+    unmatched: [...unmatched.values()] }));
   return result;
 }

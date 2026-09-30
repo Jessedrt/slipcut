@@ -38,6 +38,7 @@ export default defineHandler(async (event) => {
       selected: result.ok ? result.actualGames : 0,
       targetReached: result.ok ? result.targetReached : null,
       durationMs: Date.now() - startedAt,
+      analysis: result.analysis,
     }),
   );
   const status = result.ok
