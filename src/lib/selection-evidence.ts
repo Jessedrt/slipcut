@@ -220,12 +220,10 @@ export function assessEvidence(
   )
     return null;
   const smallestSample = Math.min(...stats.map((s) => s.sample));
-  const samplePenalty = Math.max(0, 5 - smallestSample) * 10;
-  const score = Math.round(
-    100 * Math.min(...stats.map((s) => s.hitRate)) -
-      (numerical ? 10 * Math.max(...stats.map(consistency)) : 0) -
-      samplePenalty,
-  );
+  // The configured 50/45 analysis floors are the actual score floors.
+  // Consistency remains a separate eligibility rule above; do not secretly
+  // raise the requested score threshold with extra sample/variance penalties.
+  const score = Math.round(100 * Math.min(...stats.map((s) => s.hitRate)));
   if (score < p.minModelScore) return null;
   return {
     score,
@@ -240,7 +238,7 @@ export function assessEvidence(
     warnings: [
       ...(evidence.warnings ?? []),
       ...(smallestSample < 5
-        ? [`Limited historical sample: only ${smallestSample} relevant result${smallestSample === 1 ? "" : "s"} in the smallest series; the analysis score was penalized accordingly.`]
+        ? [`Limited historical sample: only ${smallestSample} relevant result${smallestSample === 1 ? "" : "s"} in the smallest series.`]
         : []),
     ],
   };
