@@ -39,6 +39,12 @@ export type EvidenceAssessment = {
   sources: string[];
   warnings: string[];
 };
+export function withoutHighOutliers(s: SeriesSummary): number[] {
+  const deviations = s.values.map((v) => Math.abs(v - s.median)).sort((a, b) => a - b);
+  const mad = (deviations[Math.floor((s.sample - 1) / 2)]! + deviations[Math.floor(s.sample / 2)]!) / 2;
+  const highCutoff = s.median + Math.max(3, 3 * 1.4826 * mad);
+  return s.values.filter((v) => v <= highCutoff);
+}
 export function summarize(values: number[], line: number): SeriesSummary {
   const sorted = [...values].sort((a, b) => a - b);
   const sample = values.length;
@@ -199,10 +205,7 @@ export function assessEvidence(
   if (
     numerical &&
     stats.some((s) => {
-      const deviations = s.values.map((v) => Math.abs(v - s.median)).sort((a, b) => a - b);
-      const mad = (deviations[Math.floor((s.sample - 1) / 2)]! + deviations[Math.floor(s.sample / 2)]!) / 2;
-      const highCutoff = s.median + Math.max(3, 3 * 1.4826 * mad);
-      const robust = s.values.filter((v) => v <= highCutoff);
+      const robust = withoutHighOutliers(s);
       if (robust.length === s.sample) return false;
       return robust.filter((v) => v > line).length / robust.length < p.minHitRate;
     })

@@ -6,7 +6,7 @@ import {
   type BuildDependencies,
   type BuildSlipRequest,
 } from "./build-slip";
-import { canonicalMarket, automaticMarketAllowed, riskOddsAllowed } from "./selection-policy";
+import { canonicalMarket, automaticMarketAllowed, riskOddsAllowed, SELECTION_POLICIES } from "./selection-policy";
 import { assessEvidence, summarize, type Evidence, type HistoryRow } from "./selection-evidence";
 import { mintReviewedSlip } from "./book-slip";
 import { clearSportyCacheForTests, listUpcomingPicks } from "./sportybet";
@@ -231,6 +231,17 @@ describe("canonical market eligibility", () => {
       ));
 });
 describe("exact scope and robust statistics", () => {
+  it("uses the requested minimum analysis scores, with stronger Conservative evidence", () => {
+    assert.equal(SELECTION_POLICIES.conservative.minModelScore, 50);
+    assert.equal(SELECTION_POLICIES.balanced.minModelScore, 45);
+    const p = pick("scores", 1.4, { sport: "basketball", market: "Total (incl. overtime) 162.5", selection: "Over 162.5",
+      sporty: { eventId: "scores", marketId: "225", outcomeId: "over", specifier: "total=162.5" } });
+    const minimum = history(p, 10, [162, 162, 162, 162, 162, 164, 164, 164, 164, 164]);
+    assert.equal(assessEvidence(p, minimum, "conservative")?.score, 50);
+    const moderate = history(p, 10, [140, 140, 140, 140, 140, 190, 190, 190, 190, 190]);
+    assert.equal(assessEvidence(p, moderate, "balanced")?.score, 48);
+    assert.equal(assessEvidence(p, moderate, "conservative"), null);
+  });
   const team = pick("b", 1.6, {
     sport: "basketball",
     market: "Home team total 82.5",
@@ -276,15 +287,15 @@ describe("exact scope and robust statistics", () => {
     assert.ok(assessEvidence(p, conservative, "conservative"));
     const balanced = history(p, 10, [159, 160, 161, 163, 164, 165, 166, 167, 168, 169]);
     assert.ok(assessEvidence(p, balanced, "balanced"));
-    assert.equal(assessEvidence(p, balanced, "conservative"), null);
+    assert.ok(assessEvidence(p, balanced, "conservative"));
   });
   it("rejects an otherwise qualifying Over when detected high outliers are carrying its hit rate", () => {
     const p = pick("inflated", 1.3, { sport: "basketball", market: "Total (incl. overtime) 162.5",
       selection: "Over 162.5", sporty: { eventId: "inflated", marketId: "225", outcomeId: "over", specifier: "total=162.5" } });
-    const values = [159, 160, 163, 164, 165, 166, 167, 168, 250, 260];
-    assert.equal(summarize(values, 162.5).hitRate, 0.8);
+    const values = [160, 161, 161, 162, 162, 164, 165, 166, 250, 260];
+    assert.equal(summarize(values, 162.5).hitRate, 0.5);
     assert.equal(summarize(values, 162.5).outliers, 2);
-    assert.equal(assessEvidence(p, history(p, 10, values), "conservative"), null);
+    assert.equal(assessEvidence(p, history(p, 10, values), "balanced"), null);
   });
   for (const period of ["1st Half", "2nd Half", "Q1", "Q2", "Q3", "Q4"])
     it(`${period} rejects full game evidence`, () => {

@@ -1,6 +1,6 @@
 import { listDailyBasketballOverMarkets } from "./sportybet";
 import { canonicalMarket, riskOddsAllowed, SELECTION_POLICIES } from "./selection-policy";
-import { assessEvidence, researchSelectionEvidence, summarize } from "./selection-evidence";
+import { assessEvidence, researchSelectionEvidence, summarize, withoutHighOutliers } from "./selection-evidence";
 import { uniqueEvents } from "./workbench";
 import type { TicketPick } from "./types";
 export type DailyOversSport = "basketball";
@@ -41,7 +41,7 @@ export function evaluateDailyOverPick(
   )
     return null;
   const s = summarize(totals, c.line);
-  const robust = [...totals].sort((a, b) => a - b).slice(0, -2);
+  const robust = withoutHighOutliers(s);
   if (
     s.hitRate < p.minHitRate ||
     s.median <= c.line ||

@@ -134,9 +134,22 @@ export async function researchFlashscoreEvidence(picks: TicketPick[], config: Co
     }
   }
   const day = (time: number) => Math.floor(time / 86400_000);
-  const daily = new Map<string, Fixture[]>(), previews = new Map<string, Preview | null>();
-  const unmatched = new Map<string, unknown>();
+  const daily = new Map<string, Fixture[]>(), previews = new Map<string, Promise<Preview | null>>();
+  const dailyJobs = new Map<string, Promise<void>>();
+  const groups = new Map<string, TicketPick[]>();
   for (const pick of picks) {
+    const c = canonicalMarket(pick);
+    if (!pick.kickoff || c.period !== "match" || !["total", "team_total", "btts", "winner", "double_chance"].includes(c.family)) continue;
+    const key = `${pick.sport}:${pick.sporty?.eventId ?? `${pick.home}:${pick.away}`}:${pick.kickoff}`;
+    groups.set(key, [...(groups.get(key) ?? []), pick]);
+  }
+  const jobs = [...groups.values()];
+  let cursor = 0;
+  const unmatched = new Map<string, unknown>();
+  await Promise.all(Array.from({ length: Math.min(3, jobs.length) }, async () => {
+  while (cursor < jobs.length) {
+    const options = jobs[cursor++]!;
+    const pick = options[0]!;
     if (!pick.kickoff || !["football", "basketball"].includes(pick.sport)) continue;
     // Only documented final-score scopes consume Parse credits; ESPN handles periods.
     const c = canonicalMarket(pick);
@@ -144,10 +157,11 @@ export async function researchFlashscoreEvidence(picks: TicketPick[], config: Co
     const offset = day(pick.kickoff) - day(now);
     if (offset < 0 || offset > 7) continue;
     const key = `${pick.sport}:${offset}`;
-    if (!daily.has(key)) {
+    if (!dailyJobs.has(key)) dailyJobs.set(key, (async () => {
       const data = await call("get_daily_fixtures", { sport: pick.sport, day_offset: offset, exclude_youth: true });
       daily.set(key, data?.sport === pick.sport && Array.isArray(data.matches) ? data.matches : []);
-    }
+    })());
+    await dailyJobs.get(key);
     const fixture = matchFlashscoreFixture(pick, daily.get(key)!);
     if (!fixture?.match_id) {
       const event = pick.sporty?.eventId ?? `${pick.home}:${pick.away}`;
@@ -170,15 +184,20 @@ export async function researchFlashscoreEvidence(picks: TicketPick[], config: Co
       continue;
     }
     if (!previews.has(fixture.match_id)) {
-      const preview = await call("get_match_preview", { match_id: fixture.match_id });
-      previews.set(fixture.match_id, preview?.match_id === fixture.match_id ? preview : null);
+      previews.set(fixture.match_id, (async () => {
+        const preview = await call("get_match_preview", { match_id: fixture.match_id });
+        return preview?.match_id === fixture.match_id ? preview : null;
+      })());
     }
-    const preview = previews.get(fixture.match_id);
+    const preview = await previews.get(fixture.match_id);
     if (preview) {
-      const evidence = evidenceFromFlashscore(pick, preview, now);
-      if (evidence.rows.length) result.set(pick.id, evidence);
+      for (const option of options) {
+        const evidence = evidenceFromFlashscore(option, preview, now);
+        if (evidence.rows.length) result.set(option.id, evidence);
+      }
     }
   }
+  }));
   console.info("[flashscore.parse]", JSON.stringify({ configured: true, calls, succeeded,
     cacheHits, mappedFixtures: previews.size, evidencePicks: result.size, failures,
     fixtureCounts: Object.fromEntries([...daily].map(([key, fixtures]) => [key, fixtures.length])),

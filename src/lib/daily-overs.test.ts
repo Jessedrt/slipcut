@@ -48,8 +48,10 @@ describe("basketball daily H2H over evaluator", () => {
       overPick(160, 1.38),
       [160, 168, 172, 170, 170, 160, 168, 172, 170, 170],
     );
-    // Removing two largest values leaves only 6/8 hits: borderline Conservative evidence.
-    assert.equal(result, null);
+    assert.match(result!.summary, /^8\/10 exceeded/);
+    assert.equal(result?.pushes, 2);
+    assert.equal(result?.hitRate, 0.8);
+    assert.equal(evaluateDailyOverPick(overPick(160, 1.38), Array(10).fill(160)), null);
   });
 
   it("requires at least ten historical totals", () => {

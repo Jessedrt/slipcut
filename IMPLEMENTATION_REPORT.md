@@ -203,3 +203,31 @@ identity aliases, correct historical score ownership, missing/partial history an
 outlier handling. Full suite: 161 script + 217 backend tests = 378 passing.
 Typecheck and build passed. These checks alone do not verify production slip
 qualification; that requires the subsequent live build check.
+
+## Updated minimum scores and research scheduling
+
+The user clarified that the intended minimum is 45–50, superseding the numeric
+80%/70% floors previously chosen during implementation. Conservative now uses
+minimum analysis score 50 and minimum historical hit rate 50%; Balanced uses
+45/45%. Aggressive uses 45/45% with its existing wider price/variance policy.
+Scores remain uncalibrated rankings, not asserted win probabilities. Exact
+historical counts are still calculated. Conservative retains ten-result samples
+and lower permitted variation versus Balanced's eight and moderate variation.
+Odds remain Conservative 1.20–1.40 and Balanced 1.40–1.80 inclusive. Scoped data,
+median/trimmed-mean checks, splits, outlier checks, validation and exclusions
+remain enforced. UI descriptions now show minimum scores rather than the old
+80%/70% language; design is unchanged.
+
+A production check before this policy clarification successfully qualified one
+Conservative selection at 1.22, while engine cards still required two events.
+It showed 11 mapped fixtures but a slow serial preview prevented some matched
+fixtures from receiving history before the deadline. Research now groups market
+options by fixture, shares pending daily/preview requests and uses three concurrent
+workers within the same 12-call budget and 25-second deadline. It does not choose
+markets randomly or increase the credit cap. Success notices identify incomplete
+history coverage, rather than implying every discovered fixture was fully assessed.
+
+Regressions cover a blocked history request not blocking another fixture, shared
+daily requests, the requested 50/45 score floors, stricter Conservative scoring,
+and whole-number pushes staying non-hits. Verification and production qualification
+are rechecked for this policy update before completion.

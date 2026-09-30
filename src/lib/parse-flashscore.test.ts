@@ -94,6 +94,30 @@ test("server adapter authenticates, shares fixture history across lines, preserv
   await researchFlashscoreEvidence([pick], options);
   assert.deepEqual(calls, ["get_daily_fixtures", "get_match_preview"]);
 });
+test("one slow history request does not block another fixture or duplicate daily calls", { timeout: 2000 }, async () => {
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => { release = resolve; });
+  const other: TicketPick = { ...pick, id: "two", home: "Home Two", away: "Away Two", sporty: { ...pick.sporty!, eventId: "two" } };
+  let dailyCalls = 0, historyCalls = 0;
+  const fetcher: typeof fetch = async (url, init) => {
+    if (String(url).endsWith("get_daily_fixtures")) {
+      dailyCalls++;
+      return Response.json({ status: "success", data: { sport: "football", matches: [fixture,
+        { ...fixture, match_id: "two", home_team: { name: other.home }, away_team: { name: other.away } }] } });
+    }
+    historyCalls++;
+    const id = JSON.parse(String(init?.body)).match_id;
+    if (id === "flash") await blocked;
+    else release();
+    return Response.json({ status: "success", data: id === "flash" ? preview : { ...preview, match_id: "two", home_team: other.home,
+      away_team: other.away, home_form: history.map((r) => ({ ...r, home_team: r.home_team === "Arsenal" ? other.home : r.home_team,
+        away_team: r.away_team === "Chelsea" ? other.away : r.away_team })), away_form: [] } });
+  };
+  const r = await researchFlashscoreEvidence([pick, other, { ...pick, id: "alternate" }], { apiKey: "test", fetcher, now });
+  assert.equal(r.size, 3);
+  assert.equal(dailyCalls, 1);
+  assert.equal(historyCalls, 2);
+});
 test("no key, exhausted budget, wrong sport, provider rejection and network errors fail closed", async () => {
   let calls = 0;
   const fetcher: typeof fetch = async () => { calls++; throw new Error("network failed"); };
