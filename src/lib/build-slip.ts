@@ -1,3 +1,4 @@
+import type { HistoryEvidenceMap } from "./parse-flashscore";
 import { rankDistinctSelections } from "./rank-selections";
 import type { reviewBuildMarkets } from "./build-ai";
 import {
@@ -60,6 +61,7 @@ export type BuildSelection = TicketPick & {
 };
 
 export type AnalysisDiagnostics = {
+  sourceFailures?: string[];
   historyCoverage?: { eligibleFixtures: number; fixturesWithHistory: number; marketsWithHistory: number };
   discovered: number;
   eligibleBeforeScoring: number;
@@ -277,6 +279,7 @@ export async function buildSlip(
   }
   if (!evidence)
     return fail("Historical research took too long. No slip was built.", "analysis_failed");
+  analysis.sourceFailures = (evidence as HistoryEvidenceMap).sourceFailures ?? [];
   analysis.marketOptionsReviewed = historical.length;
   const historyPicks = historical.filter((pick) => {
     const c = canonicalMarket(pick);
@@ -367,6 +370,8 @@ export async function buildSlip(
   analysis.qualifiedGames = distinct.length;
   if (!distinct.length) {
     const coverage = analysis.historyCoverage;
+    if (coverage.fixturesWithHistory === 0 && analysis.sourceFailures.length)
+      return fail(`Historical statistics unavailable: ${[...new Set(analysis.sourceFailures)].join("; ")}. SportyBet supplied ${coverage.eligibleFixtures} eligible fixtures, but their history could not be verified.`, "analysis_failed");
     if (coverage.fixturesWithHistory < coverage.eligibleFixtures)
       return fail(
         `Historical score coverage is incomplete: results matched ${coverage.fixturesWithHistory} of ${coverage.eligibleFixtures} fixtures. No available selection could be verified for ${policy.label}.`,

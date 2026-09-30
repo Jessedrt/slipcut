@@ -1,5 +1,5 @@
 import { researchEspnEvidence } from "./espn-history";
-import { researchFlashscoreEvidence } from "./parse-flashscore";
+import { researchFlashscoreEvidence, type HistoryEvidenceMap } from "./parse-flashscore";
 import { canonicalMarket, SELECTION_POLICIES, type SelectionRisk } from "./selection-policy";
 import { normalizeName } from "./bookmakers/normalize";
 import { refreshKeys } from "./keys";
@@ -261,7 +261,8 @@ export async function researchSelectionEvidence(
   const [espn, flashscore] = await Promise.allSettled([
     researchEspnEvidence(picks), researchFlashscoreEvidence(picks),
   ]);
-  const result = espn.status === "fulfilled" ? espn.value : new Map<string, Evidence>();
+  const result: HistoryEvidenceMap = espn.status === "fulfilled" ? espn.value : new Map<string, Evidence>();
+  result.sourceFailures = flashscore.status === "fulfilled" ? flashscore.value.sourceFailures : ["FlashScore history service failed"];
   if (flashscore.status === "fulfilled") {
     for (const pick of picks) {
       const candidate = flashscore.value.get(pick.id);

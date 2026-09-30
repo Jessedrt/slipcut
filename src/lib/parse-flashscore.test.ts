@@ -166,3 +166,73 @@ test("maps verified production basketball naming variants without fuzzy matching
     assert.equal(matchFlashscoreFixture(p, [f]), f);
   }
 });
+
+test("history survives a process-cache reset without another paid provider request", async () => {
+  const saved = new Map<string, string>();
+  const store = { get: async (key: string) => saved.get(key) ?? null,
+    set: async (key: string, value: string) => { saved.set(key, value); } };
+  let calls = 0;
+  const fetcher: typeof fetch = async (url) => { calls++; return Response.json({ status: "success", data:
+    String(url).endsWith("get_daily_fixtures") ? { sport: "football", matches: [fixture] } : preview }); };
+  const config = { apiKey: "private-test-key", fetcher, now, store };
+  const first = await researchFlashscoreEvidence([pick], config);
+  assert.equal(first.size, 1);
+  clearFlashscoreCacheForTests();
+  const second = await researchFlashscoreEvidence([pick], config);
+  assert.equal(second.size, 1);
+  assert.equal(calls, 2);
+  assert.equal(second.get(pick.id)?.checkedAt, first.get(pick.id)?.checkedAt);
+  assert.ok([...saved.keys(), ...saved.values()].every(v => !v.includes("private-test-key")));
+});
+
+test("429 cooldown survives restarts and reports quota failure without retrying each build", async () => {
+  const saved = new Map<string, string>();
+  const store = { get: async (key: string) => saved.get(key) ?? null,
+    set: async (key: string, value: string) => { saved.set(key, value); } };
+  let calls = 0;
+  const fetcher: typeof fetch = async () => { calls++; return Response.json({ error: "Insufficient credits" },
+    { status: 429, headers: { "Retry-After": "300" } }); };
+  const config = { apiKey: "test", fetcher, now, store };
+  const first = await researchFlashscoreEvidence([pick], config);
+  assert.equal(first.size, 0);
+  assert.match(first.sourceFailures?.join(" ") ?? "", /429.*credits or quota exhausted/);
+  clearFlashscoreCacheForTests();
+  const second = await researchFlashscoreEvidence([pick], config);
+  assert.equal(calls, 1);
+  assert.match(second.sourceFailures?.join(" ") ?? "", /429/);
+});
+
+test("limited provider can reuse bounded-age history without refreshing its checked timestamp", async () => {
+  const saved = new Map<string, string>();
+  const store = { get: async (key: string) => saved.get(key) ?? null,
+    set: async (key: string, value: string) => { saved.set(key, value); } };
+  let limited = false, calls = 0;
+  const fetcher: typeof fetch = async (url) => {
+    calls++;
+    if (limited) return Response.json({ error: "Rate limit" }, { status: 429 });
+    return Response.json({ status: "success", data: String(url).endsWith("get_daily_fixtures")
+      ? { sport: "football", matches: [fixture] } : preview });
+  };
+  const config = { apiKey: "test", fetcher, now, store };
+  await researchFlashscoreEvidence([pick], config);
+  const originalTime = now - 3_600_000;
+  for (const [key, raw] of saved) {
+    const value = JSON.parse(raw);
+    value.freshUntil = now - 1; value.fetchedAt = originalTime;
+    saved.set(key, JSON.stringify(value));
+  }
+  limited = true; clearFlashscoreCacheForTests();
+  const reused = await researchFlashscoreEvidence([pick], config);
+  assert.equal(reused.size, 1);
+  assert.equal(reused.get(pick.id)?.checkedAt, originalTime);
+  assert.equal(calls, 3);
+  for (const [key, raw] of saved) {
+    if (key.startsWith("parse_cache_")) {
+      const value = JSON.parse(raw); value.validUntil = now - 1;
+      saved.set(key, JSON.stringify(value));
+    }
+  }
+  clearFlashscoreCacheForTests();
+  assert.equal((await researchFlashscoreEvidence([pick], config)).size, 0);
+  assert.equal(calls, 3);
+});

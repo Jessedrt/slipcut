@@ -290,3 +290,34 @@ labels and invalidated the engine cache so the affected cards are not served.
 Recent-engine-event exclusions are versioned with the selection policy too: an
 invalidated old card must not stop its fixtures being reanalysed with corrected
 market scopes. Existing per-policy event recall and per-ticket deduplication remain.
+
+## September 30, 07:02 WAT — provider limit failure
+
+The screenshot's zero-of-23 history result came from Parse get_daily_fixtures
+returning HTTP 429. SportyBet returned 54 Today basketball fixtures and 23 fixtures
+had valid prices for research. This was not a confidence-threshold rejection.
+Engine had hidden the failed build's actual error behind a generic insufficient
+selections message.
+
+Parse errors now propagate through research, Build and Engine. Response bodies
+are classified without logging secrets or raw provider responses. HTTP 429/402
+sets an account-specific persistent cooldown, respecting Retry-After (60 seconds
+when unavailable). No automatic retry bypasses that cooldown.
+
+Successful daily/preview payloads are cached in the existing database, using 512
+fixed slots per credential/scraper namespace. Full hashed request identity rejects
+slot collisions; daily identity includes the absolute date. Fresh windows remain
+5/30 minutes. During provider failure, real cached history can be reused for at
+most six hours, retaining its original checked timestamp. SportyBet prices and
+selection identity still undergo live validation. No old data was available to
+backfill the new cache, and caching cannot recover an exhausted provider quota.
+
+Engine copy now describes the implemented score-based diversity rule instead of
+claiming every card must mix families. No layout, price band, minimum analysis
+score or booking-code logic changed.
+
+Regression tests cover cold-process cache reuse, credential secrecy, persistent
+429 cooldown, bounded stale history with original timestamps, expired-cache
+rejection, and provider error propagation through the actual build function.
+394 tests, typecheck and application build pass. Live provider recovery must be
+checked independently; local passing tests do not prove Parse has lifted its limit.

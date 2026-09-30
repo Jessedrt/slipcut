@@ -177,13 +177,14 @@ async function poolForEngine(
         { sport: item, mode: "games", games: 15, risk: "conservative", window: "upcoming" },
         { discover: async () => listed.filter((p) => p.sport === item) },
       );
-      return built.ok ? built.selections : [];
+      return built;
     }),
   );
-  const ranked = results.flat().sort((a, b) => b.modelScore - a.modelScore);
+  const ranked = results.flatMap((r) => r.ok ? r.selections : []).sort((a, b) => b.modelScore - a.modelScore);
+  const failures = results.flatMap((r) => r.ok ? [] : [r.error]);
   const gated = accuracyFilter(ranked, await loadAccuracy());
   if (gated.kept.length < 2)
-    return { error: "Insufficient evidence-qualified Conservative selections for engine cards." };
+    return { error: failures.length ? [...new Set(failures)].join(" ") : "Insufficient evidence-qualified Conservative selections for engine cards." };
   return gated.kept;
 }
 

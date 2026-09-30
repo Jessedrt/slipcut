@@ -1280,9 +1280,10 @@ export function MiniAppRefresh() {
                   </p>
                   <h2 className="mt-1 text-xl font-black tracking-[-.04em]">Engine Accumulators</h2>
                   <p className="mt-2 text-xs leading-5 text-[#7a6656]">
-                    {engineSport === "football" ? "Football" : "Basketball"} cards use conservative-priced
-                    Over markets. Each card must mix market families instead of filling the ladder with
-                    the same market type. Handicaps are excluded; longer cards are still longer shots.
+                    {engineSport === "football" ? "Football cards use eligible single markets." : "Basketball cards use Over markets."}
+                    {" "}Each selection uses Conservative odds of 1.20–1.40 and verified statistics.
+                    Equally scored options favour variety; stronger markets may repeat.
+                    Longer cards are still longer shots.
                   </p>
                 </div>
                 <button
@@ -1598,93 +1599,230 @@ function BookingAction({
             >
               {BOOKMAKERS.map((bookmaker) => (
                 <option key={bookmaker.value} value={bookmaker.value}>
-                  {bookmaker.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          {oddsChanges.length ? (
-            <div className="mb-3 rounded-xl border border-[#9a6d4b]/20 bg-[#f3e6da] p-3">
-              <p className="text-xs font-extrabold text-[#754a30]">Current odds changed</p>
-              <div className="mt-2 space-y-2">
-                {oddsChanges.map((change) => (
-                  <div
-                    key={change.pick.id}
-                    className="flex items-center justify-between gap-3 text-[11px]"
-                  >
-                    <span className="min-w-0 truncate text-[#6f5a49]">
-                      {change.pick.home} vs {change.pick.away}
-                    </span>
-                    <span className="shrink-0 font-mono">
-                      <span className="text-[#7f6b5b] line-through">
-                        {formatOdds(change.beforeOdds)}
-                      </span>{" "}
-                      <span className="text-[#7d4e31]">→ {formatOdds(change.afterOdds)}</span>
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <p className="mt-2 text-[10px] leading-4 text-[#7d6959]">
-                Review the updated prices. SlipCut will refresh them once more before minting.
-              </p>
-            </div>
-          ) : null}
-          <button
-            type="button"
-            disabled={pending !== null || count < 1}
-            onClick={onBook}
-            className={primary}
-          >
-            {pending === "book" ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Ticket className="h-4 w-4" />
-            )}
-            {pending === "book"
-              ? "Refreshing selections…"
-              : oddsChanges.length
-                ? `Confirm reviewed odds & create · ${count}`
-                : `Create ${bookmakerLabel(targetBookmaker)} code · ${count}`}
-          </button>
-        </div>
-      ) : (
-        <div>
-          <div className="flex items-center justify-between">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-[#4d7452]">
-              Real code created
-            </p>
-            <Check className="h-4 w-4 text-[#4d7452]" />
-          </div>
-          <p className="mt-2 select-all font-mono text-2xl font-black tracking-[.14em]">
-            {minted.code}
-          </p>
-          <p className="mt-1 text-xs text-[#7d6959]">
-            {minted.games} games ·{" "}
-            {minted.combinedOdds ? formatOdds(minted.combinedOdds) : "odds unavailable"}
-          </p>
-          {minted.warnings?.length ? (
-            <div className="mt-3 rounded-xl border border-[#9a6d4b]/20 bg-[#f3e6da] p-3 text-[11px] leading-4 text-[#6d4d37]">
-              {minted.warnings.map((warning, index) => (
-                <p key={`${warning}-${index}`}>{warning}</p>
-              ))}
-            </div>
-          ) : null}
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <button type="button" onClick={onCopy} className={secondary}>
-              {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-              {copied ? "Copied" : "Copy code"}
-            </button>
-            {minted.url ? (
-              <a href={minted.url} target="_blank" rel="noreferrer" className={secondary}>
-                <ExternalLink className="h-4 w-4" />
-                {bookmakerLabel(minted.bookmaker)}
-              </a>
-            ) : (
-              <div className={`${secondary} opacity-60`}>{bookmakerLabel(minted.bookmaker)}</div>
-            )}
-          </div>
-        </div>
-      )}
-    </section>
-  );
-}
+                  {bookmaker.l…5771 tokens truncated…vailable: 0,
+          };
+        },
+      });
+      assert.ok(booked.ok);
+    } finally {
+      globalThis.fetch = original;
+      clearSportyCacheForTests();
+    }
+  });
+  it("validates request boundaries", () => {
+    assert.ok(validateBuildRequest(base).ok);
+    assert.equal(validateBuildRequest({ ...base, games: 16 }).ok, false);
+    assert.equal(validateBuildRequest({ ...base, mode: "odds", targetOdds: 5001 }).ok, false);
+  });
+});
+
+describe("structured score-source contracts", () => {
+  it("accepts published final score objects and excludes incomplete games", async () => {
+    const { evidenceFromEspn } = await import("./espn-history");
+    const p = pick("b", 1.6, {
+      sport: "basketball",
+      home: "Indiana Fever",
+      away: "New York Liberty",
+      market: "Over/Under (incl. overtime) 162.5",
+      selection: "Over 162.5",
+      sporty: { eventId: "b", marketId: "225", outcomeId: "over", specifier: "total=162.5" },
+    });
+    const event = {
+      id: "123",
+      date: new Date(Date.now() - 86400_000).toISOString(),
+      competitions: [
+        {
+          status: { type: { completed: true } },
+          competitors: [
+            { homeAway: "home", team: { displayName: p.home }, score: { value: 91 } },
+            { homeAway: "away", team: { displayName: p.away }, score: { value: 109 } },
+          ],
+        },
+      ],
+    };
+    const e = evidenceFromEspn(p, "basketball/wnba", [event]);
+    assert.equal(e.rows[0]!.homeValue, 91);
+    assert.equal(e.rows[0]!.awayValue, 109);
+    event.competitions[0]!.status.type.completed = false;
+    assert.equal(evidenceFromEspn(p, "basketball/wnba", [event]).rows.length, 0);
+  });
+  it("derives exact halves and quarters only from complete period arrays", async () => {
+    const { evidenceFromEspn } = await import("./espn-history");
+    const p = pick("b", 1.6, {
+      sport: "basketball",
+      home: "Indiana Fever",
+      away: "New York Liberty",
+      market: "1st Half Total 82.5",
+      selection: "Over 82.5",
+      sporty: { eventId: "b", marketId: "999", outcomeId: "over", specifier: "total=82.5" },
+    });
+    const event = {
+      id: "123",
+      date: new Date(Date.now() - 86400_000).toISOString(),
+      competitions: [
+        {
+          status: { type: { completed: true } },
+          competitors: [
+            {
+              homeAway: "home",
+              team: { displayName: p.home },
+              score: "100",
+              linescores: [
+                { period: 1, value: 25 },
+                { period: 2, value: 30 },
+                { period: 3, value: 20 },
+                { period: 4, value: 25 },
+              ],
+            },
+            {
+              homeAway: "away",
+              team: { displayName: p.away },
+              score: "90",
+              linescores: [
+                { period: 1, value: 20 },
+                { period: 2, value: 25 },
+                { period: 3, value: 20 },
+                { period: 4, value: 25 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const e = evidenceFromEspn(p, "basketball/wnba", [event]);
+    assert.equal(e.rows[0]!.homeValue, 55);
+    assert.equal(e.rows[0]!.awayValue, 45);
+    const q = {
+      ...p,
+      market: "Q3 Total 40.5",
+      selection: "Over 40.5",
+      sporty: { ...p.sporty!, specifier: "total=40.5" },
+    };
+    assert.equal(evidenceFromEspn(q, "basketball/wnba", [event]).rows[0]!.homeValue, 20);
+    event.competitions[0]!.competitors[0]!.linescores = [];
+    assert.equal(evidenceFromEspn(p, "basketball/wnba", [event]).rows.length, 0);
+  });
+  it("does not reuse NCAA half scores as quarter scores", async () => {
+    const { evidenceFromEspn } = await import("./espn-history");
+    const p = pick("b", 1.6, {
+      sport: "basketball",
+      market: "Q1 Total 40.5",
+      selection: "Over 40.5",
+      sporty: { eventId: "b", marketId: "999", outcomeId: "over", specifier: "total=40.5" },
+    });
+    const e = {
+      id: "123",
+      date: new Date(Date.now() - 86400_000).toISOString(),
+      competitions: [
+        {
+          status: { type: { completed: true } },
+          competitors: [
+            {
+              homeAway: "home",
+              team: { displayName: p.home },
+              score: "90",
+              linescores: [
+                { period: 1, value: 40 },
+                { period: 2, value: 50 },
+              ],
+            },
+            {
+              homeAway: "away",
+              team: { displayName: p.away },
+              score: "90",
+              linescores: [
+                { period: 1, value: 40 },
+                { period: 2, value: 50 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    assert.equal(evidenceFromEspn(p, "basketball/mens-college-basketball", [e]).rows.length, 0);
+  });
+  it("never silently replaces provider selections during booking refresh", async () => {
+    let mint = false;
+    const p = pick("a");
+    const r = await mintReviewedSlip([p], "ng", {
+      refresh: async () => ({ available: [pick("unrelated")], unavailable: [] }),
+      mint: async () => {
+        mint = true;
+        return { error: "must not run" };
+      },
+    });
+    assert.equal(r.ok, false);
+    assert.equal(mint, false);
+  });
+});
+
+describe("football count consistency", () => {
+  it("accepts ordinary low-count goal dispersion without applying a basketball point-CV threshold", () => {
+    const p = pick("goals", 1.3, { market: "Total Goals", selection: "Over 1.5",
+      sporty: { eventId: "goals", marketId: "18", outcomeId: "over", specifier: "total=1.5" } });
+    const e = history(p, 10, [3, 2, 2, 0, 3, 4, 3, 5, 0, 4]);
+    assert.ok(summarize([3, 2, 2, 0, 3, 4, 3, 5, 0, 4], 1.5).variation > 0.25);
+    assert.ok(assessEvidence(p, e, "conservative"));
+    assert.equal(assessEvidence(p, history(p, 8), "conservative"), null);
+    assert.equal(assessEvidence(p, history(p, 10, [0, 0, 0, 0, 0, 0, 0, 0, 8, 9]), "balanced"), null);
+  });
+});
+
+it("actual builder compares every qualified fixture option and diversifies only equal scores", async () => {
+  const a = pick("equal-a", 1.3), b = pick("equal-b", 1.3);
+  const alternate = { ...b, id: "b-btts", market: "Both Teams To Score", selection: "Yes",
+    sporty: { eventId: "equal-b", marketId: "29", outcomeId: "yes", specifier: "" } };
+  const r = await buildSlip({ ...base, risk: "conservative" }, deps([a, b, alternate]));
+  assert.ok(r.ok);
+  if (r.ok) {
+    assert.equal(r.actualGames, 2);
+    assert.deepEqual(r.selections.map(p => canonicalMarket(p).family).sort(), ["btts", "total"]);
+    assert.equal(new Set(r.selections.map(p => p.sporty?.eventId)).size, 2);
+    assert.equal(r.analysis.marketOptionsReviewed, 3);
+  }
+});
+
+it("optional research deadline preserves already corroborated fixture history", async () => {
+  const p = pick("completed", 1.3), evidence = history(p);
+  const result = new Map([[p.id, evidence]]);
+  const optional = await beforeResearchDeadline(() => new Promise<void>(() => {}), Date.now() + 20);
+  assert.equal(optional, undefined);
+  assert.ok(assessEvidence(p, result.get(p.id), "conservative"));
+  assert.equal(await beforeResearchDeadline(async () => "fast", Date.now() + 1000), "fast");
+});
+
+it("never analyses arbitrary football minute intervals with final scores", async () => {
+  for (const market of ["Total Goals Over/Under from 1 to 40 minute 0.5", "Goals Over/Under 1-15", "First 10 Minutes Total Goals"]) {
+    const p = pick("interval", 1.34, { market, selection: "Over 0.5",
+      sporty: { eventId: "interval", marketId: "999", outcomeId: "over", specifier: "total=0.5" } });
+    assert.equal(canonicalMarket(p).period, "unknown");
+    assert.equal(automaticMarketAllowed(p), false);
+    assert.equal(assessEvidence(p, history(p), "conservative"), null);
+    assert.equal((await buildSlip({ ...base, risk: "conservative" }, deps([p]))).ok, false);
+  }
+});
+it("team-named provider Over labels use team scoring, never the full-game total", () => {
+  const p = pick("named", 1.3, { home: "Cerro Porteno", away: "Rubio Nu", market: "Cerro Porteno Over/Under 0.5",
+    selection: "Over 0.5", sporty: { eventId: "named", marketId: "999", outcomeId: "over", specifier: "total=0.5" } });
+  assert.equal(canonicalMarket(p).family, "team_total");
+  assert.equal(canonicalMarket(p).scope, "home");
+  const evidence = history(p);
+  evidence.rows.forEach(r => { r.homeValue = 0; r.awayValue = 4; });
+  assert.equal(assessEvidence(p, evidence, "conservative"), null);
+  assert.equal(canonicalMarket({ ...p, market: "Rubio Nu Over/Under 0.5" }).scope, "away");
+  assert.equal(canonicalMarket({ ...p, market: "Cerro Porteno Total Corners" }).scope, "home");
+});
+
+it("reports upstream history limits instead of blaming risk evidence", async () => {
+  const p = pick("limited", 1.6);
+  const r = await buildSlip(base, deps([p], { evidence: async () => Object.assign(new Map(), {
+    sourceFailures: ["Parse HTTP 429: request rate or quota limit"],
+  }) }));
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    assert.equal(r.code, "analysis_failed");
+    assert.match(r.error, /Parse HTTP 429/);
+    assert.match(r.error, /SportyBet supplied 1 eligible fixtures/);
+    assert.doesNotMatch(r.error, /none passed/);
+  }
+});
