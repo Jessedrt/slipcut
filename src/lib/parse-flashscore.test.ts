@@ -40,6 +40,23 @@ test("Czech Republic and Czechia map to the same domestic country, preserving bo
   assert.equal(matchFlashscoreFixture(p, [f]), f);
   assert.equal(matchFlashscoreFixture({ ...p, country: "Australia" }, [f]), undefined);
 });
+test("maps verified production basketball naming variants without fuzzy matching", () => {
+  const cases = [
+    ["Sluneta Usti nad Labem", "BK Opava", "Usti n. Labem", "Opava", "NBL", "Czechia", "CZECH REPUBLIC: NBL", "Czech Republic"],
+    ["PAOK BC", "Basquet Manresa", "PAOK", "Manresa", "Eurocup", "International", "EUROPE: Eurocup", "Europe"],
+    ["BC Lietkabelis Panevezys", "KK Bosna Royal Sarajevo", "Lietkabelis", "KK Bosna", "Eurocup", "International", "EUROPE: Eurocup", "Europe"],
+    ["Ratiopharm Ulm", "Balkan Botevgrad", "Ulm", "Balkan", "Eurocup", "International", "EUROPE: Eurocup", "Europe"],
+    ["Rigas Zelli", "Derthona Basket", "Rigas Zelli", "Tortona", "Eurocup", "International", "EUROPE: Eurocup", "Europe"],
+    ["Bahcesehir Koleji", "BC Roma Spqr", "Bahcesehir Kol.", "BC Roma", "Eurocup", "International", "EUROPE: Eurocup", "Europe"],
+  ] as const;
+  for (const [home, away, flashHome, flashAway, league, country, competition, flashCountry] of cases) {
+    const p: TicketPick = { ...pick, sport: "basketball", home, away, league, country };
+    const f = { ...fixture, home_team: { name: flashHome }, away_team: { name: flashAway },
+      competition: { name: competition, country: flashCountry } };
+    assert.equal(matchFlashscoreFixture(p, [f]), f);
+  }
+});
+
 test("matches exact fixture identity and rejects ambiguity, wrong country, competition or time", () => {
   assert.equal(matchFlashscoreFixture(pick, [fixture]), fixture);
   assert.equal(matchFlashscoreFixture(pick, [fixture, fixture]), undefined);
