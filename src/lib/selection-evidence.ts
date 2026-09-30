@@ -275,11 +275,51 @@ export async function researchSelectionEvidence(
         result.set(pick.id, candidate);
     }
   }
-  if (!youKeys().length) return result;
-  const groups = new Map<string, TicketPick[]>();
-  for (const pick of picks) {
+  const unresolved = picks.filter((pick) => {
     const present = result.get(pick.id);
-    if (present && assessEvidence(pick, present, "balanced")) continue;
+    return !present || !assessEvidence(pick, present, "balanced");
+  });
+  if (!unresolved.length) return result;
+
+  const webKeys = youKeys();
+  const parseFailures =
+    flashscore.status === "fulfilled"
+      ? flashscore.value.sourceFailures ?? []
+      : ["FlashScore history service failed"];
+  if (!webKeys.length) {
+    if (parseFailures.length)
+      result.sourceFailures = [
+        ...parseFailures,
+        "Legacy web-history fallback unavailable: no You.com key is configured",
+      ];
+    console.info(
+      "[history.fallback]",
+      JSON.stringify({
+        triggered: true,
+        provider: "legacy_you_research",
+        available: false,
+        unresolvedPicks: unresolved.length,
+        parseFailures,
+      }),
+    );
+    return result;
+  }
+
+  result.fallbackUsed = true;
+  result.fallbackSource = "legacy_you_research";
+  console.info(
+    "[history.fallback]",
+    JSON.stringify({
+      triggered: true,
+      provider: "legacy_you_research",
+      available: true,
+      unresolvedPicks: unresolved.length,
+      parseFailures,
+    }),
+  );
+
+  const groups = new Map<string, TicketPick[]>();
+  for (const pick of unresolved) {
     const c = canonicalMarket(pick);
     const key = `${pick.sporty?.eventId}:${c.period}:${metricFor(pick)}`;
     groups.set(key, [...(groups.get(key) ?? []), pick]);
@@ -327,28 +367,67 @@ export async function researchSelectionEvidence(
                 raw.source,
                 youContents(raw.source).catch(() => ""),
               );
-            const source = (await sources.get(raw.source))!.toLowerCase();
-            // Require a single result excerpt containing both exact team names, date,
-            // score pair and period; never corroborate from unrelated numbers on a page.
-            const periodLabel =
+            const source = (await sources.get(raw.source))!.toLowerCase().replace(/\s+/g, " ");
+            // Legacy web fallback: corroborate each claimed result against the trusted
+            // source page. Full-game rows do not require the literal word "final" next
+            // to the score because many score pages omit it; period markets still do.
+            const scorePattern = new RegExp(
+              `\\b${raw.homeValue}\\s*[-:–]\\s*${raw.awayValue}\\b`,
+            );
+            const scoreMatch = scorePattern.exec(source);
+            if (!scoreMatch) continue;
+            const window = source.slice(
+              Math.max(0, scoreMatch.index - 900),
+              Math.min(source.length, scoreMatch.index + scoreMatch[0].length + 900),
+            );
+            const teamVisible = (name: string) => {
+              const exact = name.toLowerCase();
+              if (window.includes(exact)) return true;
+              const words = normalizeName(name)
+                .split(" ")
+                .filter((word) => word.length >= 4);
+              if (!words.length) return false;
+              const hits = words.filter((word) => window.includes(word)).length;
+              return hits >= Math.min(2, words.length);
+            };
+            const parsedDate = new Date(raw.date);
+            const dateNeedles = Number.isFinite(parsedDate.getTime())
+              ? [
+                  raw.date.toLowerCase(),
+                  parsedDate.toISOString().slice(0, 10),
+                  parsedDate.toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                    timeZone: "UTC",
+                  }).toLowerCase(),
+                  parsedDate.toLocaleDateString("en-GB", {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                    timeZone: "UTC",
+                  }).toLowerCase(),
+                ]
+              : [raw.date.toLowerCase()];
+            const dateVisible = dateNeedles.some((needle) => source.includes(needle));
+            const periodVisible =
               c.period === "match"
-                ? /final|full.time|result/
+                ? true
                 : c.period === "first_half"
-                  ? /first half|1st half|half.time/
+                  ? /first half|1st half|half.time/.test(window)
                   : c.period === "second_half"
-                    ? /second half|2nd half/
-                    : new RegExp(`${c.period}|${c.period.slice(1)}(?:st|nd|rd|th) quarter`);
-            const matched = source
-              .split(/\n/)
-              .some(
-                (span) =>
-                  span.includes(raw.home.toLowerCase()) &&
-                  span.includes(raw.away.toLowerCase()) &&
-                  span.includes(raw.date) &&
-                  new RegExp(`\\b${raw.homeValue}\\s*[-:–]\\s*${raw.awayValue}\\b`).test(span) &&
-                  periodLabel.test(span) &&
-                  (metricFor(pick) === "score" || span.includes(metricFor(pick))),
-              );
+                    ? /second half|2nd half/.test(window)
+                    : new RegExp(
+                        `${c.period}|${c.period.slice(1)}(?:st|nd|rd|th) quarter`,
+                      ).test(window);
+            const metricVisible =
+              metricFor(pick) === "score" || window.includes(metricFor(pick));
+            const matched =
+              teamVisible(raw.home) &&
+              teamVisible(raw.away) &&
+              dateVisible &&
+              periodVisible &&
+              metricVisible;
             if (!matched) continue;
             rows.push({
               ...raw,
@@ -376,5 +455,18 @@ export async function researchSelectionEvidence(
       }
     }),
   ), deadline);
+  const fallbackEvidence = unresolved.filter((pick) => (result.get(pick.id)?.rows.length ?? 0) > 0).length;
+  console.info(
+    "[history.fallback]",
+    JSON.stringify({
+      completed: true,
+      provider: "legacy_you_research",
+      fallbackEvidence,
+      unresolvedPicks: unresolved.length,
+      totalEvidencePicks: result.size,
+    }),
+  );
+  if (fallbackEvidence > 0 && result.sourceFailures?.length)
+    result.sourceFailures = result.sourceFailures.map((failure) => `${failure} (fallback active)`);
   return result;
 }
