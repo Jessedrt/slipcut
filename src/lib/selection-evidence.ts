@@ -337,7 +337,6 @@ export async function researchSelectionEvidence(
     return priority(a) - priority(b);
   });
   let cursor = 0;
-  let fallbackSamples = 0;
   const sources = new Map<string, Promise<string>>();
   await beforeResearchDeadline(() => Promise.all(
     Array.from({ length: Math.min(fastWebFallback ? 8 : 4, jobs.length) }, async () => {
@@ -377,18 +376,6 @@ export async function researchSelectionEvidence(
                 parsed = researchedParsed;
               }
             }
-          }
-          if (fastWebFallback && fallbackSamples < 2) {
-            fallbackSamples++;
-            console.info(
-              "[history.fallback.answer]",
-              JSON.stringify({
-                eventId: pick.sporty?.eventId,
-                length: answer.length,
-                jsonFound: Boolean(json),
-                preview: answer.replace(/\s+/g, " ").slice(0, 500),
-              }),
-            );
           }
           if (!Array.isArray(parsed?.rows)) continue;
           const rows: HistoryRow[] = [];
