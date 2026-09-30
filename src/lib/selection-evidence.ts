@@ -157,6 +157,9 @@ export function assessEvidence(
       offenseRows.map((r) => valueFor(r, team)),
       defenseRows.map((r) => allowedBy(r, opponent)),
     ];
+    // Team totals need BOTH sides of the matchup. A 1/1 or 2/2 offense sample
+    // must not become a 100 score while the opponent-defense side is unknown.
+    if (offenseRows.length < 3 || defenseRows.length < 3) return null;
     const splitO = offenseRows.filter((r) => same(c.scope === "home" ? r.home : r.away, team));
     const splitD = defenseRows.filter((r) => same(c.scope === "home" ? r.away : r.home, opponent));
     if (
@@ -220,10 +223,13 @@ export function assessEvidence(
   )
     return null;
   const smallestSample = Math.min(...stats.map((s) => s.sample));
-  // The configured 50/45 analysis floors are the actual score floors.
-  // Consistency remains a separate eligibility rule above; do not secretly
-  // raise the requested score threshold with extra sample/variance penalties.
-  const score = Math.round(100 * Math.min(...stats.map((s) => s.hitRate)));
+  // Do not let tiny perfect samples masquerade as high-confidence picks.
+  // Keep 45/40 as the policy floors, but shrink the displayed/selection score
+  // toward neutral when evidence is sparse. At 5+ relevant rows no sample
+  // penalty is applied.
+  const rawHitScore = 100 * Math.min(...stats.map((s) => s.hitRate));
+  const sampleConfidence = Math.min(1, smallestSample / 5);
+  const score = Math.round(50 + (rawHitScore - 50) * sampleConfidence);
   if (score < p.minModelScore) return null;
   return {
     score,
@@ -238,7 +244,7 @@ export function assessEvidence(
     warnings: [
       ...(evidence.warnings ?? []),
       ...(smallestSample < 5
-        ? [`Limited historical sample: only ${smallestSample} relevant result${smallestSample === 1 ? "" : "s"} in the smallest series.`]
+        ? [`Limited historical sample: only ${smallestSample} relevant result${smallestSample === 1 ? "" : "s"} in the smallest series; confidence was reduced.`]
         : []),
     ],
   };
