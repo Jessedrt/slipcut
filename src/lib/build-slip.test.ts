@@ -700,3 +700,17 @@ it("team-named provider Over labels use team scoring, never the full-game total"
   assert.equal(canonicalMarket({ ...p, market: "Rubio Nu Over/Under 0.5" }).scope, "away");
   assert.equal(canonicalMarket({ ...p, market: "Cerro Porteno Total Corners" }).scope, "home");
 });
+
+it("reports upstream history limits instead of blaming risk evidence", async () => {
+  const p = pick("limited", 1.6);
+  const r = await buildSlip(base, deps([p], { evidence: async () => Object.assign(new Map(), {
+    sourceFailures: ["Parse HTTP 429: request rate or quota limit"],
+  }) }));
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    assert.equal(r.code, "analysis_failed");
+    assert.match(r.error, /Parse HTTP 429/);
+    assert.match(r.error, /SportyBet supplied 1 eligible fixtures/);
+    assert.doesNotMatch(r.error, /none passed/);
+  }
+});
