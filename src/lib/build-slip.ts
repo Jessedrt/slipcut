@@ -387,10 +387,7 @@ export async function buildSlip(
       : request.mode === "odds" && !targetReached
         ? `Closest qualified result: ${actualCombinedOdds?.toFixed(2)} versus ${request.targetOdds!.toFixed(2)} target. Only ${distinct.length} events qualified; at most 15 can be booked. No odds range or evidence threshold was relaxed.`
         : undefined;
-  const coverage = analysis.historyCoverage;
-  const coverageNotice = coverage.fixturesWithHistory < coverage.eligibleFixtures
-    ? `Historical data matched ${coverage.fixturesWithHistory} of ${coverage.eligibleFixtures} eligible fixtures. Unmatched fixtures were skipped.` : undefined;
-  const notice = [targetNotice, coverageNotice].filter(Boolean).join(" ") || undefined;
+  const notice = targetNotice;
   return {
     ok: true,
     requested: request,
