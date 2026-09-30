@@ -330,6 +330,7 @@ export function MiniAppRefresh() {
   const abortRef = useRef<AbortController | null>(null);
   const engineRequestRef = useRef(0);
   const bookingAttemptRef = useRef<{ body: string; requestId: string } | null>(null);
+  const buildRequestRef = useRef(0);
   const initData = useSyncExternalStore(subscribeTelegramInitData, telegramInitData, () => "");
 
   useEffect(() => {
@@ -345,6 +346,16 @@ export function MiniAppRefresh() {
     );
     return () => window.clearInterval(timer);
   }, [pending]);
+  useEffect(() => {
+    // Never leave a card from an old set of controls on screen. This also
+    // invalidates an in-flight response if the user changes sport/risk/window.
+    buildRequestRef.current += 1;
+    setBuildResult(null);
+    setBuildSelected(new Set());
+    setMinted(null);
+    setOddsChanges([]);
+    setError(null);
+  }, [sport, mode, games, targetOdds, customOdds, risk, windowChoice]);
 
   const api = useCallback(
     async <T,>(path: string, options: RequestInit = {}) => {
@@ -412,6 +423,7 @@ export function MiniAppRefresh() {
     setBuildResult(null);
     setStage(0);
     setPending("build");
+    const requestId = ++buildRequestRef.current;
     const request: BuildSlipRequest = {
       sport,
       mode,
@@ -424,6 +436,7 @@ export function MiniAppRefresh() {
         method: "POST",
         body: JSON.stringify(request),
       });
+      if (requestId !== buildRequestRef.current) return;
       if (!result.ok) {
         const suggestion =
           result.code === "no_events" && windowChoice === "today"
@@ -442,7 +455,7 @@ export function MiniAppRefresh() {
         setError("You stopped waiting. The server may still finish its current request.");
       else setError(errorText(caught, "SlipCut could not build this slip."));
     } finally {
-      setPending(null);
+      if (requestId === buildRequestRef.current) setPending(null);
     }
   }
 
@@ -955,17 +968,17 @@ export function MiniAppRefresh() {
                 <ReviewHeader
                   requested={
                     buildResult.requested.mode === "games"
-                      ? `${buildResult.requested.games} games`
-                      : `${buildResult.requested.targetOdds?.toFixed(2)} odds`
+                      ? `${buildResult.requested.window} · ${buildResult.requested.games} games`
+                      : `${buildResult.requested.window} · ${buildResult.requested.targetOdds?.toFixed(2)} odds`
                   }
                   returned={`${chosenBuild.length}/${buildResult.actualGames} selected`}
                   odds={activeOdds}
                   notice={buildResult.notice}
                 />
                 <p className="px-1 text-[11px] leading-4 text-[#6e5948]">
-                  AI reviewed the eligible options for every returned game. Unreviewed games are
-                  excluded. It only has the supplied fixture and odds data here; match-specific form
-                  and injuries are not source-verified. Scores are rankings, not win probabilities.
+                  SlipCut mathematically ranks eligible lines using scoring distributions,
+                  line-specific evidence and the bookmaker price. Historical/web data can strengthen
+                  the estimate when available. Scores are rankings, not guarantees.
                 </p>
               </>
             )}
