@@ -18,6 +18,28 @@ const history = Array.from({ length: 12 }, (_, i) => ({ match_id: `past-${i}`,
 const preview = { match_id: "flash", home_team: "Arsenal", away_team: "Chelsea",
   home_form: history, away_form: history, h2h: [] };
 beforeEach(clearFlashscoreCacheForTests);
+test("verified basketball team and international-country aliases preserve fixture identity and history scoring", () => {
+  const p: TicketPick = { ...pick, sport: "basketball", home: "CB San Pablo Burgos", away: "KK Cedevita Olimpija Ljubljana",
+    league: "Eurocup", country: "International", market: "Total Points Including Overtime" };
+  const f = { ...fixture, home_team: { name: "San Pablo Burgos" }, away_team: { name: "Cedevita Olimpija" },
+    competition: { name: "EUROPE: Eurocup", country: "Europe" } };
+  assert.equal(matchFlashscoreFixture(p, [f]), f);
+  assert.equal(matchFlashscoreFixture({ ...p, league: "NBL" }, [f]), undefined);
+  assert.equal(matchFlashscoreFixture({ ...p, country: "France" }, [f]), undefined);
+  assert.equal(matchFlashscoreFixture(p, [f, f]), undefined);
+  const e = evidenceFromFlashscore(p, { match_id: "flash", home_team: "San Pablo Burgos", away_team: "Cedevita Olimpija",
+    home_form: [{ match_id: "historical", date: new Date(now - 86400_000).toISOString(),
+      home_team: "Cedevita Olimpija", away_team: "San Pablo Burgos", score: "87:79" }] }, now);
+  assert.equal(e.rows[0]?.home, p.away);
+  assert.equal(e.rows[0]?.away, p.home);
+  assert.equal(e.rows[0]?.awayValue, 79);
+});
+test("Czech Republic and Czechia map to the same domestic country, preserving both teams", () => {
+  const p: TicketPick = { ...pick, sport: "basketball", home: "BK Decin", away: "Basket Brno", league: "NBL", country: "Czechia" };
+  const f = { ...fixture, home_team: { name: "Decin" }, away_team: { name: "Brno" }, competition: { name: "CZECH REPUBLIC: NBL", country: "Czech Republic" } };
+  assert.equal(matchFlashscoreFixture(p, [f]), f);
+  assert.equal(matchFlashscoreFixture({ ...p, country: "Australia" }, [f]), undefined);
+});
 test("matches exact fixture identity and rejects ambiguity, wrong country, competition or time", () => {
   assert.equal(matchFlashscoreFixture(pick, [fixture]), fixture);
   assert.equal(matchFlashscoreFixture(pick, [fixture, fixture]), undefined);

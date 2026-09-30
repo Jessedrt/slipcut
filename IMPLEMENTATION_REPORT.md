@@ -164,3 +164,42 @@ development build and `git diff --check` passed. Changes: `src/lib/sportybet.ts`
 this report. Conservative remains 1.20–1.40 inclusive; Balanced remains
 1.40–1.80 inclusive. Football canonical blacklist and basketball exact-scope
 evidence requirements remain enforced by their existing backend tests.
+
+## Full-build history coverage investigation
+
+The September 30 01:06 Lagos production Mini App request still failed despite
+54 Today fixtures. Logs showed FlashScore matched only one fixture and supplied
+six market options. A live ESPN trace supplied WNBA history but none for the
+other Eurocup/NBL/FIBA Europe Cup events. This was incomplete history coverage,
+not proof that all discovered fixtures were statistically weak.
+
+Production mapping diagnostics demonstrated native identities being incorrectly
+rejected: SportyBet `BK Decin / Basket Brno`, country `Czechia`, corresponded to
+FlashScore `Decin / Brno`, country `Czech Republic`. European competition
+categories were `International` versus `Europe`; observed team aliases also
+included San Pablo Burgos/Cedevita Olimpija, Panathinaikos/Lyon-Villeurbanne,
+NH Ostrava/Hradec Kralove and Slavia Prague/Olomoucko.
+
+Added an explicit basketball alias registry and the Czech country equivalence.
+International/Europe category equivalence applies only to the same identified
+Euroleague, Eurocup or FIBA Europe Cup tournament. Both teams, competition,
+prematch status, unique match and kickoff tolerance remain mandatory. No fuzzy
+approval or odds substitution. Historical aliases are mapped back to the original
+SportyBet team names without changing home/away scores.
+
+Also corrected an unintended stricter filter: deleting the top two scores in
+every numerical series secretly made an ordinary 8/10 hit rate fail the configured
+80% requirement, even without outliers. The robustness check now removes only
+high outliers detected by median absolute deviation. Median, trimmed mean,
+variation, exact-line hits, splits, sample sizes, confidence and risk odds policies
+remain required. Tests distinguish ordinary wins from genuinely inflated series.
+The real WNBA Over 160.5 histories were 6/10 and 7/10, so their Conservative
+rejection remains appropriate.
+
+Build results now report incomplete source coverage separately from statistical
+failure. Runtime diagnostics include fixture mapping examples, coverage counters
+and final qualification counts; never credentials. Added six regressions for
+identity aliases, correct historical score ownership, missing/partial history and
+outlier handling. Full suite: 161 script + 217 backend tests = 378 passing.
+Typecheck and build passed. These checks alone do not verify production slip
+qualification; that requires the subsequent live build check.

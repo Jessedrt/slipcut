@@ -194,11 +194,16 @@ export function assessEvidence(
     )
   )
     return null;
-  // Removing the largest two scores must not destroy support for an Over.
+  // Remove detected high outliers, not two ordinary wins. Dropping the two
+  // largest values unconditionally secretly raises an 80% requirement to 90%.
   if (
     numerical &&
     stats.some((s) => {
-      const robust = [...s.values].sort((a, b) => a - b).slice(0, -2);
+      const deviations = s.values.map((v) => Math.abs(v - s.median)).sort((a, b) => a - b);
+      const mad = (deviations[Math.floor((s.sample - 1) / 2)]! + deviations[Math.floor(s.sample / 2)]!) / 2;
+      const highCutoff = s.median + Math.max(3, 3 * 1.4826 * mad);
+      const robust = s.values.filter((v) => v <= highCutoff);
+      if (robust.length === s.sample) return false;
       return robust.filter((v) => v > line).length / robust.length < p.minHitRate;
     })
   )

@@ -112,6 +112,27 @@ describe("risk boundaries through backend build", () => {
     assert.equal((await buildSlip({ ...base, risk: "conservative" }, d)).ok, false);
     assert.equal((await buildSlip(base, d)).ok, true);
   });
+  it("reports missing history as a data failure rather than claiming statistical rejection", async () => {
+    const p = pick("missing", 1.3);
+    const r = await buildSlip({ ...base, risk: "conservative" }, deps([p], { evidence: async () => new Map() }));
+    assert.equal(r.ok, false);
+    if (!r.ok) {
+      assert.equal(r.code, "analysis_failed");
+      assert.match(r.error, /matched 0 of 1 fixtures/);
+      assert.equal(r.analysis?.historyCoverage?.fixturesWithHistory, 0);
+    }
+  });
+  it("separates partial source coverage from insufficient samples", async () => {
+    const p = pick("covered", 1.3), missing = pick("missing", 1.3);
+    const r = await buildSlip({ ...base, risk: "conservative" }, deps([p, missing], {
+      evidence: async () => new Map([[p.id, history(p, 8)]]),
+    }));
+    assert.equal(r.ok, false);
+    if (!r.ok) {
+      assert.match(r.error, /matched 1 of 2 fixtures/);
+      assert.equal(r.analysis?.historyCoverage?.marketsWithHistory, 1);
+    }
+  });
   it("Balanced accepts supported moderate variance rejected by Conservative", () => {
     const p = pick("a", 1.4);
     const e = history(p, 10, [6, 6, 6, 6, 6, 6, 6, 6, 12, 12]);
@@ -246,6 +267,24 @@ describe("exact scope and robust statistics", () => {
     assert.equal(a.outliers, 2);
     assert.equal(a.hits, 2);
     assert.equal(assessEvidence(team, e, "balanced"), null);
+  });
+  it("does not discard ordinary wins and silently raise the configured hit-rate threshold", () => {
+    const p = pick("ordinary", 1.3, { sport: "basketball", market: "Total (incl. overtime) 162.5",
+      selection: "Over 162.5", sporty: { eventId: "ordinary", marketId: "225", outcomeId: "over", specifier: "total=162.5" } });
+    const conservative = history(p, 10, [160, 161, 163, 164, 165, 166, 167, 168, 169, 170]);
+    assert.equal(summarize([160, 161, 163, 164, 165, 166, 167, 168, 169, 170], 162.5).outliers, 0);
+    assert.ok(assessEvidence(p, conservative, "conservative"));
+    const balanced = history(p, 10, [159, 160, 161, 163, 164, 165, 166, 167, 168, 169]);
+    assert.ok(assessEvidence(p, balanced, "balanced"));
+    assert.equal(assessEvidence(p, balanced, "conservative"), null);
+  });
+  it("rejects an otherwise qualifying Over when detected high outliers are carrying its hit rate", () => {
+    const p = pick("inflated", 1.3, { sport: "basketball", market: "Total (incl. overtime) 162.5",
+      selection: "Over 162.5", sporty: { eventId: "inflated", marketId: "225", outcomeId: "over", specifier: "total=162.5" } });
+    const values = [159, 160, 163, 164, 165, 166, 167, 168, 250, 260];
+    assert.equal(summarize(values, 162.5).hitRate, 0.8);
+    assert.equal(summarize(values, 162.5).outliers, 2);
+    assert.equal(assessEvidence(p, history(p, 10, values), "conservative"), null);
   });
   for (const period of ["1st Half", "2nd Half", "Q1", "Q2", "Q3", "Q4"])
     it(`${period} rejects full game evidence`, () => {

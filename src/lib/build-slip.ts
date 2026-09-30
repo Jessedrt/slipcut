@@ -14,7 +14,7 @@ import {
   type ProviderErrorCode,
   type SportyFailure,
 } from "./sportybet";
-import { automaticMarketAllowed, riskOddsAllowed, SELECTION_POLICIES } from "./selection-policy";
+import { automaticMarketAllowed, canonicalMarket, riskOddsAllowed, SELECTION_POLICIES } from "./selection-policy";
 import {
   assessEvidence,
   researchSelectionEvidence,
@@ -58,6 +58,7 @@ export type BuildSelection = TicketPick & {
 };
 
 export type AnalysisDiagnostics = {
+  historyCoverage?: { eligibleFixtures: number; fixturesWithHistory: number; marketsWithHistory: number };
   discovered: number;
   eligibleBeforeScoring: number;
   researched: number;
@@ -206,7 +207,11 @@ export async function buildSlip(
   const fail = (
     error: string,
     code: BuildSlipFailure["code"] = "no_eligible_markets",
-  ): BuildSlipFailure => ({ ok: false, code, error, analysis });
+  ): BuildSlipFailure => {
+    console.info("[slipcut.build]", JSON.stringify({ sport: request.sport, risk: request.risk,
+      window: request.window, ok: false, code, analysis }));
+    return { ok: false, code, error, analysis };
+  };
   const discovered = await dependencies.discover(request.sport, 42, request.window);
   if (!Array.isArray(discovered)) return { ok: false, ...discovered };
   analysis.discovered = discovered.length;
@@ -271,6 +276,16 @@ export async function buildSlip(
   if (!evidence)
     return fail("Historical research took too long. No slip was built.", "analysis_failed");
   analysis.marketOptionsReviewed = historical.length;
+  const historyPicks = historical.filter((pick) => {
+    const c = canonicalMarket(pick);
+    const metric = c.family === "corners" ? "corners" : c.family === "cards" ? "cards" : "score";
+    return evidence.get(pick.id)?.rows.some((r) => r.corroborated && r.period === c.period && r.metric === metric);
+  });
+  analysis.historyCoverage = {
+    eligibleFixtures: new Set(historical.map((p) => p.sporty?.eventId)).size,
+    fixturesWithHistory: new Set(historyPicks.map((p) => p.sporty?.eventId)).size,
+    marketsWithHistory: historyPicks.length,
+  };
   const assessments = new Map<string, EvidenceAssessment>();
   for (const pick of historical) {
     const assessment = assessEvidence(pick, evidence.get(pick.id), request.risk);
@@ -335,10 +350,17 @@ export async function buildSlip(
   const distinct = uniqueEvents(scored).picks;
   analysis.rejected.duplicateEvents = scored.length - distinct.length;
   analysis.qualifiedGames = distinct.length;
-  if (!distinct.length)
+  if (!distinct.length) {
+    const coverage = analysis.historyCoverage;
+    if (coverage.fixturesWithHistory < coverage.eligibleFixtures)
+      return fail(
+        `Historical score coverage is incomplete: results matched ${coverage.fixturesWithHistory} of ${coverage.eligibleFixtures} fixtures. No available selection could be verified for ${policy.label}.`,
+        coverage.fixturesWithHistory === 0 ? "analysis_failed" : "no_eligible_markets",
+      );
     return fail(
       `Insufficient qualified selections: none passed ${policy.label}'s sample, exact-line hit-rate, scope and consistency requirements. Missing statistics were not guessed.`,
     );
+  }
   // Both sports use the same deterministic nearest-target search over qualified events.
   const selections =
     request.mode === "games"
@@ -351,6 +373,8 @@ export async function buildSlip(
         Math.abs(Math.log(actualCombinedOdds / request.targetOdds!)) <= Math.log(1.05)
       : null;
   analysis.selected = selections.length;
+  console.info("[slipcut.build]", JSON.stringify({ sport: request.sport, risk: request.risk,
+    window: request.window, ok: true, actualCombinedOdds, analysis }));
   const notice =
     request.mode === "games" && selections.length < request.games!
       ? `${request.games} games requested; only ${selections.length} qualified selections were available. Evidence thresholds and odds ranges were preserved.`

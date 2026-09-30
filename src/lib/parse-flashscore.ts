@@ -1,4 +1,5 @@
 import { normalizeName } from "./bookmakers/normalize";
+import { providerTeamName, providerCountryName } from "./provider-names";
 import { canonicalMarket } from "./selection-policy";
 import type { Evidence, HistoryRow } from "./selection-evidence";
 import type { TicketPick } from "./types";
@@ -24,17 +25,22 @@ export function clearFlashscoreCacheForTests() { cache.clear(); }
 /** Require an unambiguous fixture, with the same sport, teams, competition and time. */
 export function matchFlashscoreFixture(pick: TicketPick, fixtures: Fixture[]): Fixture | undefined {
   if (!pick.kickoff) return;
+  const team = (name: string) => providerTeamName(name, pick.sport);
   const matches = fixtures.filter((f) => {
     if (!f.match_id || !["not_started", "scheduled"].includes(f.status ?? "")) return false;
-    if (normalizeName(f.home_team?.name ?? "") !== normalizeName(pick.home) ||
-        normalizeName(f.away_team?.name ?? "") !== normalizeName(pick.away)) return false;
+    if (team(f.home_team?.name ?? "") !== team(pick.home) ||
+        team(f.away_team?.name ?? "") !== team(pick.away)) return false;
     const time = Date.parse(f.start_time ?? "");
     if (!Number.isFinite(time) || Math.abs(time - pick.kickoff!) > 15 * 60_000) return false;
     const league = normalizeName(f.competition?.name ?? "");
     const expected = normalizeName(pick.league);
     if (!league || !expected || !(league.includes(expected) || expected.includes(league) ||
       (f.competition?.country && expected === normalizeName(`${f.competition.country} ${f.competition.name?.split(":").at(-1) ?? ""}`)))) return false;
-    return !pick.country || normalizeName(pick.country) === normalizeName(f.competition?.country ?? "");
+    const internationalEurope = pick.sport === "basketball" &&
+      /^(euroleague|eurocup|fiba europe cup)$/.test(expected) &&
+      providerCountryName(pick.country ?? "") === "international" &&
+      providerCountryName(f.competition?.country ?? "") === "europe";
+    return !pick.country || internationalEurope || providerCountryName(pick.country) === providerCountryName(f.competition?.country ?? "");
   });
   return matches.length === 1 ? matches[0] : undefined;
 }
@@ -43,6 +49,7 @@ export function matchFlashscoreFixture(pick: TicketPick, fixtures: Fixture[]): F
 export function evidenceFromFlashscore(pick: TicketPick, preview: Preview, now = Date.now()): Evidence {
   const rows: HistoryRow[] = [];
   const c = canonicalMarket(pick);
+  const team = (name: string) => providerTeamName(name, pick.sport);
   const evidence: Evidence = { rows, checkedAt: now, warnings: [
     "FlashScore final-score history; injuries, pace, rest and travel were not independently verified.",
   ] };
@@ -50,16 +57,16 @@ export function evidenceFromFlashscore(pick: TicketPick, preview: Preview, now =
   // Basketball final scores can include overtime; regulation markets need explicit period data.
   if (pick.sport === "basketball" && !/incl(?:uding|\.)?.*overtime|overtime.*incl/i.test(pick.market) &&
       !["225", "227", "228"].includes(pick.sporty?.marketId ?? "")) return evidence;
-  if (!preview.match_id || normalizeName(preview.home_team ?? "") !== normalizeName(pick.home) ||
-      normalizeName(preview.away_team ?? "") !== normalizeName(pick.away)) return evidence;
+  if (!preview.match_id || team(preview.home_team ?? "") !== team(pick.home) ||
+      team(preview.away_team ?? "") !== team(pick.away)) return evidence;
   const seen = new Set<string>();
   for (const r of [...(preview.home_form ?? []), ...(preview.away_form ?? []), ...(preview.h2h ?? [])]) {
     if (!r.match_id || seen.has(r.match_id) || !r.date || !r.home_team || !r.away_team ||
         (r.status && r.status !== "finished")) continue;
     const date = Date.parse(r.date);
     if (!Number.isFinite(date) || date >= Math.min(now, pick.kickoff ?? now)) continue;
-    const names = [r.home_team, r.away_team].map(normalizeName);
-    if (!names.includes(normalizeName(pick.home)) && !names.includes(normalizeName(pick.away))) continue;
+    const names = [r.home_team, r.away_team].map(team);
+    if (!names.includes(team(pick.home)) && !names.includes(team(pick.away))) continue;
     const pair = r.score?.match(/^(\d+)\s*:\s*(\d+)$/);
     const value = (v: unknown): number | undefined => {
       if (typeof v !== "number" && !(typeof v === "string" && /^\d+$/.test(v))) return;
@@ -70,8 +77,9 @@ export function evidenceFromFlashscore(pick: TicketPick, preview: Preview, now =
     // Conflicting score fields indicate an unreliable provider row.
     if (pair && (homeValue !== Number(pair[1]) || awayValue !== Number(pair[2]))) continue;
     seen.add(r.match_id);
-    rows.push({ id: `flashscore:${r.match_id}`, date: r.date, home: r.home_team,
-      away: r.away_team, homeValue, awayValue, period: "match", metric: "score",
+    const native = (name: string) => team(name) === team(pick.home) ? pick.home : team(name) === team(pick.away) ? pick.away : name;
+    rows.push({ id: `flashscore:${r.match_id}`, date: r.date, home: native(r.home_team),
+      away: native(r.away_team), homeValue, awayValue, period: "match", metric: "score",
       source: `https://www.flashscore.com/match/${encodeURIComponent(r.match_id)}/`, corroborated: true });
   }
   return evidence;
@@ -148,7 +156,13 @@ export async function researchFlashscoreEvidence(picks: TicketPick[], config: Co
           Math.abs(Date.parse(f.start_time ?? "") - pick.kickoff!) <= 15 * 60_000 ||
           [f.home_team?.name, f.away_team?.name].some((name) =>
             name && [pick.home, pick.away].some((team) => normalizeName(name) === normalizeName(team))),
-        ).slice(0, 4).map((f) => ({ home: f.home_team?.name, away: f.away_team?.name,
+        ).sort((a, b) => {
+          // Diagnostic ordering only; never used to approve a fixture mapping.
+          const relevance = (f: Fixture) => Number(normalizeName(f.competition?.name ?? "").includes(normalizeName(pick.league))) * 100 +
+            [f.home_team?.name, f.away_team?.name].reduce((score, name, i) => score +
+              normalizeName(name ?? "").split(" ").filter((word) => word.length > 3 && normalizeName(i ? pick.away : pick.home).includes(word)).length, 0);
+          return relevance(b) - relevance(a);
+        }).slice(0, 1).map((f) => ({ home: f.home_team?.name, away: f.away_team?.name,
           league: f.competition?.name, country: f.competition?.country, kickoff: f.start_time, status: f.status }));
         unmatched.set(event, { expected: { home: pick.home, away: pick.away, league: pick.league,
           country: pick.country, kickoff: new Date(pick.kickoff).toISOString() }, candidates });
