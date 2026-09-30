@@ -280,6 +280,7 @@ export async function buildSlip(
   if (!evidence)
     return fail("Historical research took too long. No slip was built.", "analysis_failed");
   analysis.sourceFailures = (evidence as HistoryEvidenceMap).sourceFailures ?? [];
+  analysis.researchFallbackUsed = Boolean((evidence as HistoryEvidenceMap).fallbackUsed);
   analysis.marketOptionsReviewed = historical.length;
   const historyPicks = historical.filter((pick) => {
     const c = canonicalMarket(pick);
