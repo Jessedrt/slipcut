@@ -52,7 +52,7 @@ export type BuildSelection = TicketPick & {
   trackRecord: RecordSummary;
   modelScore: number;
   confidenceLabel: "higher ranking" | "moderate ranking" | "lower ranking";
-  analysisBasis: "source_corroborated_history";
+  analysisBasis: "mathematical_projection";
   riskMode: BuildRisk;
   evidence: EvidenceAssessment;
   summary: string;
@@ -341,7 +341,7 @@ export async function buildSlip(
         trackRecord: evaluateRecord(pick, record),
         modelScore: a.score,
         confidenceLabel: a.score >= 80 ? "higher ranking" : "moderate ranking",
-        analysisBasis: "source_corroborated_history",
+        analysisBasis: "mathematical_projection",
         summary: a.summary,
         reasons: [
           `Price ${pick.odds!.toFixed(2)} passed ${policy.label} (${policy.minOdds.toFixed(2)}–${policy.maxOdds.toFixed(2)}).`,
@@ -349,7 +349,7 @@ export async function buildSlip(
           ...a.sources.map((url) => `Historical source: ${url}`),
         ],
         risks: [
-          "Historical hit rates are not calibrated win probabilities. Odds can change before booking.",
+          "Mathematical probabilities are estimates from available scoring distributions, not guarantees. Odds can change before booking.",
           ...a.warnings,
         ],
       };
