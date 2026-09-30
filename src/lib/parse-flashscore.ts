@@ -21,7 +21,7 @@ type Preview = { match_id?: string; home_team?: string; away_team?: string;
   home_form?: Result[]; away_form?: Result[]; h2h?: Result[] };
 type Config = { apiKey?: string; scraperId?: string; fetcher?: typeof fetch;
   now?: number; maxCalls?: number; store?: ProviderCacheStore | false };
-export type HistoryEvidenceMap = Map<string, Evidence> & { sourceFailures?: string[] };
+export type HistoryEvidenceMap = Map<string, Evidence> & { sourceFailures?: string[]; fallbackUsed?: boolean; fallbackSource?: string };
 const cooldowns = new Map<string, { until: number; reason: string }>();
 let fetchedTimes = new WeakMap<object, number>();
 const cache = new Map<string, { until: number; value: Promise<unknown> }>();
