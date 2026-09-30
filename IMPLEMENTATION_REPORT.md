@@ -286,3 +286,7 @@ classified as match totals. Minute intervals now require their own scoped eviden
 and are skipped; team-named totals use selected-team offense/opponent defense.
 Team-named corner/card scope is also recognized. Added regressions for these actual
 labels and invalidated the engine cache so the affected cards are not served.
+
+Recent-engine-event exclusions are versioned with the selection policy too: an
+invalidated old card must not stop its fixtures being reanalysed with corrected
+market scopes. Existing per-policy event recall and per-ticket deduplication remain.

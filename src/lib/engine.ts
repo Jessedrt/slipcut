@@ -49,7 +49,7 @@ function keyFor(day: string, sport: EngineScope = "all") {
 }
 
 async function loadEngineRecentEventIds(sport: EngineScope): Promise<string[]> {
-  const raw = await getSetting(`engine_recent_events_${sport}`);
+  const raw = await getSetting(`engine_recent_events_${ENGINE_POLICY_VERSION}_${sport}`);
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -66,7 +66,7 @@ async function rememberEngineEventIds(sport: EngineScope, ids: string[]) {
   if (!clean.length) return;
   const previous = await loadEngineRecentEventIds(sport);
   const next = [...clean, ...previous.filter((id) => !clean.includes(id))].slice(0, 140);
-  await setSetting(`engine_recent_events_${sport}`, JSON.stringify(next));
+  await setSetting(`engine_recent_events_${ENGINE_POLICY_VERSION}_${sport}`, JSON.stringify(next));
 }
 
 export async function loadEngineDay(
