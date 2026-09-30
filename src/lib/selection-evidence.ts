@@ -159,10 +159,11 @@ export function assessEvidence(
     ];
     const splitO = offenseRows.filter((r) => same(c.scope === "home" ? r.home : r.away, team));
     const splitD = defenseRows.filter((r) => same(c.scope === "home" ? r.away : r.home, opponent));
-    if (splitO.length < 3 || splitD.length < 3) return null;
     if (
-      splitO.filter((r) => valueFor(r, team) > line).length / splitO.length < p.minHitRate ||
-      splitD.filter((r) => allowedBy(r, opponent) > line).length / splitD.length < p.minHitRate
+      (splitO.length >= 3 &&
+        splitO.filter((r) => valueFor(r, team) > line).length / splitO.length < p.minHitRate) ||
+      (splitD.length >= 3 &&
+        splitD.filter((r) => allowedBy(r, opponent) > line).length / splitD.length < p.minHitRate)
     )
       return null;
   } else {
@@ -185,7 +186,7 @@ export function assessEvidence(
       awayRows.filter((r) => same(r.away, pick.away)),
     ]) {
       if (
-        split.length < 3 ||
+        split.length >= 3 &&
         split.filter((r) => get(r) > line).length / split.length < p.minHitRate
       )
         return null;
@@ -218,9 +219,12 @@ export function assessEvidence(
     })
   )
     return null;
+  const smallestSample = Math.min(...stats.map((s) => s.sample));
+  const samplePenalty = Math.max(0, 5 - smallestSample) * 10;
   const score = Math.round(
     100 * Math.min(...stats.map((s) => s.hitRate)) -
-      (numerical ? 10 * Math.max(...stats.map(consistency)) : 0),
+      (numerical ? 10 * Math.max(...stats.map(consistency)) : 0) -
+      samplePenalty,
   );
   if (score < p.minModelScore) return null;
   return {
@@ -233,7 +237,12 @@ export function assessEvidence(
           `${i === 0 ? "Recent scoring" : c.family === "team_total" ? "Opponent allowed" : "Opponent games"}: ${s.hits} of ${s.sample} ${c.period} results exceeded ${line}; median ${s.median.toFixed(1)}, trimmed mean ${s.trimmedMean.toFixed(1)}.`,
       )
       .join(" "),
-    warnings: evidence.warnings ?? [],
+    warnings: [
+      ...(evidence.warnings ?? []),
+      ...(smallestSample < 5
+        ? [`Limited historical sample: only ${smallestSample} relevant result${smallestSample === 1 ? "" : "s"} in the smallest series; the analysis score was penalized accordingly.`]
+        : []),
+    ],
   };
 }
 
