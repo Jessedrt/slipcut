@@ -385,7 +385,7 @@ export async function buildSlip(
     request.mode === "games" && selections.length < request.games!
       ? `${request.games} games requested; only ${selections.length} qualified selections were available. Evidence thresholds and odds ranges were preserved.`
       : request.mode === "odds" && !targetReached
-        ? `Closest qualified result: ${actualCombinedOdds?.toFixed(2)} versus ${request.targetOdds!.toFixed(2)} target. Only ${distinct.length} events qualified; at most 15 can be booked. No odds range or evidence threshold was relaxed.`
+        ? `Closest qualified result: ${actualCombinedOdds?.toFixed(2)} versus ${request.targetOdds!.toFixed(2)} target. Only ${distinct.length} ${distinct.length === 1 ? "event" : "events"} qualified in ${request.window}. ${request.window !== "upcoming" ? "Try Upcoming to scan more fixtures. " : ""}No odds range or evidence threshold was relaxed.`
         : undefined;
   const notice = targetNotice;
   return {
