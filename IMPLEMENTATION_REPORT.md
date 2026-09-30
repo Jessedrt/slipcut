@@ -277,3 +277,12 @@ The older accuracy gate also blanket-blocked the football win/1X2 family includi
 allowed draws. It now uses the canonical blacklist per pick, keeping draws eligible
 subject to its existing settled-record gate. Straight winners and prohibited double
 chance remain excluded. Added deadline-retention and draw/blacklist regressions.
+
+
+The next real booking run returned football cards but exposed two more native-label
+scope bugs: “Total Goals Over/Under from 1 to 40 minute” was classified as a match
+total, and team-named Over/Under labels with uncatalogued market IDs could be
+classified as match totals. Minute intervals now require their own scoped evidence
+and are skipped; team-named totals use selected-team offense/opponent defense.
+Team-named corner/card scope is also recognized. Added regressions for these actual
+labels and invalidated the engine cache so the affected cards are not served.

@@ -678,3 +678,25 @@ it("optional research deadline preserves already corroborated fixture history", 
   assert.ok(assessEvidence(p, result.get(p.id), "conservative"));
   assert.equal(await beforeResearchDeadline(async () => "fast", Date.now() + 1000), "fast");
 });
+
+it("never analyses arbitrary football minute intervals with final scores", async () => {
+  for (const market of ["Total Goals Over/Under from 1 to 40 minute 0.5", "Goals Over/Under 1-15", "First 10 Minutes Total Goals"]) {
+    const p = pick("interval", 1.34, { market, selection: "Over 0.5",
+      sporty: { eventId: "interval", marketId: "999", outcomeId: "over", specifier: "total=0.5" } });
+    assert.equal(canonicalMarket(p).period, "unknown");
+    assert.equal(automaticMarketAllowed(p), false);
+    assert.equal(assessEvidence(p, history(p), "conservative"), null);
+    assert.equal((await buildSlip({ ...base, risk: "conservative" }, deps([p]))).ok, false);
+  }
+});
+it("team-named provider Over labels use team scoring, never the full-game total", () => {
+  const p = pick("named", 1.3, { home: "Cerro Porteno", away: "Rubio Nu", market: "Cerro Porteno Over/Under 0.5",
+    selection: "Over 0.5", sporty: { eventId: "named", marketId: "999", outcomeId: "over", specifier: "total=0.5" } });
+  assert.equal(canonicalMarket(p).family, "team_total");
+  assert.equal(canonicalMarket(p).scope, "home");
+  const evidence = history(p);
+  evidence.rows.forEach(r => { r.homeValue = 0; r.awayValue = 4; });
+  assert.equal(assessEvidence(p, evidence, "conservative"), null);
+  assert.equal(canonicalMarket({ ...p, market: "Rubio Nu Over/Under 0.5" }).scope, "away");
+  assert.equal(canonicalMarket({ ...p, market: "Cerro Porteno Total Corners" }).scope, "home");
+});

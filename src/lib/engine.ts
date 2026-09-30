@@ -10,7 +10,7 @@ import type { BookSport, TicketPick } from "./types";
 
 /** Five cards, short to long. A longer card is a longer shot. */
 export const ENGINE_LADDER = [2, 3, 5, 8, 12] as const;
-const ENGINE_POLICY_VERSION = "evidence-football-diversity-v5";
+const ENGINE_POLICY_VERSION = "evidence-football-scopes-v6";
 
 export type EngineMarketKind = "first_half_over" | "second_half_over" | "quarter_over" | "team_over" | "full_time_over" | "btts" | "draw" | "home_or_away" | "corners" | "cards" | "supported_single";
 

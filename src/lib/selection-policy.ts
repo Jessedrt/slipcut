@@ -73,6 +73,8 @@ export function canonicalMarket(pick: TicketPick): CanonicalMarket {
   const spec = pick.sporty?.specifier ?? "";
   const id = pick.sporty?.marketId;
   const all = `${m} ${s}`;
+  const namedHome = Boolean(pick.home && ` ${m} `.includes(` ${text(pick.home)} `));
+  const namedAway = Boolean(pick.away && ` ${m} `.includes(` ${text(pick.away)} `));
   let outcome = s;
   if (/\bunder\b|^u\s*\d/.test(s)) outcome = "under";
   else if (/\bover\b|^o\s*\d/.test(s) || /\bo\d/.test(m)) outcome = "over";
@@ -102,7 +104,8 @@ export function canonicalMarket(pick: TicketPick): CanonicalMarket {
     /team total|individual total|(?:home|away).*total|(?:home|away).*goals.*(?:over|total)/.test(
       m,
     ) ||
-    ["23", "24", "227", "228", "69", "70"].includes(id ?? "")
+    ["23", "24", "227", "228", "69", "70"].includes(id ?? "") ||
+    (namedHome !== namedAway && /over|under|total|o\s*\/\s*u/.test(m))
   )
     family = "team_total";
   else if (
@@ -144,14 +147,21 @@ export function canonicalMarket(pick: TicketPick): CanonicalMarket {
   )
     period = "first_half";
   else if (/half/.test(m)) period = "unknown";
+  // Arbitrary minute intervals are not match/half scopes. Final-score sources
+  // cannot establish their result, even when the label says "Total Goals".
+  if (/\bminutes?\b|\bmins?\b/.test(m) ||
+      /\b\d+\s*[-–]\s*\d+\b/.test(pick.market) ||
+      /(?:^|;)(?:from|to|startminute|endminute)=/i.test(spec)) period = "unknown";
   let scope: CanonicalMarket["scope"] = "match";
   if (/\bhome\b/.test(m) || ["23", "227", "69"].includes(id ?? "")) scope = "home";
   else if (/\baway\b/.test(m) || ["24", "228", "70"].includes(id ?? "")) scope = "away";
   else if (family === "team_total") {
-    if (pick.home && m.includes(text(pick.home))) scope = "home";
-    else if (pick.away && m.includes(text(pick.away))) scope = "away";
+    if (namedHome && !namedAway) scope = "home";
+    else if (namedAway && !namedHome) scope = "away";
     else scope = "unknown";
   }
+  else if (["corners", "cards"].includes(family) && namedHome !== namedAway)
+    scope = namedHome ? "home" : "away";
   const raw =
     spec.match(/(?:^|;)total=([+-]?\d+(?:\.\d+)?)/i)?.[1] ??
     s.match(/(?:over|under|^[ou])\s*([+-]?\d+(?:\.\d+)?)/)?.[1] ??
