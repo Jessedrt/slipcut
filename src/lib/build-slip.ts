@@ -62,7 +62,6 @@ export type BuildSelection = TicketPick & {
 
 export type AnalysisDiagnostics = {
   sourceFailures?: string[];
-  historyCoverage?: { eligibleFixtures: number; fixturesWithHistory: number; marketsWithHistory: number };
   discovered: number;
   eligibleBeforeScoring: number;
   researched: number;
@@ -282,16 +281,6 @@ export async function buildSlip(
   analysis.sourceFailures = (evidence as HistoryEvidenceMap).sourceFailures ?? [];
   analysis.researchFallbackUsed = Boolean((evidence as HistoryEvidenceMap).fallbackUsed);
   analysis.marketOptionsReviewed = historical.length;
-  const historyPicks = historical.filter((pick) => {
-    const c = canonicalMarket(pick);
-    const metric = c.family === "corners" ? "corners" : c.family === "cards" ? "cards" : "score";
-    return evidence.get(pick.id)?.rows.some((r) => r.corroborated && r.period === c.period && r.metric === metric);
-  });
-  analysis.historyCoverage = {
-    eligibleFixtures: new Set(historical.map((p) => p.sporty?.eventId)).size,
-    fixturesWithHistory: new Set(historyPicks.map((p) => p.sporty?.eventId)).size,
-    marketsWithHistory: historyPicks.length,
-  };
   const assessments = new Map<string, EvidenceAssessment>();
   const inspected = new Set<string>();
   for (const pick of historical) {
@@ -370,16 +359,12 @@ export async function buildSlip(
   analysis.rejected.duplicateEvents = scored.length - distinct.length;
   analysis.qualifiedGames = distinct.length;
   if (!distinct.length) {
-    const coverage = analysis.historyCoverage;
-    if (coverage.fixturesWithHistory === 0 && analysis.sourceFailures.length)
-      return fail(`Historical statistics unavailable: ${[...new Set(analysis.sourceFailures)].join("; ")}. SportyBet supplied ${coverage.eligibleFixtures} eligible fixtures, but their history could not be verified.`, "analysis_failed");
-    if (coverage.fixturesWithHistory < coverage.eligibleFixtures)
-      return fail(
-        `Historical score coverage is incomplete: results matched ${coverage.fixturesWithHistory} of ${coverage.eligibleFixtures} fixtures. No available selection could be verified for ${policy.label}.`,
-        coverage.fixturesWithHistory === 0 ? "analysis_failed" : "no_eligible_markets",
-      );
+    const providerNote = analysis.sourceFailures.length
+      ? ` History providers reported: ${[...new Set(analysis.sourceFailures)].join("; ")}.`
+      : "";
     return fail(
-      `Insufficient qualified selections: none passed ${policy.label}'s sample, exact-line hit-rate, scope and consistency requirements. Missing statistics were not guessed.`,
+      `No selections passed ${policy.label}'s analysis requirements.${providerNote}`,
+      "no_eligible_markets",
     );
   }
   // Both sports use the same deterministic nearest-target search over qualified events.
