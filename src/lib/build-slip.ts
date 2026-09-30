@@ -51,8 +51,8 @@ export type RiskPolicy = {
 export type BuildSelection = TicketPick & {
   trackRecord: RecordSummary;
   modelScore: number;
-  confidenceLabel: "higher ranking" | "moderate ranking" | "lower ranking";
-  analysisBasis: "mathematical_projection";
+  confidenceLabel: "higher ranking" | "moderate ranking" | "lower ranking" | "limited analysis";
+  analysisBasis: "mathematical_projection" | "market_only";
   riskMode: BuildRisk;
   evidence: EvidenceAssessment;
   summary: string;
@@ -271,15 +271,16 @@ export async function buildSlip(
       dependencies.analysisTimeoutMs ?? 38_000,
     );
   } catch {
-    return fail(
-      "Historical statistics could not be retrieved. No unsupported selections were added.",
-      "analysis_failed",
-    );
+    evidence = null;
+    analysis.sourceFailures = ["Historical statistics unavailable"];
   }
-  if (!evidence)
-    return fail("Historical research took too long. No slip was built.", "analysis_failed");
-  analysis.sourceFailures = (evidence as HistoryEvidenceMap).sourceFailures ?? [];
-  analysis.researchFallbackUsed = Boolean((evidence as HistoryEvidenceMap).fallbackUsed);
+  if (!evidence) {
+    analysis.sourceFailures ??= ["Historical research timed out"];
+    evidence = new Map();
+    analysis.researchFallbackUsed = true;
+  }
+  analysis.sourceFailures = (evidence as HistoryEvidenceMap).sourceFailures ?? analysis.sourceFailures ?? [];
+  analysis.researchFallbackUsed ||= Boolean((evidence as HistoryEvidenceMap).fallbackUsed);
   analysis.marketOptionsReviewed = historical.length;
   const assessments = new Map<string, EvidenceAssessment>();
   const inspected = new Set<string>();
@@ -355,6 +356,25 @@ export async function buildSlip(
       };
     })
     .sort((a, b) => b.modelScore - a.modelScore || a.odds! - b.odds!);
+  // Missing statistics are not negative evidence. Keep live, refreshed options
+  // available without claiming a projection or turning odds into confidence.
+  // Rows that were actually assessed and rejected never enter this fallback.
+  const marketOnly: BuildSelection[] = historical
+    .filter((pick) => !evidence.get(pick.id)?.rows.length && !assessments.has(pick.id))
+    .map((pick) => ({
+      ...pick,
+      riskMode: request.risk,
+      evidence: { score: 0, summary: "Historical statistics unavailable.", series: [], sources: [], warnings: [] },
+      trackRecord: evaluateRecord(pick, record),
+      modelScore: 0, // Sorting sentinel only; never displayed as a confidence score.
+      confidenceLabel: "limited analysis",
+      analysisBasis: "market_only",
+      summary: "Live SportyBet selection. Historical statistics are unavailable; this pick has not passed statistical analysis.",
+      reasons: [`Current price ${pick.odds!.toFixed(2)} is within ${policy.label}'s odds range.`],
+      risks: ["Limited analysis: no statistical confidence estimate is available."],
+    }));
+  if (marketOnly.length) analysis.researchFallbackUsed = true;
+  scored.push(...marketOnly);
   const distinct = rankDistinctSelections(scored);
   analysis.rejected.duplicateEvents = scored.length - distinct.length;
   analysis.qualifiedGames = distinct.length;
@@ -383,11 +403,15 @@ export async function buildSlip(
     window: request.window, ok: true, actualCombinedOdds, analysis }));
   const targetNotice =
     request.mode === "games" && selections.length < request.games!
-      ? `${request.games} games requested; only ${selections.length} qualified selections were available. Evidence thresholds and odds ranges were preserved.`
+      ? `${request.games} games requested; only ${selections.length} available selections matched your settings. Odds ranges and market rules were preserved.`
       : request.mode === "odds" && !targetReached
-        ? `Closest qualified result: ${actualCombinedOdds?.toFixed(2)} versus ${request.targetOdds!.toFixed(2)} target. Only ${distinct.length} ${distinct.length === 1 ? "event" : "events"} qualified in ${request.window}. ${request.window !== "upcoming" ? "Try Upcoming to scan more fixtures. " : ""}No odds range or evidence threshold was relaxed.`
+        ? `Closest available result: ${actualCombinedOdds?.toFixed(2)} versus ${request.targetOdds!.toFixed(2)} target. Only ${distinct.length} ${distinct.length === 1 ? "event" : "events"} qualified in ${request.window}. ${request.window !== "upcoming" ? "Try Upcoming to scan more fixtures. " : ""}No odds range or market rule was relaxed.`
         : undefined;
-  const notice = targetNotice;
+  const limitedCount = selections.filter((p) => p.analysisBasis === "market_only").length;
+  const notice = [
+    limitedCount ? `${limitedCount} selections have limited analysis because historical statistics are unavailable. Live prices and market rules were checked; no confidence score is claimed.` : undefined,
+    targetNotice,
+  ].filter(Boolean).join(" ") || undefined;
   return {
     ok: true,
     requested: request,

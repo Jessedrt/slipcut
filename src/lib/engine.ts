@@ -180,7 +180,7 @@ async function poolForEngine(
       return built;
     }),
   );
-  const ranked = results.flatMap((r) => r.ok ? r.selections : []).sort((a, b) => b.modelScore - a.modelScore);
+  const ranked = results.flatMap((r) => r.ok ? r.selections.filter((p) => p.analysisBasis === "mathematical_projection") : []).sort((a, b) => b.modelScore - a.modelScore);
   const failures = results.flatMap((r) => r.ok ? [] : [r.error]);
   const gated = accuracyFilter(ranked, await loadAccuracy());
   if (gated.kept.length < 2)

@@ -247,8 +247,9 @@ function SelectionCard({
                 {pick.odds ? formatOdds(pick.odds) : "—"}
               </p>
               <p className="text-[10px] text-[#7f6653]">
-                {"analysisBasis" in pick ? "Ranking score" : "Uncalibrated AI score"}{" "}
-                {Math.round(score)}/100
+                {"analysisBasis" in pick && pick.analysisBasis === "market_only"
+                  ? "Limited analysis · unscored"
+                  : `${"analysisBasis" in pick ? "Ranking score" : "Uncalibrated AI score"} ${Math.round(score)}/100`}
               </p>
             </div>
           </div>
@@ -259,8 +260,9 @@ function SelectionCard({
           {"analysisBasis" in pick && (
             <>
               <p className="mt-2 text-[11px] font-bold text-[#765039]">
-                AI-reviewed · match facts unverified
-                {` · ${pick.confidenceLabel}`}
+                {pick.analysisBasis === "market_only"
+                  ? "Live market · historical statistics unavailable"
+                  : `Statistical analysis · ${pick.confidenceLabel}`}
               </p>
               <p className="mt-1 text-[11px] font-medium text-[#7a6758]">
                 {pick.trackRecord.status === "qualified"
@@ -442,7 +444,7 @@ export function MiniAppRefresh() {
           result.code === "no_events" && windowChoice === "today"
             ? " Try Upcoming to widen the fixture window."
             : result.code === "no_eligible_markets"
-              ? " The filters were not weakened and no unsupported selection was added."
+              ? " No live selections matched your odds range and market rules."
               : "";
         setError(`${result.error}${suggestion}`);
       } else {
@@ -919,9 +921,9 @@ export function MiniAppRefresh() {
                   />
                   <p className="mt-2 text-[11px] leading-4 text-[#7f6b5b]">
                     {risk === "conservative"
-                      ? "Conservative: 1.20–1.40 per selection · minimum analysis score 45 · no fixed history-count gate."
+                      ? "Conservative: 1.20–1.40 per selection · statistics used when available · limited-analysis picks otherwise."
                       : risk === "balanced"
-                        ? "Balanced: 1.40–1.80 per selection · minimum analysis score 40 · no fixed history-count gate."
+                        ? "Balanced: 1.40–1.80 per selection · statistics used when available · limited-analysis picks otherwise."
                         : "Aggressive: 1.16–2.75 odds · model score 45+ · wider qualifying price range and higher variance."}
                     {" "}It is not a safety guarantee.
                   </p>

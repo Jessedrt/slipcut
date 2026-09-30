@@ -138,13 +138,15 @@ describe("risk boundaries through backend build", () => {
     assert.equal((await buildSlip({ ...base, risk: "conservative" }, d)).ok, true);
     assert.equal((await buildSlip(base, d)).ok, true);
   });
-  it("missing history is not expressed as a fixture-coverage gate", async () => {
+  it("returns live unscored selections when history is missing", async () => {
     const p = pick("missing", 1.3);
     const r = await buildSlip({ ...base, risk: "conservative" }, deps([p], { evidence: async () => new Map() }));
-    assert.equal(r.ok, false);
-    if (!r.ok) {
-      assert.equal(r.code, "no_eligible_markets");
-      assert.doesNotMatch(r.error, /matched \d+ of \d+ fixtures|coverage/i);
+    assert.ok(r.ok);
+    if (r.ok) {
+      assert.equal(r.selections[0].analysisBasis, "market_only");
+      assert.equal(r.selections[0].confidenceLabel, "limited analysis");
+      assert.deepEqual(r.selections[0].sporty, p.sporty);
+      assert.match(r.notice!, /limited analysis/);
     }
   });
   it("Balanced accepts supported moderate variance rejected by Conservative", () => {
@@ -388,7 +390,11 @@ describe("complete build to booking behavior", () => {
         }),
       }),
     );
-    assert.equal(r.ok, false);
+    assert.ok(r.ok);
+    if (r.ok) {
+      assert.equal(r.selections[0].analysisBasis, "market_only");
+      assert.equal(r.selections[0].modelScore, 0);
+    }
   });
   it("rejects suspended/unavailable events before analysis", async () => {
     const p = pick("a");
@@ -419,8 +425,8 @@ describe("complete build to booking behavior", () => {
       base,
       deps([pick("a")], { analysisTimeoutMs: 5, evidence: async () => new Promise(() => {}) }),
     );
-    assert.equal(r.ok, false);
-    if (!r.ok) assert.equal(r.code, "analysis_failed");
+    assert.ok(r.ok);
+    if (r.ok) assert.equal(r.selections[0].analysisBasis, "market_only");
   });
   it("retains risk and exact analysed IDs through real booking function", async () => {
     const p = pick("a", 1.3),
@@ -720,11 +726,47 @@ it("reports upstream history limits instead of blaming risk evidence", async () 
   const r = await buildSlip(base, deps([p], { evidence: async () => Object.assign(new Map(), {
     sourceFailures: ["Parse HTTP 429: request rate or quota limit"],
   }) }));
-  assert.equal(r.ok, false);
-  if (!r.ok) {
-    assert.equal(r.code, "analysis_failed");
-    assert.match(r.error, /Parse HTTP 429/);
-    assert.match(r.error, /SportyBet supplied 1 eligible fixtures/);
-    assert.doesNotMatch(r.error, /none passed/);
+  assert.ok(r.ok);
+  if (r.ok) {
+    assert.equal(r.selections[0].analysisBasis, "market_only");
+    assert.match(r.analysis.sourceFailures![0], /Parse HTTP 429/);
   }
+});
+
+it("provider exceptions return only refreshed distinct options in the requested range", async () => {
+  const a = pick("a", 1.3);
+  const duplicate = { ...a, id: "duplicate" };
+  const r = await buildSlip({ ...base, risk: "conservative" }, deps([a, duplicate, pick("expensive", 1.8)], {
+    evidence: async () => { throw new Error("quota"); },
+  }));
+  assert.ok(r.ok);
+  if (r.ok) {
+    assert.equal(r.actualGames, 1);
+    assert.equal(r.selections[0].odds, 1.3);
+    assert.equal(r.selections[0].analysisBasis, "market_only");
+  }
+});
+it("ranks supported evidence before missing-history alternatives", async () => {
+  const a = pick("supported", 1.6), b = pick("unknown", 1.4);
+  const r = await buildSlip(base, deps([b, a], { evidence: async () => new Map([[a.id, history(a)]]) }));
+  assert.ok(r.ok);
+  if (r.ok) assert.deepEqual(r.selections.map(p => p.analysisBasis), ["mathematical_projection", "market_only"]);
+});
+
+it("basketball quota fallback keeps only allowed Over markets", async () => {
+  const p = pick("basketball", 1.3, { sport: "basketball", league: "NBA", market: "Total Points", selection: "Over 160.5", sporty: { eventId: "basketball", marketId: "18", outcomeId: "over", specifier: "total=160.5" } });
+  const under = { ...p, id: "under", selection: "Under 160.5", sporty: { ...p.sporty!, outcomeId: "under" } };
+  const r = await buildSlip({ ...base, sport: "basketball", risk: "conservative" }, deps([under, p], { evidence: async () => new Map() }));
+  assert.ok(r.ok);
+  if (r.ok) {
+    assert.equal(r.actualGames, 1);
+    assert.equal(r.selections[0].id, p.id);
+    assert.equal(r.selections[0].analysisBasis, "market_only");
+  }
+});
+it("missing-history fallback never reinstates an evidence-rejected selection", async () => {
+  const bad = pick("bad", 1.6), unknown = pick("unknown", 1.6);
+  const r = await buildSlip(base, deps([bad, unknown], { evidence: async () => new Map([[bad.id, history(bad, 10, Array(10).fill(0))]]) }));
+  assert.ok(r.ok);
+  if (r.ok) assert.deepEqual(r.selections.map(p => p.id), [unknown.id]);
 });
