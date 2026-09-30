@@ -20,6 +20,21 @@ const BASKETBALL_ALIASES: Record<string, string> = {
   "besiktas jk": "besiktas",
   "cs dinamo bucuresti": "dinamo bucharest",
   "kb peja": "peja",
+  // Verified from production mapping diagnostics on 2026-09-30.
+  "sluneta usti nad labem": "usti n labem",
+  "bk opava": "opava",
+  "sokol pisek": "srsni pisek",
+  "bk pardubice": "pardubice",
+  "paok bc": "paok",
+  "basquet manresa": "manresa",
+  "bc lietkabelis panevezys": "lietkabelis",
+  "kk bosna royal sarajevo": "kk bosna",
+  "ratiopharm ulm": "ulm",
+  "balkan botevgrad": "balkan",
+  "derthona basket": "tortona",
+  "bahcesehir koleji": "bahcesehir kol",
+  "bc roma spqr": "bc roma",
+  "sydney kings": "sydney",
 };
 export function providerTeamName(value: string, sport: string): string {
   const name = normalizeName(value);
