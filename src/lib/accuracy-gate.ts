@@ -1,3 +1,4 @@
+import { automaticMarketAllowed } from "./selection-policy";
 import { marketFamily } from "./sportybet.ts";
 import type { TicketPick } from "./types.ts";
 
@@ -29,8 +30,9 @@ export type AccuracyStats = {
 /**
  * Whether a given sport+family is allowed under the accuracy restriction.
  *
- * - The `win` / 1X2 family (draws + straight home/away wins) is always dropped
- *   for football and basketball.
+ * - Basketball winner markets are always dropped. Football draws follow the
+ *   same record gate as other eligible single markets; straight wins are
+ *   rejected by the canonical selection blacklist.
  * - Until the engine has enough settled legs the gate is permissive (it cannot
  *   judge a record it has not built yet).
  * - Once there is history, a group is only kept if its settled record is at or
@@ -42,7 +44,7 @@ export function groupAllowed(
   family: string,
   stats: AccuracyStats,
 ): boolean {
-  if ((sport === "football" || sport === "basketball") && family === "win") {
+  if (sport === "basketball" && family === "win") {
     return false;
   }
   if (stats.sampleCount < MIN_TOTAL_SAMPLES) return true;
@@ -64,6 +66,8 @@ export function accuracyFilter<T extends TicketPick>(
   picks: T[],
   stats: AccuracyStats,
 ): { kept: T[]; dropped: number } {
-  const kept = picks.filter((p) => groupAllowed(p.sport, pickFamily(p), stats));
+  const kept = picks.filter((p) =>
+    (!["football", "basketball"].includes(p.sport) || automaticMarketAllowed(p)) &&
+    groupAllowed(p.sport, pickFamily(p), stats));
   return { kept, dropped: picks.length - kept.length };
 }

@@ -11,7 +11,7 @@ function pick(sport: SportKind, market: string, marketId: string): TicketPick {
     home: "A",
     away: "B",
     market,
-    selection: "Over 2.5",
+    selection: marketId === "10" ? "Home or Away" : marketId === "1" ? "Home Win" : "Over 2.5",
     sporty: { eventId: "1", marketId, outcomeId: "1" },
   };
 }
@@ -25,9 +25,9 @@ function stats(
 }
 
 describe("accuracy-led engine gate", () => {
-  it("always drops the win/1X2 family for football and basketball", () => {
+  it("keeps football draw families available but drops basketball winners", () => {
     const s = stats(0.5, 40, {});
-    assert.equal(groupAllowed("football", "win", s), false);
+    assert.equal(groupAllowed("football", "win", s), true);
     assert.equal(groupAllowed("basketball", "win", s), false);
     assert.equal(groupAllowed("tennis", "win", s), true);
   });
@@ -81,4 +81,12 @@ describe("accuracy-led engine gate", () => {
     // the dropped one is the win/1X2 family
     assert.equal(kept.some((p) => (p.sporty?.marketId ?? "") === "1"), false);
   });
+});
+
+it("canonical record gate blocks straight wins and 1X/X2 while permitting supported draws", () => {
+  const draw = { ...pick("football", "1X2", "1"), selection: "Draw" };
+  const home = { ...draw, selection: "Home Win" };
+  const dc = { ...pick("football", "Double Chance", "10"), selection: "Home or Draw" };
+  const result = accuracyFilter([draw, home, dc], stats());
+  assert.deepEqual(result.kept, [draw]);
 });

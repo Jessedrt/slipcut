@@ -266,3 +266,14 @@ ordinary goal-count dispersion versus outlier-driven history, complete builder
 option comparison, same-fixture deduplication, equal-score market/card diversification
 and broader football engine classification. Complete tests, typecheck and build pass;
 live production verification follows deployment.
+
+
+Fresh production verification found a further root cause: Parse successfully
+matched 9 football fixtures and returned 43 market histories, but optional
+You.com enrichment exceeded the outer 38-second build deadline, discarding those
+completed results. Optional enrichment now has a hard shared deadline and cannot
+mutate returned evidence after expiry; completed corroborated histories survive.
+The older accuracy gate also blanket-blocked the football win/1X2 family including
+allowed draws. It now uses the canonical blacklist per pick, keeping draws eligible
+subject to its existing settled-record gate. Straight winners and prohibited double
+chance remain excluded. Added deadline-retention and draw/blacklist regressions.

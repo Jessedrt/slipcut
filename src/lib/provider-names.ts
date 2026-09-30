@@ -39,6 +39,9 @@ const BASKETBALL_ALIASES: Record<string, string> = {
 // Exact pairs observed in live SportyBet/FlashScore fixture responses.
 const FOOTBALL_ALIASES: Record<string, string> = {
   "los chankas cyc": "los chankas",
+  "olympique lyon w": "ol lyonnes w",
+  "gosport borough": "gosport",
+  "bracknell town": "bracknell",
   "frome town": "frome",
   "taunton town": "taunton",
   "eastleigh": "eastleigh",

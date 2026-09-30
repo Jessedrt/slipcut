@@ -7,7 +7,7 @@ import {
   type BuildSlipRequest,
 } from "./build-slip";
 import { canonicalMarket, automaticMarketAllowed, riskOddsAllowed, SELECTION_POLICIES } from "./selection-policy";
-import { assessEvidence, summarize, type Evidence, type HistoryRow } from "./selection-evidence";
+import { assessEvidence, beforeResearchDeadline, summarize, type Evidence, type HistoryRow } from "./selection-evidence";
 import { mintReviewedSlip } from "./book-slip";
 import { clearSportyCacheForTests, listUpcomingPicks } from "./sportybet";
 import type { TicketPick } from "./types";
@@ -668,4 +668,13 @@ it("actual builder compares every qualified fixture option and diversifies only 
     assert.equal(new Set(r.selections.map(p => p.sporty?.eventId)).size, 2);
     assert.equal(r.analysis.marketOptionsReviewed, 3);
   }
+});
+
+it("optional research deadline preserves already corroborated fixture history", async () => {
+  const p = pick("completed", 1.3), evidence = history(p);
+  const result = new Map([[p.id, evidence]]);
+  const optional = await beforeResearchDeadline(() => new Promise<void>(() => {}), Date.now() + 20);
+  assert.equal(optional, undefined);
+  assert.ok(assessEvidence(p, result.get(p.id), "conservative"));
+  assert.equal(await beforeResearchDeadline(async () => "fast", Date.now() + 1000), "fast");
 });

@@ -238,6 +238,20 @@ export function assessEvidence(
 
 const TRUSTED =
   /(^|\.)(espn\.com|nba\.com|wnba\.com|fiba\.basketball|euroleaguebasketball\.net|basketball-reference\.com|fbref\.com|worldfootball\.net|soccerway\.com|flashscore\.com)$/;
+/** Optional enrichment cannot discard evidence already returned by source adapters. */
+export async function beforeResearchDeadline<T>(work: () => Promise<T>, deadline: number): Promise<T | undefined> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work(),
+      new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), remaining); }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 /** Research responses are only candidates for evidence. Corroborate against readable source text. */
 export async function researchSelectionEvidence(
   picks: TicketPick[],
@@ -272,7 +286,7 @@ export async function researchSelectionEvidence(
   const jobs = [...groups.values()];
   let cursor = 0;
   const sources = new Map<string, Promise<string>>();
-  await Promise.all(
+  await beforeResearchDeadline(() => Promise.all(
     Array.from({ length: Math.min(4, jobs.length) }, async () => {
       while (cursor < jobs.length && Date.now() < deadline) {
         const group = jobs[cursor++]!;
@@ -282,7 +296,7 @@ export async function researchSelectionEvidence(
           const query = `Last 10 games each ${pick.home} / ${pick.away} (${pick.sport}), ONLY ${c.period} ${metricFor(pick)}. JSON {"rows":[{"date":"YYYY-MM-DD","home":"team","away":"team","homeValue":0,"awayValue":0,"source":"https://result-page"}]}. Exact sourced results, no estimates; omit missing scope. ESPN/official league/FIBA/FBref.`;
           // A truncated query must never lose its scope/schema.
           if (query.length > 400) continue;
-          const answer = await youAnswer(query, 10_000);
+          const answer = await youAnswer(query, Math.max(1, Math.min(10_000, deadline - Date.now())));
           const json = answer.match(/\{[\s\S]*\}/)?.[0];
           const parsed = json ? JSON.parse(json) : null;
           if (!Array.isArray(parsed?.rows)) continue;
@@ -350,6 +364,7 @@ export async function researchSelectionEvidence(
               "Injuries, pace, season ratings, rest and travel were not independently verified.",
             ],
           };
+          if (Date.now() >= deadline) break;
           for (const option of group) {
             if ((result.get(option.id)?.rows.length ?? 0) < evidence.rows.length)
               result.set(option.id, evidence);
@@ -359,6 +374,6 @@ export async function researchSelectionEvidence(
         }
       }
     }),
-  );
+  ), deadline);
   return result;
 }
