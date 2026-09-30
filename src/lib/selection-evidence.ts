@@ -4,7 +4,7 @@ import { canonicalMarket, SELECTION_POLICIES, type SelectionRisk } from "./selec
 import { normalizeName } from "./bookmakers/normalize";
 import { providerTeamName } from "./provider-names";
 import { refreshKeys } from "./keys";
-import { youAnswer, youContents, youKeys } from "./you";
+import { youAnswer, youContents, youKeys, youResearch } from "./you";
 import type { TicketPick } from "./types";
 
 export type HistoryRow = {
@@ -349,11 +349,19 @@ export async function researchSelectionEvidence(
           const query = `Last 10 games each ${pick.home} / ${pick.away} (${pick.sport}), ONLY ${c.period} ${metricFor(pick)}. JSON {"rows":[{"date":"YYYY-MM-DD","home":"team","away":"team","homeValue":0,"awayValue":0,"source":"https://result-page"}]}. Exact sourced results, no estimates; omit missing scope. ESPN/official league/FIBA/FBref.`;
           // A truncated query must never lose its scope/schema.
           if (query.length > 400) continue;
-          const answer = await youAnswer(
+          let answer = await youAnswer(
             query,
             Math.max(1, Math.min(fastWebFallback ? 6_000 : 10_000, deadline - Date.now())),
+            fastWebFallback ? null : "week",
           );
-          const json = answer.match(/\{[\s\S]*\}/)?.[0];
+          let json = answer.match(/\{[\s\S]*\}/)?.[0];
+          if (!json && fastWebFallback && Date.now() < deadline - 2_000) {
+            answer = await youResearch(
+              `${query} Return ONLY the requested JSON object. Do not explain missing context; search the web for exact completed results and omit any row you cannot source.`,
+              Math.max(1, Math.min(8_000, deadline - Date.now())),
+            );
+            json = answer.match(/\{[\s\S]*\}/)?.[0];
+          }
           if (fastWebFallback && fallbackSamples < 2) {
             fallbackSamples++;
             console.info(
