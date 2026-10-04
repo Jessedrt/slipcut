@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "node scripts/with-app-env.mjs vite dev --host 0.0.0.0 --port 8080",
-    "build": "node scripts/restore-telegram.mjs && node scripts/exclude-weak-leagues.mjs && node scripts/expand-markets.mjs && node scripts/quality-cook.mjs && node scripts/with-app-env.mjs vite build && npm run db:migrate && node scripts/set-webhook.mjs",
+    "build": "node scripts/restore-telegram.mjs && node scripts/exclude-weak-leagues.mjs && node scripts/expand-markets.mjs && node scripts/quality-cook.mjs && node scripts/fix-slipcut-runtime.mjs && node scripts/with-app-env.mjs vite build && npm run db:migrate && node scripts/set-webhook.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "build:dev": "node scripts/with-app-env.mjs vite build --mode development",
     "preview": "node scripts/with-app-env.mjs vite preview",
@@ -70,7 +70,8 @@
     "@types/pg": "^8.23.1",
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
-    "@vitejs/plugin-react": "^5.0.3",
+    "better-auth": "~1.6.30",
+    "class-variance-authority": "^0.7.1",
     "eslint": "^10.11.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",
