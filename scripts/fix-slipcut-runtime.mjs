@@ -117,8 +117,8 @@ removeBefore(
 
 patch("src/components/mini-app-refresh.tsx", [
   [
-    '        <div className="grid grid-cols-5 gap-1">',
-    '        <div className="grid grid-cols-4 gap-1">',
+    `        <div className="grid grid-cols-5 gap-1">\n          {(\n            [\n              { id: "build", label: "Build", icon: Sparkles },`,
+    `        <div className="grid grid-cols-4 gap-1">\n          {(\n            [\n              { id: "build", label: "Build", icon: Sparkles },`,
     "four-item bottom navigation",
   ],
   [
