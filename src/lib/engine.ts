@@ -5,12 +5,13 @@ import { automaticMarketAllowed, canonicalMarket, riskOddsAllowed } from "./sele
 import { accuracyFilter, loadAccuracy } from "./accuracy";
 import { listUpcomingPicks, sportyOf, type CookWindow } from "./sportybet";
 import { getSetting, listChats, recordSlip, setSetting, studyCode } from "./study";
-import { combinedOdds, formatOdds, uniqueEvents } from "./workbench";
+import { buildToOdds, combinedOdds, formatOdds, uniqueEvents } from "./workbench";
 import type { BookSport, TicketPick } from "./types";
 
-/** Five cards, short to long. A longer card is a longer shot. */
-export const ENGINE_LADDER = [2, 3, 5, 8, 12] as const;
-const ENGINE_POLICY_VERSION = "evidence-football-scopes-v6";
+/** Independent target-odds cards, from short to long. */
+export const ENGINE_LADDER = [2, 3, 5, 10, 20, 50] as const;
+const ENGINE_MAX_LEGS = 15;
+const ENGINE_POLICY_VERSION = "odds-target-ladder-v7";
 
 export type EngineMarketKind = "first_half_over" | "second_half_over" | "quarter_over" | "team_over" | "full_time_over" | "btts" | "draw" | "home_or_away" | "corners" | "cards" | "supported_single";
 
@@ -25,6 +26,8 @@ export type EngineLeg = {
 
 export type EngineCard = {
   n: number;
+  targetOdds: number;
+  targetReached: boolean;
   code: string;
   url: string;
   odds: number | null;
@@ -153,10 +156,9 @@ async function poolForEngine(
   const skip = await loadEngineRecentEventIds(sport);
   let listed = await discoverEngineMarkets("today" as CookWindow, skip, sport);
 
-  // A five-card ladder only needs twelve distinct events when cards may share
-  // strong selections. If today is thin, widen to upcoming instead of leaving
-  // the entire engine empty.
-  if (uniqueEvents(listed).picks.length < ENGINE_LADDER[ENGINE_LADDER.length - 1]) {
+  // A 50x Conservative target normally needs roughly 12-15 distinct events.
+  // If today is thin, widen to upcoming instead of leaving the engine empty.
+  if (uniqueEvents(listed).picks.length < ENGINE_MAX_LEGS) {
     const upcoming = await discoverEngineMarkets("upcoming" as CookWindow, skip, sport);
     const seen = new Set(listed.map((pick) => pick.id));
     listed = [...listed, ...upcoming.filter((pick) => !seen.has(pick.id))];
@@ -174,18 +176,38 @@ async function poolForEngine(
   const results = await Promise.all(
     (sport === "all" ? (["football", "basketball"] as const) : [sport]).map(async (item) => {
       const built = await buildSlip(
-        { sport: item, mode: "games", games: 15, risk: "conservative", window: "upcoming" },
+        { sport: item, mode: "games", games: ENGINE_MAX_LEGS, risk: "conservative", window: "upcoming" },
         { discover: async () => listed.filter((p) => p.sport === item) },
       );
       return built;
     }),
   );
-  const ranked = results.flatMap((r) => r.ok ? r.selections.filter((p) => p.analysisBasis === "mathematical_projection") : []).sort((a, b) => b.modelScore - a.modelScore);
-  const failures = results.flatMap((r) => r.ok ? [] : [r.error]);
+  const ranked = results
+    .flatMap((r) =>
+      r.ok ? r.selections.filter((p) => p.analysisBasis === "mathematical_projection") : [],
+    )
+    .sort((a, b) => b.modelScore - a.modelScore);
+  const failures = results.flatMap((r) => (r.ok ? [] : [r.error]));
+  if (ranked.length < 2) {
+    return {
+      error: failures.length
+        ? [...new Set(failures)].join(" ")
+        : "Insufficient evidence-qualified Conservative selections for engine cards.",
+    };
+  }
+
+  // Settled accuracy remains the first ranking gate, but it is no longer an
+  // all-or-nothing blocker. Proven-above-bar families lead the pool; other
+  // evidence-qualified mathematical selections may fill longer target cards.
+  // This prevents a 63% rolling bar from reducing an otherwise valid day to a
+  // single 2-leg card, while still preferring the engine's best track record.
   const gated = accuracyFilter(ranked, await loadAccuracy());
-  if (gated.kept.length < 2)
-    return { error: failures.length ? [...new Set(failures)].join(" ") : "Insufficient evidence-qualified Conservative selections for engine cards." };
-  return gated.kept;
+  const preferredIds = new Set(gated.kept.map((pick) => pick.id));
+  const ordered = [
+    ...gated.kept,
+    ...ranked.filter((pick) => !preferredIds.has(pick.id)),
+  ];
+  return ordered;
 }
 
 export async function buildEngineCards(
@@ -195,27 +217,45 @@ export async function buildEngineCards(
   if ("error" in ranked) return ranked;
   const cards: EngineCard[] = [];
   const priorUses = new Map<string, number>();
-  for (const n of ENGINE_LADDER) {
-    // Cards are separate products, so a strong event may appear on more than
-    // one ladder card. Requiring disjoint cards needed 30 unique events and was
-    // the main reason the daily engine often issued nothing.
-    const take = selectDiversifiedEngineCard(ranked, n, priorUses);
-    if (take.length < n) continue;
+  const seenCards = new Set<string>();
+
+  for (const targetOdds of ENGINE_LADDER) {
+    // Each target is an independent product. Strong selections may appear on
+    // several cards, but prior-use ranking encourages variety when strength is
+    // comparable. buildToOdds finds the nearest subset instead of treating the
+    // ladder numbers as leg counts.
+    const ordered = selectDiversifiedEngineCard(ranked, ranked.length, priorUses);
+    const take = buildToOdds(ordered, targetOdds);
+    if (take.length < 2) continue;
+
+    const signature = take
+      .map((pick) => pick.sporty?.eventId ?? pick.id)
+      .sort()
+      .join("|");
+    if (seenCards.has(signature)) continue;
+
     const selections = sportyOf(take);
     if (selections.length !== take.length) continue;
     const minted = await mintReviewedSlip(take, "ng", undefined, { acceptOddsChanges: false });
     if (!minted.ok) continue;
     await recordSlip(minted.shareCode, take);
+    seenCards.add(signature);
     for (const pick of take) priorUses.set(pick.id, (priorUses.get(pick.id) ?? 0) + 1);
     await rememberEngineEventIds(
       sport,
       take.map((p) => p.sporty?.eventId).filter((id): id is string => Boolean(id)),
     );
+
+    const odds = combinedOdds(take);
+    const targetReached =
+      odds !== null && Math.abs(Math.log(odds / targetOdds)) <= Math.log(1.05);
     cards.push({
-      n,
+      n: take.length,
+      targetOdds,
+      targetReached,
       code: minted.shareCode,
       url: minted.shareURL,
-      odds: combinedOdds(take),
+      odds,
       games: take.length,
       legs: take.map((pick) => ({
         home: pick.home,
@@ -267,18 +307,20 @@ export function engineIntro(accSample: number, average: number) {
   return [
     "<b>Engine Accumulators</b>",
     "",
-    "The engine builds these itself. It may only use sports and prediction types whose settled record beats its own average hit rate.",
-    "Cards use evidence-qualified Conservative selections at 1.20–1.40 per leg. Each fixture appears once; market variety follows statistical support.",
+    "The engine builds separate 2×, 3×, 5×, 10×, 20× and 50× target cards from evidence-qualified Conservative selections.",
+    "Settled hit rate prioritises stronger market families first; other mathematically qualified selections can fill longer cards when needed.",
+    "Cards use 1.20–1.40 per leg. Each fixture appears once inside a card; strong selections may repeat across different target cards.",
     "",
-    `Five cards go out daily. Settled hit rate: <b>${rate}</b> · ${accSample} legs.`,
-    "Nothing here is advice — a longer card is a longer shot.",
+    `Settled hit rate: <b>${rate}</b> · ${accSample} legs.`,
+    "Nothing here is advice — higher target odds remain longer shots.",
   ].join("\n");
 }
 
 export function formatEngineCard(card: EngineCard, i: number) {
-  const odds = card.odds ? ` · ${formatOdds(card.odds)}` : "";
+  const odds = card.odds ? ` · actual ${formatOdds(card.odds)}` : "";
+  const target = ` · target ${formatOdds(card.targetOdds)}`;
   const grade = card.graded ? (card.hit ? " · hit" : " · missed") : "";
-  return `Card ${i + 1} · ${card.games} games${odds}${grade}`;
+  return `Card ${i + 1} · ${card.games} games${target}${odds}${grade}`;
 }
 
 export async function sendEngineToChats(
