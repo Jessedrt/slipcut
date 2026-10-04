@@ -74,7 +74,7 @@ replaceOnce(
 
 replaceOnce(
   component,
-  `        <header className="mb-4 flex items-center justify-between gap-3 px-1">\n          <div>\n            <p className="text-[10px] font-extrabold uppercase tracking-[.2em] text-[#8d6d56]">\n              Multi-bookmaker betting desk\n            </p>\n            <h1 className="mt-1 text-[27px] font-black leading-none tracking-[-.055em]">\n              Slip<span className="text-[#7a4f33]">Cut.</span>\n            </h1>\n          </div>\n          <button\n            type="button"\n            onClick={openBot}\n            className={\`${secondary} min-h-10 rounded-full px-3 text-xs\`}\n          >\n            @slipcut_bot\n          </button>\n        </header>`,
+  `        <header className="mb-4 flex items-center justify-between gap-3 px-1">\n          <div>\n            <p className="text-[10px] font-extrabold uppercase tracking-[.2em] text-[#8d6d56]">\n              Multi-bookmaker betting desk\n            </p>\n            <h1 className="mt-1 text-[27px] font-black leading-none tracking-[-.055em]">\n              Slip<span className="text-[#7a4f33]">Cut.</span>\n            </h1>\n          </div>\n          <button\n            type="button"\n            onClick={openBot}\n            className={\`\${secondary} min-h-10 rounded-full px-3 text-xs\`}\n          >\n            @slipcut_bot\n          </button>\n        </header>`,
   `        <header className="premium-header">\n          <div>\n            <h1 className="premium-wordmark">Slip<span>Cut.</span></h1>\n            <p className="premium-tagline">Smarter slips. Better decisions.</p>\n          </div>\n          <button type="button" onClick={openBot} className="premium-bot-chip">\n            @slipcut_bot\n          </button>\n        </header>`,
   "premium header",
 );
@@ -159,7 +159,7 @@ replaceOnce(
 replaceOnce(
   component,
   `                      <p className="text-[9px] font-black uppercase tracking-[.16em] text-[#8f694e]">\n                        Card {index + 1} · {card.n}-leg ladder\n                      </p>`,
-  `                      <p className="text-[10px] font-black uppercase tracking-[.14em] text-[#8f694e]">\n                        {card.targetOdds ? \`${card.targetOdds}× Ladder\` : \`Card ${index + 1}\`} · {card.n} legs\n                      </p>`,
+  `                      <p className="text-[10px] font-black uppercase tracking-[.14em] text-[#8f694e]">\n                        {card.targetOdds ? \`\${card.targetOdds}× Ladder\` : \`Card \${index + 1}\`} · {card.n} legs\n                      </p>`,
   "engine ladder label",
 );
 replaceOnce(
