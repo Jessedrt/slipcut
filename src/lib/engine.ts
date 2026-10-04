@@ -177,7 +177,14 @@ async function poolForEngine(
     (sport === "all" ? (["football", "basketball"] as const) : [sport]).map(async (item) => {
       const built = await buildSlip(
         { sport: item, mode: "games", games: ENGINE_MAX_LEGS, risk: "conservative", window: "upcoming" },
-        { discover: async () => listed.filter((p) => p.sport === item) },
+        {
+          discover: async () => listed.filter((p) => p.sport === item),
+          // listUpcomingPicks already hydrated these exact live SportyBet markets.
+          // Avoid downloading every fixture a second time just to re-read the
+          // same prices. mintReviewedSlip still performs the final bookability
+          // check immediately before a card is created.
+          refresh: async (picks) => ({ available: picks, unavailable: [] }),
+        },
       );
       return built;
     }),
