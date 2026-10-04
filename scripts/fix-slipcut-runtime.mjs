@@ -5,15 +5,34 @@ function patch(path, replacements) {
   let source = readFileSync(path, "utf8");
   let changed = false;
   for (const [from, to, label] of replacements) {
-    if (source.includes(to)) continue;
-    if (!source.includes(from)) {
-      throw new Error(`${label}: expected source not found in ${path}`);
+    if (source.includes(from)) {
+      source = source.replace(from, to);
+      changed = true;
+      continue;
     }
-    source = source.replace(from, to);
-    changed = true;
+    if (to && source.includes(to)) continue;
+    if (!to) {
+      console.log(`${label}: source already absent`);
+      continue;
+    }
+    throw new Error(`${label}: expected source not found in ${path}`);
   }
   if (changed) writeFileSync(path, source);
   console.log(`${path}: ${changed ? "patched" : "already patched"}`);
+}
+
+function removeBefore(path, start, end, label) {
+  let source = readFileSync(path, "utf8");
+  const from = source.indexOf(start);
+  if (from < 0) {
+    console.log(`${label}: source already absent`);
+    return;
+  }
+  const to = source.indexOf(end, from + start.length);
+  if (to < 0) throw new Error(`${label}: end marker not found in ${path}`);
+  source = source.slice(0, from) + source.slice(to);
+  writeFileSync(path, source);
+  console.log(`${path}: removed ${label}`);
 }
 
 patch("src/lib/engine.ts", [
@@ -56,6 +75,45 @@ patch("server/routes/api/miniapp/build.post.ts", [
     "football aggressive response policy",
   ],
 ]);
+
+patch("src/components/mini-app-refresh.tsx", [
+  [
+    'type Tab = "build" | "cut" | "predict" | "engine" | "slips";',
+    'type Tab = "build" | "cut" | "engine" | "slips";',
+    "remove Predict tab type",
+  ],
+  [
+    'type Pending = "build" | "cut" | "ingest" | "predict" | "book" | "history" | null;',
+    'type Pending = "build" | "cut" | "ingest" | "book" | "history" | null;',
+    "remove Predict pending state",
+  ],
+  [
+    `  const [predictSport, setPredictSport] = useState<BookSport>("football");\n  const [predictHome, setPredictHome] = useState("");\n  const [predictAway, setPredictAway] = useState("");\n  const [prediction, setPrediction] = useState<Extract<PredictionApiResult, { ok: true }>["prediction"] | null>(null);\n`,
+    "",
+    "remove Predict component state",
+  ],
+]);
+
+removeBefore(
+  "src/components/mini-app-refresh.tsx",
+  "type PredictionApiResult =",
+  "type EngineCard = {",
+  "Predict API response type",
+);
+
+removeBefore(
+  "src/components/mini-app-refresh.tsx",
+  "  async function runPrediction() {",
+  "  async function createCode() {",
+  "Predict request handler",
+);
+
+removeBefore(
+  "src/components/mini-app-refresh.tsx",
+  '        {tab === "predict" && (',
+  '        {tab === "engine" && (',
+  "Predict page section",
+);
 
 patch("src/components/mini-app-refresh.tsx", [
   [
