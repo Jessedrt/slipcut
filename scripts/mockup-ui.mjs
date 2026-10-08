@@ -3,11 +3,11 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 function replaceOnce(path, from, to, label, required = true) {
   let source = readFileSync(path, "utf8");
-  if (source.includes(to)) {
-    console.log(`${label}: already applied`);
-    return;
-  }
   if (!source.includes(from)) {
+    if (to && source.includes(to)) {
+      console.log(`${label}: already applied`);
+      return;
+    }
     if (required) throw new Error(`${label}: expected source not found in ${path}`);
     console.log(`${label}: skipped`);
     return;
