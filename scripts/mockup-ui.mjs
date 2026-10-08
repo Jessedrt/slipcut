@@ -33,17 +33,20 @@ replaceOnce(
   "bare bell treatment",
 );
 
+replaceOnce(component, '<span>⚽</span> Football', 'Football', "remove home football emoji");
+replaceOnce(component, '<span>🏀</span> Basketball', 'Basketball', "remove home basketball emoji");
+
 replaceOnce(
   component,
-  '<span>⚽</span> Football',
-  'Football',
-  "remove home football emoji",
+  '  const [gameSearch, setGameSearch] = useState("");',
+  '  const [gameSearch, setGameSearch] = useState("");\n  const [gameSearchOpen, setGameSearchOpen] = useState(false);',
+  "game search visibility state",
 );
 replaceOnce(
   component,
-  '<span>🏀</span> Basketball',
-  'Basketball',
-  "remove home basketball emoji",
+  '        setLeagueFilter("all");\n        setGameSearch("");\n        setBuildScreen("games");',
+  '        setLeagueFilter("all");\n        setGameSearch("");\n        setGameSearchOpen(false);\n        setBuildScreen("games");',
+  "reset game search state",
 );
 
 replaceOnce(
@@ -52,12 +55,7 @@ replaceOnce(
   '<div><h2>Select Sport</h2></div>',
   "clean sport title",
 );
-replaceOnce(
-  component,
-  '<p className="final-subcopy">Choose what you want SlipCut to scan.</p>',
-  '',
-  "remove sport helper copy",
-);
+replaceOnce(component, '<p className="final-subcopy">Choose what you want SlipCut to scan.</p>', '', "remove sport helper copy");
 replaceOnce(
   component,
   '<span><strong>Basketball</strong><small>Over markets only</small></span>',
@@ -71,12 +69,30 @@ replaceOnce(
   '<div className="final-games-title">\n                    <h2>{sport === "football" ? "Football" : "Basketball"}</h2>\n                    <span>{windowChoice}⌄</span>\n                  </div>',
   "match game-list title order",
 );
+replaceOnce(
+  component,
+  '                  <Search className="h-5 w-5" />\n                </div>\n\n                <div className="final-search-box">',
+  '                  <button type="button" className={"final-search-trigger " + (gameSearchOpen ? "is-active" : "")} onClick={() => setGameSearchOpen((value) => !value)} aria-label="Search games"><Search className="h-5 w-5" /></button>\n                </div>\n\n                {gameSearchOpen && <div className="final-search-box">',
+  "mockup search trigger",
+);
+replaceOnce(
+  component,
+  '                  <input value={gameSearch} onChange={(event) => setGameSearch(event.target.value)} placeholder="Search teams, league or market" />\n                </div>\n\n                <div className="final-league-strip">',
+  '                  <input autoFocus value={gameSearch} onChange={(event) => setGameSearch(event.target.value)} placeholder="Search teams, league or market" />\n                </div>}\n\n                <div className="final-league-strip">',
+  "conditional game search box",
+);
 
 replaceOnce(
   component,
   '<span className="final-game-tick">{selected ? <Check className="h-4 w-4" /> : "+"}</span>',
   '<span className="final-game-tick"><b>{pick.home.slice(0, 2).toUpperCase()}</b>{selected && <Check className="final-game-selected h-3 w-3" />}</span>',
   "team badge rows",
+);
+replaceOnce(
+  component,
+  '<span className="final-builder-index">{index + 1}</span>',
+  '<span className="final-builder-index">{pick.home.slice(0, 2).toUpperCase()}</span>',
+  "builder team badges",
 );
 
 replaceOnce(
@@ -86,18 +102,12 @@ replaceOnce(
   "clean slip builder title",
 );
 
+replaceOnce(component, '<h2>Remove the weak legs</h2>', '<h2>Cut / Trim Slip</h2>', "clean cut title", false);
 replaceOnce(
   component,
   '<div><span>Daily ladders</span><h2>Engine Accumulators</h2></div>',
   '<div><h2>Engine</h2></div>',
   "clean engine title",
-  false,
-);
-replaceOnce(
-  component,
-  '<div><span>Cut / Trim Slip</span><h2>Remove the weak legs</h2></div>',
-  '<div><h2>Cut / Trim Slip</h2></div>',
-  "clean cut title",
   false,
 );
 replaceOnce(
