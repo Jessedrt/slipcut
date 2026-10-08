@@ -1,0 +1,181 @@
+/* Final visual fidelity overrides against the approved SlipCut mockup. */
+
+/* The approved Home screen is intentionally simple: target odds are the primary builder. */
+.final-game-count { display: none !important; }
+
+/* Center all secondary-screen titles like the mobile mockup. */
+.premium-page-bar {
+  display: grid !important;
+  grid-template-columns: 34px minmax(0, 1fr) 34px !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+.premium-page-bar > div:not(.premium-page-count) {
+  min-width: 0 !important;
+  text-align: center !important;
+}
+.premium-page-bar > div:not(.premium-page-count) > h2 {
+  white-space: nowrap;
+}
+.premium-page-bar > svg:last-child,
+.premium-page-bar > button:last-child {
+  justify-self: end !important;
+}
+.premium-refresh-button {
+  width: 34px !important;
+  height: 34px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Search is an icon in the approved game-list header; the field appears only when requested. */
+.final-search-trigger {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  justify-self: end;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #211914;
+}
+.final-search-trigger.is-active { background: #eee3d8; color: #70462d; }
+.final-search-trigger svg { width: 19px; height: 19px; }
+
+/* Use team-style circular badges instead of numbered/debug-looking markers. */
+.final-builder-index {
+  width: 32px !important;
+  height: 32px !important;
+  border: 1px solid rgba(103,69,47,.12) !important;
+  border-radius: 999px !important;
+  background: #eee2d7 !important;
+  color: #70462d !important;
+  font-size: 8px !important;
+  font-weight: 900 !important;
+  letter-spacing: -.03em;
+}
+.final-trash-button {
+  width: 34px !important;
+  height: 34px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #38271e !important;
+}
+
+/* Give the sport cards a stronger stadium/court impression without loading fake fixture imagery. */
+.final-sport-hero.football::before {
+  background:
+    radial-gradient(circle at 9% 10%, rgba(255,255,255,.95) 0 1.2px, transparent 2.4px),
+    radial-gradient(circle at 26% 7%, rgba(255,255,255,.95) 0 1.2px, transparent 2.4px),
+    radial-gradient(circle at 43% 9%, rgba(255,255,255,.95) 0 1.2px, transparent 2.4px),
+    radial-gradient(circle at 60% 7%, rgba(255,255,255,.95) 0 1.2px, transparent 2.4px),
+    radial-gradient(circle at 77% 9%, rgba(255,255,255,.95) 0 1.2px, transparent 2.4px),
+    radial-gradient(circle at 93% 11%, rgba(255,255,255,.95) 0 1.2px, transparent 2.4px),
+    linear-gradient(180deg, #172128 0 38%, rgba(18,31,23,.12) 39% 100%),
+    repeating-linear-gradient(90deg, #345d37 0 28px, #294f30 28px 56px) !important;
+}
+.final-sport-hero.basketball::before {
+  background:
+    radial-gradient(circle at 12% 10%, rgba(255,255,255,.9) 0 1px, transparent 2.2px),
+    radial-gradient(circle at 35% 7%, rgba(255,255,255,.9) 0 1px, transparent 2.2px),
+    radial-gradient(circle at 60% 8%, rgba(255,255,255,.9) 0 1px, transparent 2.2px),
+    radial-gradient(circle at 84% 10%, rgba(255,255,255,.9) 0 1px, transparent 2.2px),
+    linear-gradient(180deg, #181d22 0 40%, rgba(50,26,16,.10) 41% 100%),
+    repeating-linear-gradient(90deg, #7a492d 0 34px, #6d3f27 34px 68px) !important;
+}
+
+/* Cut / Trim: keep the underlying tools, but present the simple approved surface by default. */
+.premium-cut-screen .premium-page-bar > svg:last-child {
+  width: 17px !important;
+  height: 17px !important;
+  color: #3f2d22 !important;
+}
+.premium-cut-form {
+  gap: 10px !important;
+  border-radius: 17px !important;
+  padding: 12px !important;
+}
+.premium-cut-form > .premium-field-label:first-child { display: none !important; }
+.premium-cut-form .premium-advanced { display: none !important; }
+.premium-cut-form .premium-field-label > span {
+  font-size: 10px !important;
+  color: #443126 !important;
+}
+.premium-cut-screen .premium-recent-block {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 4px 0 0 !important;
+}
+.premium-cut-screen .premium-recent-row {
+  min-height: 58px;
+  border: 1px solid rgba(103,69,47,.08) !important;
+  border-radius: 14px;
+  background: rgba(255,253,250,.72);
+  padding: 9px 10px !important;
+  margin-bottom: 6px;
+}
+
+/* The approved Engine is a clean ladder list, not an analytics dashboard. */
+.premium-engine-screen { gap: 9px !important; }
+.premium-engine-screen .premium-segmented {
+  border: 0 !important;
+  border-radius: 14px !important;
+  background: #efe3d8 !important;
+  padding: 3px !important;
+}
+.premium-engine-screen .premium-segmented-button {
+  min-height: 39px !important;
+  border-radius: 12px !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+}
+.premium-engine-screen .premium-segmented-button.is-active {
+  background: #70462d !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}
+.premium-ladder-odds {
+  min-width: 70px;
+  grid-template-columns: auto !important;
+}
+.premium-ladder-odds small {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  margin-top: 2px;
+  border-radius: 10px;
+  background: #f1e6db;
+  padding: 0 8px;
+  color: #5d4433 !important;
+  font-size: 8px !important;
+}
+
+/* My Slips matches the compact card list in the mockup. */
+.premium-slips-screen { gap: 9px !important; }
+.premium-slips-screen .premium-history-list { gap: 6px !important; }
+.premium-history-main strong {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, Arial, sans-serif !important;
+  font-size: 10px !important;
+  font-weight: 850 !important;
+}
+.premium-status-pill {
+  border-radius: 10px !important;
+  padding: 5px 8px !important;
+  font-size: 8px !important;
+}
+
+/* Keep the browser-only auth explanation compact; Telegram users never see it. */
+.premium-notice { padding: 9px 10px !important; }
+
+@media (max-width: 360px) {
+  .premium-page-bar { grid-template-columns: 31px minmax(0,1fr) 31px !important; }
+  .premium-page-bar h2, .final-subheader h2 { font-size: 16px !important; }
+  .final-sport-hero { min-height: 130px !important; }
+}
