@@ -22,7 +22,7 @@ const component = "src/components/mini-app-refresh.tsx";
 replaceOnce(
   "src/styles.css",
   '@import "./final-ui.css";',
-  '@import "./final-ui.css";\n@import "./mockup-ui.css";\n@import "./mockup-polish.css";',
+  '@import "./final-ui.css";\n@import "./mockup-ui.css";\n@import "./mockup-polish.css";\n@import "./iphone-compact.css";',
   "mockup stylesheet import",
 );
 
