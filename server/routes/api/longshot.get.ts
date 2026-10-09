@@ -32,7 +32,8 @@ export default defineHandler(async (event) => {
       sport,
       cards,
       ladder: LONGSHOT_LADDER,
-      warning: "Longshot cards are intentionally higher variance. Mathematical ranking does not guarantee an outcome.",
+      warning:
+        "Longshot is intentionally higher variance. Its fast score uses live implied probability and target-fit mathematics; creating a code refreshes the exact SportyBet selections and prices. It is not a win guarantee.",
     });
   } catch (error) {
     console.error(
