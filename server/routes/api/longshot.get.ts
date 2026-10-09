@@ -24,6 +24,7 @@ export default defineHandler(async (event) => {
         sport,
         cards: [],
         ladder: LONGSHOT_LADDER,
+        windowHours: 48,
         error: cards.error,
       });
     }
@@ -32,8 +33,9 @@ export default defineHandler(async (event) => {
       sport,
       cards,
       ladder: LONGSHOT_LADDER,
+      windowHours: 48,
       warning:
-        "Longshot is intentionally higher variance. Its fast score uses live implied probability and target-fit mathematics; creating a code refreshes the exact SportyBet selections and prices. It is not a win guarantee.",
+        "Longshot only uses fixtures starting within the next 48 hours. It is intentionally higher variance; creating a code refreshes the exact SportyBet selections and prices. It is not a win guarantee.",
     });
   } catch (error) {
     console.error(
@@ -46,6 +48,7 @@ export default defineHandler(async (event) => {
         sport,
         cards: [],
         ladder: LONGSHOT_LADDER,
+        windowHours: 48,
         error: "Longshot data is temporarily unavailable.",
       },
       { status: 200 },
