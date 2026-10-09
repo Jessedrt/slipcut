@@ -9,7 +9,7 @@ import type { TicketPick } from "./types";
 export type LongshotSport = "football" | "basketball";
 export const LONGSHOT_LADDER = [25, 50, 100, 250] as const;
 const LONGSHOT_MAX_LEGS = 15;
-const LONGSHOT_POLICY_VERSION = "longshot-v1-math";
+const LONGSHOT_POLICY_VERSION = "longshot-v2-on-demand-booking";
 
 export type LongshotLeg = {
   home: string;
@@ -21,15 +21,25 @@ export type LongshotLeg = {
 };
 
 export type LongshotCard = {
+  id: string;
   targetOdds: number;
   targetReached: boolean;
-  code: string;
-  url: string;
+  code?: string;
+  url?: string;
   odds: number | null;
   games: number;
   averageScore: number | null;
   weakestScore: number | null;
   legs: LongshotLeg[];
+};
+
+type StoredLongshotCard = {
+  card: LongshotCard;
+  picks: TicketPick[];
+};
+
+type StoredLongshotDay = {
+  cards: StoredLongshotCard[];
 };
 
 function watDay() {
@@ -40,23 +50,40 @@ function cacheKey(day: string, sport: LongshotSport) {
   return `longshot_${LONGSHOT_POLICY_VERSION}_${sport}_${day}`;
 }
 
-async function loadCached(day: string, sport: LongshotSport): Promise<LongshotCard[] | null> {
+function stableId(targetOdds: number, signature: string) {
+  let hash = 2166136261;
+  const input = `${targetOdds}|${signature}`;
+  for (let index = 0; index < input.length; index++) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${targetOdds}x-${(hash >>> 0).toString(36)}`;
+}
+
+async function loadStored(
+  day: string,
+  sport: LongshotSport,
+): Promise<StoredLongshotDay | null> {
   const raw = await getSetting(cacheKey(day, sport));
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return null;
-    return parsed.filter(
-      (card): card is LongshotCard =>
-        Boolean(card) && typeof (card as LongshotCard).code === "string",
-    );
+    const parsed = JSON.parse(raw) as StoredLongshotDay;
+    if (!parsed || !Array.isArray(parsed.cards)) return null;
+    return {
+      cards: parsed.cards.filter(
+        (entry) =>
+          Boolean(entry?.card?.id) &&
+          Array.isArray(entry?.picks) &&
+          entry.picks.length >= 4,
+      ),
+    };
   } catch {
     return null;
   }
 }
 
-async function saveCached(day: string, sport: LongshotSport, cards: LongshotCard[]) {
-  await setSetting(cacheKey(day, sport), JSON.stringify(cards));
+async function saveStored(day: string, sport: LongshotSport, stored: StoredLongshotDay) {
+  await setSetting(cacheKey(day, sport), JSON.stringify(stored));
 }
 
 function aggressivePriceAllowed(sport: LongshotSport, pick: TicketPick) {
@@ -67,7 +94,9 @@ function aggressivePriceAllowed(sport: LongshotSport, pick: TicketPick) {
 
 async function discoverLongshotPool(sport: LongshotSport): Promise<TicketPick[] | { error: string }> {
   const discover = async (window: CookWindow) => {
-    const listed = await listUpcomingPicks(sport, 64, window, "any", []);
+    // Match the normal Engine's discovery scale. Longshot should not multiply
+    // provider calls just because its combined target is larger.
+    const listed = await listUpcomingPicks(sport, 42, window, "any", []);
     if ("error" in listed) return [];
     return listed.filter((pick) => aggressivePriceAllowed(sport, pick));
   };
@@ -93,6 +122,8 @@ async function discoverLongshotPool(sport: LongshotSport): Promise<TicketPick[] 
     },
     {
       discover: async () => listed,
+      // Discovery already contains the exact live SportyBet selections. The
+      // final code request refreshes bookability once, on demand.
       refresh: async (picks) => ({ available: picks, unavailable: [] }),
     },
   );
@@ -127,11 +158,11 @@ function scoreSummary(picks: TicketPick[]) {
 
 export async function buildLongshotCards(
   sport: LongshotSport,
-): Promise<LongshotCard[] | { error: string }> {
+): Promise<StoredLongshotCard[] | { error: string }> {
   const ranked = await discoverLongshotPool(sport);
   if ("error" in ranked) return ranked;
 
-  const cards: LongshotCard[] = [];
+  const cards: StoredLongshotCard[] = [];
   const priorUses = new Map<string, number>();
   const signatures = new Set<string>();
 
@@ -146,10 +177,6 @@ export async function buildLongshotCards(
       .join("|");
     if (signatures.has(signature)) continue;
 
-    const minted = await mintReviewedSlip(take, "ng", undefined, { acceptOddsChanges: false });
-    if (!minted.ok) continue;
-
-    await recordSlip(minted.shareCode, take);
     signatures.add(signature);
     for (const pick of take) priorUses.set(pick.id, (priorUses.get(pick.id) ?? 0) + 1);
 
@@ -159,26 +186,28 @@ export async function buildLongshotCards(
     const scores = scoreSummary(take);
 
     cards.push({
-      targetOdds,
-      targetReached,
-      code: minted.shareCode,
-      url: minted.shareURL,
-      odds,
-      games: take.length,
-      ...scores,
-      legs: take.map((pick) => ({
-        home: pick.home,
-        away: pick.away,
-        market: pick.market,
-        selection: pick.selection,
-        odds: pick.odds,
-        sport: pick.sport,
-      })),
+      card: {
+        id: stableId(targetOdds, signature),
+        targetOdds,
+        targetReached,
+        odds,
+        games: take.length,
+        ...scores,
+        legs: take.map((pick) => ({
+          home: pick.home,
+          away: pick.away,
+          market: pick.market,
+          selection: pick.selection,
+          odds: pick.odds,
+          sport: pick.sport,
+        })),
+      },
+      picks: take,
     });
   }
 
   if (!cards.length) {
-    return { error: "Longshot selections qualified, but none could be booked at the analysed prices." };
+    return { error: "Longshot selections qualified, but no distinct target cards could be assembled." };
   }
   return cards;
 }
@@ -187,13 +216,13 @@ export async function todayLongshotCards(
   sport: LongshotSport,
 ): Promise<LongshotCard[] | { error: string }> {
   const day = watDay();
-  const existing = await loadCached(day, sport);
-  if (existing?.length) return existing;
+  const existing = await loadStored(day, sport);
+  if (existing?.cards.length) return existing.cards.map((entry) => entry.card);
 
   const lockKey = `longshot_build_lock_${LONGSHOT_POLICY_VERSION}_${sport}_${day}`;
   const lockRaw = await getSetting(lockKey);
   const lockAt = Number(lockRaw);
-  if (Number.isFinite(lockAt) && Date.now() - lockAt < 2 * 60_000) {
+  if (Number.isFinite(lockAt) && Date.now() - lockAt < 90_000) {
     return { error: "Longshot cards are being prepared. Refresh again in a moment." };
   }
 
@@ -201,9 +230,37 @@ export async function todayLongshotCards(
   try {
     const built = await buildLongshotCards(sport);
     if ("error" in built) return built;
-    await saveCached(day, sport, built);
-    return built;
+    const stored = { cards: built } satisfies StoredLongshotDay;
+    await saveStored(day, sport, stored);
+    return stored.cards.map((entry) => entry.card);
   } finally {
     await setSetting(lockKey, "0");
   }
+}
+
+export async function mintLongshotCard(
+  sport: LongshotSport,
+  cardId: string,
+): Promise<LongshotCard | { error: string }> {
+  const day = watDay();
+  let stored = await loadStored(day, sport);
+  if (!stored?.cards.length) {
+    const generated = await todayLongshotCards(sport);
+    if ("error" in generated) return generated;
+    stored = await loadStored(day, sport);
+  }
+  const entry = stored?.cards.find((item) => item.card.id === cardId);
+  if (!entry) return { error: "That Longshot card is no longer available. Refresh the Longshot screen." };
+  if (entry.card.code && entry.card.url) return entry.card;
+
+  const minted = await mintReviewedSlip(entry.picks, "ng", undefined, { acceptOddsChanges: false });
+  if (!minted.ok) {
+    return { error: minted.error || "The analysed Longshot prices changed before booking. Refresh and try again." };
+  }
+
+  await recordSlip(minted.shareCode, entry.picks);
+  entry.card.code = minted.shareCode;
+  entry.card.url = minted.shareURL;
+  await saveStored(day, sport, stored!);
+  return entry.card;
 }
