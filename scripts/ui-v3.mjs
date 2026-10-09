@@ -35,7 +35,11 @@ patch("src/lib/sportybet.ts", [
 patch("src/lib/longshot.ts", [
   [
     'const LONGSHOT_POLICY_VERSION = "longshot-v3-fast-price-model";',
-    'const LONGSHOT_POLICY_VERSION = "longshot-v4-48h";\nconst LONGSHOT_WINDOW_MS = 48 * 60 * 60 * 1000;',
+    'const LONGSHOT_POLICY_VERSION = "longshot-v4-48h";\nconst LONGSHOT_WINDOW_MS = 48 * 60 * 60 * 1000;\nconst LONGSHOT_DISCOVERY_LIMIT = 50;',
+  ],
+  [
+    '  const listed = await listUpcomingPicks(sport, LONGSHOT_MAX_LEGS, "upcoming", "any", []);',
+    '  const listed = await listUpcomingPicks(sport, LONGSHOT_DISCOVERY_LIMIT, "upcoming", "any", []);',
   ],
   [
     '  const eligible = listed.filter((pick) => aggressivePriceAllowed(sport, pick));',
