@@ -32,10 +32,32 @@ patch("src/lib/sportybet.ts", [
   ["Math.min(42, limit)", "Math.min(50, limit)"],
 ]);
 
+patch("src/lib/longshot.ts", [
+  [
+    'const LONGSHOT_POLICY_VERSION = "longshot-v3-fast-price-model";',
+    'const LONGSHOT_POLICY_VERSION = "longshot-v4-48h";\nconst LONGSHOT_WINDOW_MS = 48 * 60 * 60 * 1000;',
+  ],
+  [
+    '  const eligible = listed.filter((pick) => aggressivePriceAllowed(sport, pick));',
+    '  const now = Date.now();\n  const cutoff = now + LONGSHOT_WINDOW_MS;\n  const eligible = listed.filter((pick) =>\n    aggressivePriceAllowed(sport, pick) &&\n    typeof pick.kickoff === "number" &&\n    pick.kickoff >= now &&\n    pick.kickoff <= cutoff,\n  );',
+  ],
+]);
+
+patch("src/styles.css", [
+  [
+    '@import "./slipcut-v2.css";',
+    '@import "./slipcut-v2.css";\n@import "./ui-v4.css";',
+  ],
+]);
+
 const component = "src/components/mini-app-refresh.tsx";
 patch(component, [
   ["max={15}", "max={50}"],
   ["Smarter slips. Better decisions.", "BUILD • CUT • BOOK"],
+  [
+    "Separate high-odds cards built from the strongest Aggressive candidates available. No mixed sports.",
+    "High-odds cards from fixtures starting within the next 48 hours only. No mixed sports.",
+  ],
 ]);
 
 const oldGameControl = `                  <details className="final-game-count">\n                    <summary>Build by number of games</summary>\n                    <div className="final-range-row">\n                      <span>Games</span><strong>{games}</strong>\n                    </div>\n                    <input\n                      aria-label="Number of games"\n                      type="range"\n                      min={2}\n                      max={50}\n                      value={games}\n                      onChange={(event) => { setMode("games"); setGames(Number(event.target.value)); }}\n                      className="mini-range w-full"\n                    />\n                  </details>`;
@@ -43,4 +65,4 @@ const oldGameControl = `                  <details className="final-game-count">
 const newGameControl = `                  <details className="final-game-count">\n                    <summary>Build by number of games</summary>\n                    <div className="final-range-row">\n                      <span>Games</span><strong>{games}</strong>\n                    </div>\n                    <div className="v3-game-count-control">\n                      <button\n                        type="button"\n                        aria-label="Remove one game"\n                        onClick={() => { setMode("games"); setGames((current) => Math.max(2, current - 1)); }}\n                      >−</button>\n                      <input\n                        aria-label="Number of games"\n                        type="number"\n                        inputMode="numeric"\n                        min={2}\n                        max={50}\n                        value={games}\n                        onChange={(event) => {\n                          const next = Number(event.target.value);\n                          if (!Number.isFinite(next)) return;\n                          setMode("games");\n                          setGames(Math.max(2, Math.min(50, Math.round(next))));\n                        }}\n                      />\n                      <button\n                        type="button"\n                        aria-label="Add one game"\n                        onClick={() => { setMode("games"); setGames((current) => Math.min(50, current + 1)); }}\n                      >+</button>\n                    </div>\n                    <div className="v3-game-count-presets">\n                      {[5, 10, 20, 30, 50].map((count) => (\n                        <button\n                          key={count}\n                          type="button"\n                          className={mode === "games" && games === count ? "is-active" : ""}\n                          onClick={() => { setMode("games"); setGames(count); }}\n                        >{count}</button>\n                      ))}\n                    </div>\n                  </details>`;
 
 patch(component, [[oldGameControl, newGameControl]]);
-console.log("[ui-v3] V3 styling hooks and expanded game count ready");
+console.log("[ui-v3] V4 visual layer, 48h Longshot window, and expanded game count ready");
