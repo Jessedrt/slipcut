@@ -59,6 +59,7 @@
     "react-dom": "^19.1.1",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.3.1",
+    "telegraf": "^4.16.3",
     "zod": "^4.1.11",
     "zustand": "^5.0.15"
   },
@@ -75,6 +76,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^17.12.0",
+    "nitro": "3.0.260610-beta",
     "tailwindcss": "^4.1.13",
     "tsx": "^4.23.15",
     "typescript": "^5.9.2",
