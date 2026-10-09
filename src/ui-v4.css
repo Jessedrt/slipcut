@@ -1,0 +1,347 @@
+/* SlipCut UI V4 — one visual system across every Mini App screen. */
+:root {
+  --sc-bg: #050608;
+  --sc-surface: #0b0e12;
+  --sc-surface-2: #10151b;
+  --sc-surface-3: #151b22;
+  --sc-line: rgba(255,255,255,.09);
+  --sc-line-strong: rgba(255,255,255,.16);
+  --sc-text: #f5f7fb;
+  --sc-muted: #7f8998;
+  --sc-muted-2: #5f6978;
+  --sc-lime: #b6ff3b;
+  --sc-lime-soft: rgba(182,255,59,.12);
+  --sc-green: #65e6a1;
+  --sc-warn: #ffbd67;
+  --sc-danger: #ff7373;
+}
+
+html, body, #app, .mini-app, .premium-app {
+  background: var(--sc-bg) !important;
+  color: var(--sc-text) !important;
+}
+
+.premium-app {
+  background:
+    radial-gradient(110% 48% at 50% -8%, rgba(182,255,59,.08), transparent 58%),
+    var(--sc-bg) !important;
+}
+
+.premium-shell {
+  width: min(100%, 500px) !important;
+  max-width: 500px !important;
+  padding-left: 14px !important;
+  padding-right: 14px !important;
+  padding-bottom: 108px !important;
+}
+
+.premium-wordmark {
+  color: #fff !important;
+  font-weight: 900 !important;
+  letter-spacing: -.07em !important;
+}
+.premium-wordmark span { color: var(--sc-lime) !important; }
+.premium-tagline { color: var(--sc-muted-2) !important; }
+
+/* No legacy cream/grey cards anywhere. */
+.final-section,
+.premium-panel,
+.premium-build-surface,
+.premium-recent-block,
+.premium-cut-form,
+.premium-ladder-row,
+.premium-history-row,
+.premium-selection,
+.final-game-row,
+.final-builder-row,
+.v2-longshot-card,
+.v2-state-card,
+.premium-empty-card,
+.premium-loading-card {
+  background: var(--sc-surface) !important;
+  border: 1px solid var(--sc-line) !important;
+  color: var(--sc-text) !important;
+  box-shadow: none !important;
+}
+
+.final-section,
+.premium-panel,
+.premium-cut-form,
+.v2-longshot-card {
+  border-radius: 18px !important;
+}
+
+/* Segmented controls */
+.final-home-sports,
+.premium-cut-tabs,
+.premium-slips-tabs,
+.premium-engine-window,
+.premium-segmented,
+.final-builder-toggle,
+.v2-longshot-switch {
+  background: #090c10 !important;
+  border: 1px solid var(--sc-line) !important;
+  border-radius: 14px !important;
+  box-shadow: none !important;
+}
+
+.final-home-sport,
+.premium-cut-tabs button,
+.premium-slips-tabs button,
+.premium-engine-window button,
+.premium-segmented-button,
+.final-builder-toggle button,
+.v2-longshot-switch button {
+  background: transparent !important;
+  color: var(--sc-muted) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.final-home-sport.is-active,
+.premium-cut-tabs button.is-active,
+.premium-slips-tabs button.is-active,
+.premium-engine-window button.is-active,
+.premium-segmented-button.is-active,
+.final-builder-toggle button.is-active,
+.v2-longshot-switch button.is-active {
+  background: var(--sc-lime) !important;
+  color: #060806 !important;
+  border-color: var(--sc-lime) !important;
+}
+
+/* Build */
+.final-label-row,
+.premium-control-title,
+.premium-field-label,
+.final-custom-odds > span,
+.final-range-row,
+.premium-list-heading strong {
+  color: #dfe4ec !important;
+}
+
+.premium-odds-chip,
+.premium-time-chip,
+.final-league-strip button,
+.v3-game-count-control button,
+.v3-game-count-control input,
+.v3-game-count-presets button,
+.premium-risk-card {
+  background: var(--sc-surface-2) !important;
+  border: 1px solid var(--sc-line) !important;
+  color: #9ba5b3 !important;
+  box-shadow: none !important;
+}
+
+.premium-odds-chip.is-active,
+.premium-time-chip.is-active,
+.final-league-strip button.is-active,
+.v3-game-count-presets button.is-active,
+.premium-risk-card.is-active {
+  background: var(--sc-lime) !important;
+  border-color: var(--sc-lime) !important;
+  color: #060806 !important;
+}
+
+.premium-risk-card strong { color: #e8edf4 !important; }
+.premium-risk-card.is-active strong,
+.premium-risk-card.is-active span { color: #060806 !important; }
+
+.premium-field,
+.final-input-wrap input,
+.final-search-box,
+.final-search-box input,
+.premium-cut-form input,
+.premium-cut-form textarea,
+.premium-cut-form select {
+  background: #070a0e !important;
+  border-color: var(--sc-line) !important;
+  color: #f6f8fb !important;
+  box-shadow: none !important;
+}
+.premium-field::placeholder,
+.final-search-box input::placeholder { color: #4c5665 !important; }
+
+.premium-primary,
+.final-find-button {
+  background: var(--sc-lime) !important;
+  color: #050705 !important;
+  border: 0 !important;
+  box-shadow: 0 16px 34px -24px rgba(182,255,59,.75) !important;
+}
+.premium-secondary {
+  background: var(--sc-surface-2) !important;
+  color: #d8dee7 !important;
+  border-color: var(--sc-line) !important;
+}
+
+/* Cut */
+.premium-cut-screen .premium-page-bar h2,
+.premium-engine-screen .premium-page-bar h2,
+.premium-slips-screen .premium-page-bar h2,
+.final-subheader h2,
+.premium-page-bar h2 {
+  color: #fff !important;
+}
+.premium-back-button,
+.premium-refresh-button,
+.premium-icon-button,
+.mockup-bell,
+.v2-icon-button {
+  background: var(--sc-surface-2) !important;
+  border: 1px solid var(--sc-line) !important;
+  color: #edf2f8 !important;
+  box-shadow: none !important;
+}
+.premium-recent-block { background: transparent !important; border: 0 !important; padding-inline: 0 !important; }
+.premium-recent-row {
+  background: var(--sc-surface) !important;
+  border: 1px solid var(--sc-line) !important;
+  border-radius: 14px !important;
+  color: var(--sc-text) !important;
+}
+.premium-recent-row strong { color: #f4f7fb !important; }
+.premium-recent-row small,
+.premium-list-heading span { color: var(--sc-muted) !important; }
+
+/* Engine */
+.premium-ladder-list { gap: 9px !important; }
+.premium-ladder-row { border-radius: 16px !important; overflow: hidden !important; }
+.premium-ladder-row summary { background: transparent !important; }
+.premium-ladder-icon {
+  background: var(--sc-lime-soft) !important;
+  color: var(--sc-lime) !important;
+  border: 1px solid rgba(182,255,59,.16) !important;
+}
+.premium-ladder-main strong,
+.premium-ladder-odds strong { color: #f4f7fb !important; }
+.premium-ladder-main small,
+.premium-ladder-odds small { color: var(--sc-muted) !important; }
+.premium-ladder-odds small {
+  background: var(--sc-surface-2) !important;
+  color: #aab3bf !important;
+}
+.premium-ladder-detail { border-color: var(--sc-line) !important; }
+.premium-ladder-legs > div {
+  background: #080b0f !important;
+  border: 1px solid rgba(255,255,255,.055) !important;
+}
+.premium-ladder-legs > div > span {
+  background: var(--sc-lime-soft) !important;
+  color: var(--sc-lime) !important;
+}
+.premium-ladder-legs p strong { color: #edf1f6 !important; }
+.premium-ladder-legs p small { color: var(--sc-muted) !important; }
+.premium-ladder-legs b { color: var(--sc-lime) !important; }
+.premium-code-strip > span strong { color: #fff !important; }
+.premium-code-strip > span small { color: var(--sc-muted) !important; }
+
+/* Longshot */
+.v2-longshot-hero {
+  background: linear-gradient(145deg, rgba(182,255,59,.08), rgba(11,14,18,.98) 58%) !important;
+  border: 1px solid rgba(182,255,59,.24) !important;
+  box-shadow: none !important;
+}
+.v2-kicker,
+.v2-longshot-card-head > div > span,
+.v2-longshot-targets span,
+.v2-longshot-legs b { color: var(--sc-lime) !important; }
+.v2-longshot-hero h2,
+.v2-longshot-card-head h3 { color: #fff !important; }
+.v2-longshot-hero p,
+.v2-longshot-switch button small,
+.v2-longshot-legs p small { color: var(--sc-muted) !important; }
+.v2-longshot-targets span {
+  background: var(--sc-surface) !important;
+  border-color: var(--sc-line) !important;
+}
+.v2-longshot-warning {
+  background: rgba(255,189,103,.07) !important;
+  border-color: rgba(255,189,103,.18) !important;
+  color: #caa06d !important;
+}
+.v2-longshot-metrics div,
+.v2-longshot-legs > div {
+  background: #080b0f !important;
+  border-color: rgba(255,255,255,.055) !important;
+}
+.v2-longshot-metrics small { color: var(--sc-muted-2) !important; }
+.v2-longshot-metrics strong,
+.v2-longshot-legs p strong,
+.v2-longshot-code strong { color: #eef2f7 !important; }
+.v2-target-pill.is-hit { background: rgba(101,230,161,.12) !important; color: var(--sc-green) !important; }
+.v2-target-pill.is-near { background: rgba(255,189,103,.12) !important; color: var(--sc-warn) !important; }
+
+/* My Slips */
+.premium-history-list { gap: 8px !important; }
+.premium-history-row {
+  background: var(--sc-surface) !important;
+  border-color: var(--sc-line) !important;
+  border-radius: 15px !important;
+}
+.premium-history-icon {
+  background: var(--sc-lime-soft) !important;
+  color: var(--sc-lime) !important;
+  border: 1px solid rgba(182,255,59,.13) !important;
+}
+.premium-history-main strong { color: #f3f6fa !important; }
+.premium-history-main span,
+.premium-history-main small { color: var(--sc-muted) !important; }
+.premium-status-pill {
+  background: rgba(101,230,161,.12) !important;
+  color: var(--sc-green) !important;
+  border: 1px solid rgba(101,230,161,.12) !important;
+}
+
+/* Fixture / builder rows */
+.final-game-row,
+.final-builder-row { background: var(--sc-surface) !important; }
+.final-game-row.is-selected,
+.premium-selection.is-selected {
+  background: var(--sc-lime-soft) !important;
+  border-color: rgba(182,255,59,.42) !important;
+}
+.final-game-tick,
+.final-builder-index,
+.premium-check {
+  background: var(--sc-surface-3) !important;
+  border-color: var(--sc-line) !important;
+  color: #a5afbc !important;
+}
+.final-game-info strong,
+.final-builder-row strong,
+.premium-pick-main h4 { color: #eef2f7 !important; }
+.final-game-info small,
+.final-game-info em,
+.final-builder-row small,
+.final-builder-row p,
+.premium-pick-meta,
+.premium-pick-score { color: var(--sc-muted) !important; }
+.final-game-odds,
+.final-builder-price,
+.premium-pick-odds { color: var(--sc-lime) !important; background: transparent !important; }
+
+/* Floating nav */
+.premium-nav {
+  background: rgba(9,12,16,.96) !important;
+  border: 1px solid var(--sc-line-strong) !important;
+  border-radius: 20px !important;
+  box-shadow: 0 18px 50px -30px rgba(0,0,0,.95) !important;
+}
+.premium-nav-button {
+  color: #667181 !important;
+  background: transparent !important;
+}
+.premium-nav-button.is-active {
+  background: var(--sc-lime) !important;
+  color: #050705 !important;
+  box-shadow: 0 10px 25px -18px rgba(182,255,59,.8) !important;
+}
+
+.premium-notice { color: #657080 !important; }
+
+@media (max-width: 390px) {
+  .premium-shell { padding-left: 10px !important; padding-right: 10px !important; }
+  .final-section { padding: 12px !important; }
+  .premium-nav { width: calc(100% - 16px) !important; }
+}
