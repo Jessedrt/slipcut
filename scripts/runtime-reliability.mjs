@@ -34,6 +34,40 @@ function patchDbSsl() {
   console.log("[runtime] database SSL mode set to verify-full");
 }
 
+function patchAuthDbSsl() {
+  const path = "src/lib/auth/server.ts";
+  let source = readFileSync(path, "utf8");
+  const from = `const database = databaseUrl
+  ? new Pool({ connectionString: databaseUrl })
+  : { dialect: pgliteDialect(() => getPglite()), type: "postgres" as const };`;
+  const to = `const authDatabaseUrl = (() => {
+  if (!databaseUrl) return databaseUrl;
+  try {
+    const url = new URL(databaseUrl);
+    const sslmode = url.searchParams.get("sslmode");
+    if (!sslmode || sslmode === "prefer" || sslmode === "require" || sslmode === "verify-ca") {
+      url.searchParams.set("sslmode", "verify-full");
+    }
+    return url.toString();
+  } catch {
+    return databaseUrl;
+  }
+})();
+
+const database = authDatabaseUrl
+  ? new Pool({ connectionString: authDatabaseUrl })
+  : { dialect: pgliteDialect(() => getPglite()), type: "postgres" as const };`;
+
+  if (source.includes(to)) {
+    console.log("[runtime] auth database SSL mode already explicit");
+    return;
+  }
+  if (!source.includes(from)) throw new Error("[runtime] expected auth pg pool source not found");
+  source = source.replace(from, to);
+  writeFileSync(path, source);
+  console.log("[runtime] auth database SSL mode set to verify-full");
+}
+
 function patchEngineMintConcurrency() {
   const path = "src/lib/engine.ts";
   let source = readFileSync(path, "utf8");
@@ -128,5 +162,6 @@ function patchEngineMintConcurrency() {
 }
 
 patchDbSsl();
+patchAuthDbSsl();
 patchEngineMintConcurrency();
 console.log("[runtime] reliability patches complete");
