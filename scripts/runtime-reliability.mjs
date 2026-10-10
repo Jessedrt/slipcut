@@ -124,7 +124,7 @@ function patchEngineMintConcurrency() {
 
   source = source.slice(0, start) + replacement + source.slice(end);
   writeFileSync(path, source);
-  console.log(`[runtime] Engine books up to ${workerCount || 0} ladder cards concurrently`);
+  console.log("[runtime] Engine books up to 3 ladder cards concurrently");
 }
 
 patchDbSsl();
