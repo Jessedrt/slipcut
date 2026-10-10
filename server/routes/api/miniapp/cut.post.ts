@@ -5,8 +5,58 @@ import {
   isBookmakerId,
 } from "../../../../src/lib/bookmakers/adapters";
 import { normalizePick } from "../../../../src/lib/bookmakers/normalize";
+import { applyThreshold, combinedChance } from "../../../../src/lib/format";
 import { authenticateMiniAppRequest } from "../../../../src/lib/telegram-miniapp-auth";
-import type { TicketPick } from "../../../../src/lib/types";
+import type { AnalyzedPick, TicketPick } from "../../../../src/lib/types";
+
+const ANALYSIS_BUDGET_MS = 28_000;
+
+function fastMarketAnalysis(picks: TicketPick[], threshold: number) {
+  const analyzed: AnalyzedPick[] = picks.map((pick) => {
+    const odds = Number(pick.odds);
+    const hasOdds = Number.isFinite(odds) && odds > 1;
+    const probability = hasOdds
+      ? Math.min(95, Math.max(4, Math.round(100 / odds)))
+      : 50;
+    return {
+      ...pick,
+      probability,
+      confidence: "low",
+      summary: hasOdds
+        ? "Fast market-implied fallback used while live research was taking too long."
+        : "Fast fallback used; this selection had no usable live price.",
+      reasons: hasOdds ? [`Current listed odds ${odds.toFixed(2)}`] : [],
+      risks: ["Deep live research did not finish inside the Mini App time budget."],
+      verdict: "drop",
+    };
+  });
+  const split = applyThreshold(analyzed, threshold);
+  const tagged = new Map(
+    [...split.kept, ...split.dropped, ...split.ignored].map((pick) => [pick.id, pick]),
+  );
+  return {
+    desk: "Fast market-implied fallback. Retry later for the deeper live-research read.",
+    picks: analyzed.map((pick) => tagged.get(pick.id) ?? pick),
+    threshold,
+    ...split,
+    combinedKeepChance: combinedChance(split.kept),
+  };
+}
+
+async function analyzeWithinBudget(picks: TicketPick[], threshold: number) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), ANALYSIS_BUDGET_MS);
+    });
+    const deep = await Promise.race([analyzePicks(picks, threshold), timeout]);
+    if (deep) return deep;
+    console.warn("[miniapp.cut] deep analysis exceeded time budget; using fast fallback");
+    return fastMarketAnalysis(picks, threshold);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 export default defineHandler(async (event) => {
   const auth = authenticateMiniAppRequest(event.req);
@@ -67,7 +117,7 @@ export default defineHandler(async (event) => {
   }
 
   try {
-    const analysis = await analyzePicks(picks, threshold);
+    const analysis = await analyzeWithinBudget(picks, threshold);
     return Response.json({
       ok: true,
       shareCode,
@@ -80,9 +130,12 @@ export default defineHandler(async (event) => {
       "[miniapp.cut] analysis failed:",
       error instanceof Error ? error.message : "unknown error",
     );
-    return Response.json(
-      { ok: false, code: "analysis_failed", error: "Slip analysis failed. No code was created." },
-      { status: 500 },
-    );
+    return Response.json({
+      ok: true,
+      shareCode,
+      sourceBookmaker,
+      warnings,
+      ...fastMarketAnalysis(picks, threshold),
+    });
   }
 });
