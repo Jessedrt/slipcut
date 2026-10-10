@@ -26,6 +26,22 @@ if (!databaseUrl) {
   process.exit(0);
 }
 
+function secureDatabaseUrl(value) {
+  try {
+    const url = new URL(value);
+    const sslmode = url.searchParams.get("sslmode");
+    if (!sslmode || sslmode === "prefer" || sslmode === "require" || sslmode === "verify-ca") {
+      // pg currently aliases these modes to verify-full but warns that the next
+      // major release will change the semantics. Keep certificate verification
+      // explicit so deploys remain secure and warning-free across upgrades.
+      url.searchParams.set("sslmode", "verify-full");
+    }
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
 const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
 
 async function main() {
@@ -42,7 +58,7 @@ async function main() {
     return;
   }
 
-  const pool = new pg.Pool({ connectionString: databaseUrl, max: 1 });
+  const pool = new pg.Pool({ connectionString: secureDatabaseUrl(databaseUrl), max: 1 });
   const client = await pool.connect();
   try {
     await client.query(
