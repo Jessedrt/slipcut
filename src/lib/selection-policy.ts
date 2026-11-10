@@ -41,6 +41,48 @@ export function riskOddsAllowed(odds: unknown, risk: SelectionRisk) {
     typeof odds === "number" && Number.isFinite(odds) && odds >= p.minOdds && odds <= p.maxOdds
   );
 }
+
+/** User-selectable market families for mini-app / bot build lock. */
+export type BuildMarketFamily =
+  | "any"
+  | "winner"
+  | "double_chance"
+  | "draw_no_bet"
+  | "btts"
+  | "total"
+  | "total_under"
+  | "first_half_total"
+  | "team_total"
+  | "team_total_under"
+  | "handicap"
+  | "corners"
+  | "cards"
+  | "player"
+  | "offsides"
+  | "fouls"
+  | "odd_even";
+
+export const BUILD_MARKET_OPTIONS: Array<{ value: BuildMarketFamily; label: string; hint?: string }> =
+  [
+    { value: "any", label: "Any eligible", hint: "Current engine rules" },
+    { value: "winner", label: "Match result (1X2)" },
+    { value: "double_chance", label: "Double chance" },
+    { value: "draw_no_bet", label: "Draw no bet" },
+    { value: "btts", label: "Both teams to score" },
+    { value: "total", label: "Over goals" },
+    { value: "total_under", label: "Under goals" },
+    { value: "first_half_total", label: "1st half goals O/U" },
+    { value: "team_total", label: "Team total over" },
+    { value: "team_total_under", label: "Team total under" },
+    { value: "handicap", label: "Handicap" },
+    { value: "corners", label: "Corners" },
+    { value: "cards", label: "Cards" },
+    { value: "player", label: "Player props" },
+    { value: "offsides", label: "Offsides" },
+    { value: "fouls", label: "Fouls" },
+    { value: "odd_even", label: "Odd / even" },
+  ];
+
 export type CanonicalMarket = {
   family:
     | "total"
@@ -52,6 +94,10 @@ export type CanonicalMarket = {
     | "double_chance"
     | "draw_no_bet"
     | "handicap"
+    | "player"
+    | "offsides"
+    | "fouls"
+    | "odd_even"
     | "other";
   period: "match" | "first_half" | "second_half" | "q1" | "q2" | "q3" | "q4" | "unknown";
   scope: "match" | "home" | "away" | "unknown";
@@ -86,8 +132,15 @@ export function canonicalMarket(pick: TicketPick): CanonicalMarket {
   else if (/^(x|draw|tie)$/.test(s)) outcome = "draw";
   else if (/^(yes|gg|btts yes)$/.test(s)) outcome = "yes";
   else if (/^(no|ng|btts no)$/.test(s)) outcome = "no";
+  else if (/\bodd\b/.test(s) && !/\beven\b/.test(s)) outcome = "odd";
+  else if (/\beven\b/.test(s)) outcome = "even";
   let family: CanonicalMarket["family"] = "other";
-  if (/draw no bet|\bdnb\b/.test(all) || id === "11") family = "draw_no_bet";
+  if (/player|anytime scorer|to score|not to score|goalscorer|shots on target/.test(m))
+    family = "player";
+  else if (/offside/.test(m)) family = "offsides";
+  else if (/\bfoul/.test(m)) family = "fouls";
+  else if (/odd\s*\/?\s*even|odd or even/.test(m) || id === "8") family = "odd_even";
+  else if (/draw no bet|\bdnb\b/.test(all) || id === "11") family = "draw_no_bet";
   else if (
     /double chance|\bdc\b/.test(m) ||
     ["10", "63"].includes(id ?? "") ||
@@ -101,7 +154,7 @@ export function canonicalMarket(pick: TicketPick): CanonicalMarket {
   else if (/both teams.*score|btts|gg\s*\/\s*ng/.test(m) || ["29", "64"].includes(id ?? ""))
     family = "btts";
   else if (
-    /team total|individual total|(?:home|away).*total|(?:home|away).*goals.*(?:over|total)/.test(
+    /team total|individual total|(?:home|away).*total|(?:home|away).*goals.*(?:over|total|under)/.test(
       m,
     ) ||
     ["23", "24", "227", "228", "69", "70"].includes(id ?? "") ||
@@ -149,9 +202,12 @@ export function canonicalMarket(pick: TicketPick): CanonicalMarket {
   else if (/half/.test(m)) period = "unknown";
   // Arbitrary minute intervals are not match/half scopes. Final-score sources
   // cannot establish their result, even when the label says "Total Goals".
-  if (/\bminutes?\b|\bmins?\b/.test(m) ||
-      /\b\d+\s*[-–]\s*\d+\b/.test(pick.market) ||
-      /(?:^|;)(?:from|to|startminute|endminute)=/i.test(spec)) period = "unknown";
+  if (
+    /\bminutes?\b|\bmins?\b/.test(m) ||
+    /\b\d+\s*[-–]\s*\d+\b/.test(pick.market) ||
+    /(?:^|;)(?:from|to|startminute|endminute)=/i.test(spec)
+  )
+    period = "unknown";
   let scope: CanonicalMarket["scope"] = "match";
   if (/\bhome\b/.test(m) || ["23", "227", "69"].includes(id ?? "")) scope = "home";
   else if (/\baway\b/.test(m) || ["24", "228", "70"].includes(id ?? "")) scope = "away";
@@ -159,8 +215,7 @@ export function canonicalMarket(pick: TicketPick): CanonicalMarket {
     if (namedHome && !namedAway) scope = "home";
     else if (namedAway && !namedHome) scope = "away";
     else scope = "unknown";
-  }
-  else if (["corners", "cards"].includes(family) && namedHome !== namedAway)
+  } else if (["corners", "cards", "fouls", "offsides"].includes(family) && namedHome !== namedAway)
     scope = namedHome ? "home" : "away";
   const raw =
     spec.match(/(?:^|;)total=([+-]?\d+(?:\.\d+)?)/i)?.[1] ??
@@ -176,6 +231,8 @@ export function canonicalMarket(pick: TicketPick): CanonicalMarket {
     single: !/\band\b|&|\+|combo|combination|bet builder|\/.*(?:winner|btts)/.test(all),
   };
 }
+
+/** Strict default gate used when market filter is "any". */
 export function automaticMarketAllowed(pick: TicketPick) {
   const c = canonicalMarket(pick);
   const displayedLine = text(pick.selection).match(
@@ -206,6 +263,80 @@ export function automaticMarketAllowed(pick: TicketPick) {
   if (c.family === "draw_no_bet") return false;
   if (c.family === "winner" && ["home", "away"].includes(c.outcome)) return false;
   if (c.family === "double_chance" && ["1x", "x2"].includes(c.outcome)) return false;
+  if (["player", "offsides", "fouls", "odd_even"].includes(c.family)) return false;
   // Discovery is broad. Unsupported single markets are discarded by the evidence evaluator.
   return true;
+}
+
+/** Broader discovery gate so locked market builds can see unders / player / specials. */
+export function footballDiscoverable(pick: TicketPick) {
+  if (pick.sport !== "football") return false;
+  const c = canonicalMarket(pick);
+  if (!c.single) return false;
+  if (c.period === "unknown" && c.family !== "player") return false;
+  // Always keep the strict set.
+  if (automaticMarketAllowed(pick)) return true;
+  // Extra families available when the user locks a market.
+  if (
+    [
+      "winner",
+      "double_chance",
+      "draw_no_bet",
+      "btts",
+      "total",
+      "team_total",
+      "handicap",
+      "corners",
+      "cards",
+      "player",
+      "offsides",
+      "fouls",
+      "odd_even",
+    ].includes(c.family)
+  )
+    return true;
+  return false;
+}
+
+/** Whether a pick matches the mini-app / bot market lock. */
+export function marketMatchesFilter(pick: TicketPick, filter: BuildMarketFamily | undefined) {
+  if (!filter || filter === "any") return automaticMarketAllowed(pick);
+  const c = canonicalMarket(pick);
+  if (!c.single) return false;
+  switch (filter) {
+    case "winner":
+      return c.family === "winner" && ["home", "away", "draw"].includes(c.outcome);
+    case "double_chance":
+      return c.family === "double_chance";
+    case "draw_no_bet":
+      return c.family === "draw_no_bet";
+    case "btts":
+      return c.family === "btts";
+    case "total":
+      return c.family === "total" && c.period === "match" && c.outcome === "over";
+    case "total_under":
+      return c.family === "total" && c.period === "match" && c.outcome === "under";
+    case "first_half_total":
+      return c.family === "total" && c.period === "first_half";
+    case "team_total":
+      return c.family === "team_total" && c.outcome === "over";
+    case "team_total_under":
+      return c.family === "team_total" && c.outcome === "under";
+    case "handicap":
+      return c.family === "handicap";
+    case "corners":
+      return c.family === "corners";
+    case "cards":
+      return c.family === "cards";
+    case "player":
+      return c.family === "player";
+    case "offsides":
+      return c.family === "offsides";
+    case "fouls":
+      return c.family === "fouls";
+    case "odd_even":
+      return c.family === "odd_even";
+    default:
+      return automaticMarketAllowed(pick);
+  }
 }
