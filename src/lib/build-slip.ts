@@ -14,7 +14,15 @@ import {
   type ProviderErrorCode,
   type SportyFailure,
 } from "./sportybet";
-import { automaticMarketAllowed, canonicalMarket, riskOddsAllowed, SELECTION_POLICIES } from "./selection-policy";
+import {
+  automaticMarketAllowed,
+  BUILD_MARKET_OPTIONS,
+  canonicalMarket,
+  marketMatchesFilter,
+  riskOddsAllowed,
+  SELECTION_POLICIES,
+  type BuildMarketFamily,
+} from "./selection-policy";
 import {
   assessEvidence,
   researchSelectionEvidence,
@@ -29,6 +37,7 @@ export type BuildSport = Extract<BookSport, "football" | "basketball">;
 export type BuildMode = "games" | "odds";
 export type BuildRisk = "conservative" | "balanced" | "aggressive";
 export type BuildWindow = Extract<CookWindow, "today" | "tomorrow" | "weekend" | "upcoming">;
+export type { BuildMarketFamily };
 
 export type BuildSlipRequest = {
   sport: BuildSport;
@@ -37,6 +46,8 @@ export type BuildSlipRequest = {
   targetOdds?: number;
   risk: BuildRisk;
   window: BuildWindow;
+  /** When set (football), only keep selections from this market family. */
+  marketFamily?: BuildMarketFamily;
 };
 
 export type RiskPolicy = {
@@ -109,6 +120,8 @@ export type BuildSlipResult = BuildSlipSuccess | BuildSlipFailure;
 export type BuildRequestValidation = { ok: true; value: BuildSlipRequest } | BuildSlipFailure;
 
 export const RISK_POLICIES = SELECTION_POLICIES;
+const VALID_MARKET_FAMILIES = new Set(BUILD_MARKET_OPTIONS.map((o) => o.value));
+
 export type BuildDependencies = {
   discover: typeof listUpcomingPicks;
   evidence?: typeof researchSelectionEvidence;
@@ -122,6 +135,11 @@ const defaultDependencies: BuildDependencies = {
   refresh: refreshSelections,
   record: loadRecord,
 };
+
+function passesMarketGate(pick: TicketPick, marketFamily: BuildMarketFamily | undefined) {
+  return marketMatchesFilter(pick, marketFamily);
+}
+
 export function validateBuildRequest(input: unknown): BuildRequestValidation {
   if (!input || typeof input !== "object") {
     return { ok: false, code: "invalid_request", error: "Build settings are required." };
@@ -140,10 +158,23 @@ export function validateBuildRequest(input: unknown): BuildRequestValidation {
     return { ok: false, code: "invalid_request", error: "Choose a valid fixture window." };
   }
 
-  const base: Pick<BuildSlipRequest, "sport" | "risk" | "window"> = {
+  let marketFamily: BuildMarketFamily | undefined;
+  if (value.marketFamily != null && value.marketFamily !== "") {
+    if (!VALID_MARKET_FAMILIES.has(String(value.marketFamily) as BuildMarketFamily)) {
+      return { ok: false, code: "invalid_request", error: "Choose a valid market option." };
+    }
+    marketFamily = String(value.marketFamily) as BuildMarketFamily;
+    // Market lock is football-only for now.
+    if (value.sport === "basketball" && marketFamily !== "any") {
+      marketFamily = "any";
+    }
+  }
+
+  const base: Pick<BuildSlipRequest, "sport" | "risk" | "window" | "marketFamily"> = {
     sport: value.sport as BuildSport,
     risk: value.risk as BuildRisk,
     window: value.window as BuildWindow,
+    ...(marketFamily && marketFamily !== "any" ? { marketFamily } : {}),
   };
   if (value.mode === "games") {
     const games = Number(value.games);
@@ -184,6 +215,7 @@ export async function buildSlip(
   if (!validated.ok) return validated;
   const request = validated.value,
     policy = RISK_POLICIES[request.risk];
+  const marketFilter = request.marketFamily;
   const analysis: AnalysisDiagnostics = {
     discovered: 0,
     eligibleBeforeScoring: 0,
@@ -209,8 +241,18 @@ export async function buildSlip(
     error: string,
     code: BuildSlipFailure["code"] = "no_eligible_markets",
   ): BuildSlipFailure => {
-    console.info("[slipcut.build]", JSON.stringify({ sport: request.sport, risk: request.risk,
-      window: request.window, ok: false, code, analysis }));
+    console.info(
+      "[slipcut.build]",
+      JSON.stringify({
+        sport: request.sport,
+        risk: request.risk,
+        window: request.window,
+        marketFamily: marketFilter ?? "any",
+        ok: false,
+        code,
+        analysis,
+      }),
+    );
     return { ok: false, code, error, analysis };
   };
   const discovered = await dependencies.discover(request.sport, 42, request.window);
@@ -229,16 +271,19 @@ export async function buildSlip(
       analysis.rejected.outsideRiskOdds++;
       return false;
     }
-    if (!automaticMarketAllowed(pick)) {
+    if (!passesMarketGate(pick, marketFilter)) {
       analysis.rejected.marketFamily++;
       return false;
     }
     return true;
   });
-  if (!prelim.length)
+  if (!prelim.length) {
+    const marketLabel =
+      BUILD_MARKET_OPTIONS.find((o) => o.value === marketFilter)?.label ?? "eligible markets";
     return fail(
-      `No open ${request.sport} selections matched ${policy.label}'s ${policy.minOdds.toFixed(2)}–${policy.maxOdds.toFixed(2)} range and market rules.`,
+      `No open ${request.sport} selections matched ${policy.label}'s ${policy.minOdds.toFixed(2)}–${policy.maxOdds.toFixed(2)} range and ${marketLabel}.`,
     );
+  }
   const refreshed = await (dependencies.refresh ?? refreshSelections)(prelim);
   if (refreshed.error) return { ok: false, ...refreshed.error, analysis };
   analysis.rejected.providerValidation = refreshed.unavailable.length;
@@ -250,7 +295,7 @@ export async function buildSlip(
       original.has(identity(p)) &&
       p.sport === request.sport &&
       cookablePick(p) &&
-      automaticMarketAllowed(p) &&
+      passesMarketGate(p, marketFilter) &&
       riskOddsAllowed(p.odds, request.risk),
   );
   analysis.eligibleBeforeScoring = eligible.length;
@@ -277,24 +322,40 @@ export async function buildSlip(
     evidence = new Map();
     analysis.researchFallbackUsed = true;
   }
-  analysis.sourceFailures = (evidence as HistoryEvidenceMap).sourceFailures ?? analysis.sourceFailures ?? [];
+  analysis.sourceFailures =
+    (evidence as HistoryEvidenceMap).sourceFailures ?? analysis.sourceFailures ?? [];
   analysis.researchFallbackUsed ||= Boolean((evidence as HistoryEvidenceMap).fallbackUsed);
   analysis.marketOptionsReviewed = historical.length;
   const assessments = new Map<string, EvidenceAssessment>();
   const inspected = new Set<string>();
   for (const pick of historical) {
     const assessment = assessEvidence(pick, evidence.get(pick.id), request.risk);
-    const c = canonicalMarket(pick), ev = evidence.get(pick.id);
+    const c = canonicalMarket(pick),
+      ev = evidence.get(pick.id);
     const event = pick.sporty!.eventId;
     if (ev?.rows.length && c.period === "match" && c.family === "total" && !inspected.has(event)) {
       inspected.add(event);
-      const recent = [...ev.rows].filter((r) => r.period === "match" && r.metric === "score")
+      const recent = [...ev.rows]
+        .filter((r) => r.period === "match" && r.metric === "score")
         .sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
-      const totals = (team: string) => recent.filter((r) => [r.home, r.away].some((n) => normalizeName(n) === normalizeName(team)))
-        .slice(0, 10).map((r) => r.homeValue + r.awayValue);
-      console.info("[slipcut.evidence]", JSON.stringify({ home: pick.home, away: pick.away,
-        market: pick.market, line: c.line, odds: pick.odds, homeTotals: totals(pick.home),
-        awayTotals: totals(pick.away), qualified: Boolean(assessment) }));
+      const totals = (team: string) =>
+        recent
+          .filter((r) => [r.home, r.away].some((n) => normalizeName(n) === normalizeName(team)))
+          .slice(0, 10)
+          .map((r) => r.homeValue + r.awayValue);
+      console.info(
+        "[slipcut.evidence]",
+        JSON.stringify({
+          home: pick.home,
+          away: pick.away,
+          market: pick.market,
+          line: c.line,
+          odds: pick.odds,
+          homeTotals: totals(pick.home),
+          awayTotals: totals(pick.away),
+          qualified: Boolean(assessment),
+        }),
+      );
     }
     if (assessment) assessments.set(pick.id, assessment);
     else analysis.rejected.insufficientEvidence++;
@@ -330,17 +391,25 @@ export async function buildSlip(
   // Missing statistics are not negative evidence. Keep live, refreshed options
   // available without claiming a projection or turning odds into confidence.
   // Rows that were actually assessed and rejected never enter this fallback.
+  // Locked markets that lack history (player, offsides, etc.) still surface as market-only.
   const marketOnly: BuildSelection[] = historical
     .filter((pick) => !evidence.get(pick.id)?.rows.length && !assessments.has(pick.id))
     .map((pick) => ({
       ...pick,
       riskMode: request.risk,
-      evidence: { score: 0, summary: "Historical statistics unavailable.", series: [], sources: [], warnings: [] },
+      evidence: {
+        score: 0,
+        summary: "Historical statistics unavailable.",
+        series: [],
+        sources: [],
+        warnings: [],
+      },
       trackRecord: evaluateRecord(pick, record),
-      modelScore: 0, // Sorting sentinel only; never displayed as a confidence score.
+      modelScore: 0,
       confidenceLabel: "limited analysis",
       analysisBasis: "market_only",
-      summary: "Live SportyBet selection. Historical statistics are unavailable; this pick has not passed statistical analysis.",
+      summary:
+        "Live SportyBet selection. Historical statistics are unavailable; this pick has not passed statistical analysis.",
       reasons: [`Current price ${pick.odds!.toFixed(2)} is within ${policy.label}'s odds range.`],
       risks: ["Limited analysis: no statistical confidence estimate is available."],
     }));
@@ -358,7 +427,6 @@ export async function buildSlip(
       "no_eligible_markets",
     );
   }
-  // Both sports use the same deterministic nearest-target search over qualified events.
   const selections =
     request.mode === "games"
       ? distinct.slice(0, request.games)
@@ -370,8 +438,18 @@ export async function buildSlip(
         Math.abs(Math.log(actualCombinedOdds / request.targetOdds!)) <= Math.log(1.05)
       : null;
   analysis.selected = selections.length;
-  console.info("[slipcut.build]", JSON.stringify({ sport: request.sport, risk: request.risk,
-    window: request.window, ok: true, actualCombinedOdds, analysis }));
+  console.info(
+    "[slipcut.build]",
+    JSON.stringify({
+      sport: request.sport,
+      risk: request.risk,
+      window: request.window,
+      marketFamily: marketFilter ?? "any",
+      ok: true,
+      actualCombinedOdds,
+      analysis,
+    }),
+  );
   const targetNotice =
     request.mode === "games" && selections.length < request.games!
       ? `${request.games} games requested; only ${selections.length} available selections matched your settings. Odds ranges and market rules were preserved.`
@@ -379,10 +457,19 @@ export async function buildSlip(
         ? `Closest available result: ${actualCombinedOdds?.toFixed(2)} versus ${request.targetOdds!.toFixed(2)} target. Only ${distinct.length} ${distinct.length === 1 ? "event" : "events"} qualified in ${request.window}. ${request.window !== "upcoming" ? "Try Upcoming to scan more fixtures. " : ""}No odds range or market rule was relaxed.`
         : undefined;
   const limitedCount = selections.filter((p) => p.analysisBasis === "market_only").length;
+  const marketLabel =
+    marketFilter && marketFilter !== "any"
+      ? BUILD_MARKET_OPTIONS.find((o) => o.value === marketFilter)?.label
+      : undefined;
   const notice = [
-    limitedCount ? `${limitedCount} selections have limited analysis because historical statistics are unavailable. Live prices and market rules were checked; no confidence score is claimed.` : undefined,
+    marketLabel ? `Market lock: ${marketLabel}.` : undefined,
+    limitedCount
+      ? `${limitedCount} selections have limited analysis because historical statistics are unavailable. Live prices and market rules were checked; no confidence score is claimed.`
+      : undefined,
     targetNotice,
-  ].filter(Boolean).join(" ") || undefined;
+  ]
+    .filter(Boolean)
+    .join(" ") || undefined;
   return {
     ok: true,
     requested: request,
