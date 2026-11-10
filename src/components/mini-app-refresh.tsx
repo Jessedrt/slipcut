@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import type {
+  BuildMarketFamily,
   BuildRisk,
   BuildSelection,
   BuildSlipRequest,
@@ -23,6 +24,7 @@ import type {
   BuildSport,
   BuildWindow,
 } from "@/lib/build-slip";
+import { BUILD_MARKET_OPTIONS } from "@/lib/selection-policy";
 import type { AnalyzedPick, BookmakerId, BookSport, TicketPick } from "@/lib/types";
 import { combinedOdds, formatKickoff, formatOdds } from "@/lib/workbench";
 
@@ -299,6 +301,7 @@ export function MiniAppRefresh() {
   const [customOdds, setCustomOdds] = useState("");
   const [risk, setRisk] = useState<BuildRisk>("conservative");
   const [windowChoice, setWindowChoice] = useState<BuildWindow>("today");
+  const [marketFamily, setMarketFamily] = useState<BuildMarketFamily>("any");
   const [buildResult, setBuildResult] = useState<Extract<BuildSlipResult, { ok: true }> | null>(
     null,
   );
@@ -357,7 +360,7 @@ export function MiniAppRefresh() {
     setMinted(null);
     setOddsChanges([]);
     setError(null);
-  }, [sport, mode, games, targetOdds, customOdds, risk, windowChoice]);
+  }, [sport, mode, games, targetOdds, customOdds, risk, windowChoice, marketFamily]);
 
   const api = useCallback(
     async <T,>(path: string, options: RequestInit = {}) => {
@@ -432,6 +435,7 @@ export function MiniAppRefresh() {
       risk,
       window: windowChoice,
       ...(mode === "games" ? { games } : { targetOdds: requestedOdds }),
+      ...(sport === "football" && marketFamily !== "any" ? { marketFamily } : {}),
     };
     try {
       const result = await api<BuildSlipResult>("/api/miniapp/build", {
@@ -829,7 +833,10 @@ export function MiniAppRefresh() {
                   <p className="mb-2 text-xs font-bold text-[#5f4635]">Sport</p>
                   <Segmented
                     value={sport}
-                    onChange={setSport}
+                    onChange={(nextSport) => {
+                      setSport(nextSport);
+                      if (nextSport !== "football") setMarketFamily("any");
+                    }}
                     label="Sport"
                     options={[
                       { value: "football", label: "Football" },
@@ -837,6 +844,30 @@ export function MiniAppRefresh() {
                     ]}
                   />
                 </div>
+                {sport === "football" && (
+                  <div>
+                    <label htmlFor="build-market" className="mb-2 block text-xs font-bold text-[#5f4635]">
+                      Market
+                    </label>
+                    <select
+                      id="build-market"
+                      value={marketFamily}
+                      onChange={(event) => setMarketFamily(event.target.value as BuildMarketFamily)}
+                      className={field}
+                    >
+                      {BUILD_MARKET_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-2 text-[10px] leading-4 text-[#8f7663]">
+                      {marketFamily === "any"
+                        ? "Uses the standard eligible markets."
+                        : `Only SportyBet ${BUILD_MARKET_OPTIONS.find((option) => option.value === marketFamily)?.label ?? "selected market"} will be used.`}
+                    </p>
+                  </div>
+                )}
                 <div>
                   <p className="mb-2 text-xs font-bold text-[#5f4635]">Build method</p>
                   <Segmented
